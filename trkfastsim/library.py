@@ -30,6 +30,7 @@ from . import tables as T
 
 P_BINS = np.array([0.0, 300.0, 600.0, 1000.0, 2000.0, 4000.0, 10000.0, 1e9])        # MeV/c
 LEN_BINS = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 4.5, 5.0, 6.0, 8.0, 1e9])             # mm, path in one straw
+PLANE_BIN = 6                                                                         # planes per plane-extent bin
 
 
 def anchor_offsets(off, mu):
@@ -82,6 +83,9 @@ def build(paths):
     for c in ("x", "y", "z"):
         ev[f"u{c}"] = (first[f"p{c}"] / first.p).to_numpy()
     ev["nstraw_mu"] = mu.groupby(T.KEY).size().reindex(pd.MultiIndex.from_frame(ev[T.KEY])).to_numpy()
+    pl = mu.groupby(T.KEY).plane.agg(["min", "max"]).reindex(pd.MultiIndex.from_frame(ev[T.KEY]))
+    ev["plane_min"] = pl["min"].to_numpy().astype(np.int32)
+    ev["plane_max"] = pl["max"].to_numpy().astype(np.int32)
     noff = off_out.groupby(T.KEY).size()
     ev["noff"] = noff.reindex(pd.MultiIndex.from_frame(ev[T.KEY])).fillna(0).astype(np.int32).to_numpy()
     ev["pbin"] = np.digitize(ev.p, P_BINS) - 1
@@ -100,53 +104,107 @@ def read(path):
     return {t: core_tables.read(path, t) for t in ("instraw", "instraw_steps", "offaxis", "events")}
 
 
-class OffAxisSampler:
-    """Draw whole G4 events' off-axis secondary sets for fast muons, by muon |p| bin and |cos theta_y| bin.
+def plane_bin(pmin, pmax, width=PLANE_BIN):
+    """Coarse bin of a muon's plane extent: (first plane bin, last plane bin) packed into one integer."""
+    nb = 36 // width + 1
+    return (np.asarray(pmin) // width) * nb + np.asarray(pmax) // width
 
-    Every library event of the bin is a candidate, including events with no off-axis steps (most), so the occupancy
-    is drawn with the right frequency. A drawn set carries lattice offsets (k, dpl, dpa, dst, dt) that
-    steps.add_offaxis_secondaries applies to the fast muon's own straws.
+
+def draw_concentration(ev_index, count):
+    """How concentrated a set of draws is on few library events: (distinct events drawn among those with steps,
+    share of drawn steps from the 10 most drawn events)."""
+    ev_index = np.asarray(ev_index)
+    with_steps = ev_index[count[ev_index] > 0]
+    if not len(with_steps):
+        return {"distinct_with_steps": 0, "top10_step_share": 0.0}
+    u, n = np.unique(with_steps, return_counts=True)
+    steps = n * count[u]
+    return {"distinct_with_steps": int(len(u)), "top10_step_share": float(np.sort(steps)[::-1][:10].sum() / steps.sum())}
+
+
+class OffAxisSampler:
+    """Draw whole G4 events' off-axis secondary sets for fast muons.
+
+    Key: muon |p| bin, |cos theta_y| bin and the muon's plane extent (first and last plane in bins of
+    plane_bin_width planes; 0 = no plane matching), so a lattice offset is applied to a muon crossing the same part of the tracker it was recorded in.
+    Every library event of a key is a candidate, including events with no off-axis steps (most), so the occupancy is
+    drawn with the right frequency. Empty keys fall back hierarchically: neighbouring plane-extent bins at the same
+    (|p|, angle), then any plane extent at the same (|p|, angle), then neighbouring angle bins. The drawn set carries
+    lattice offsets (k, dpl, dpa, dst, dt) that steps.add_offaxis_secondaries applies to the fast muon's straws.
     """
 
     COS_BINS = np.array([0.0, 0.5, 0.7, 0.85, 0.95, 1.01])
 
-    def __init__(self, lib, rng):
+    def __init__(self, lib, rng, plane_bin_width=PLANE_BIN):
         ev = lib["events"].reset_index(drop=True)
         self.rng = rng
-        cb = np.clip(np.digitize(np.abs(ev.uy), self.COS_BINS) - 1, 0, len(self.COS_BINS) - 2)
-        key = ev.pbin.to_numpy() * len(self.COS_BINS) + cb
-        order = np.argsort(key, kind="stable")
-        self.key_sorted = key[order]
+        self.use_planes = bool(plane_bin_width) and "plane_min" in ev
+        self.pbw = int(plane_bin_width) if self.use_planes else 36
+        self.nc = len(self.COS_BINS)
+        self.npb = (36 // self.pbw + 1) ** 2
+        cb = np.clip(np.digitize(np.abs(ev.uy), self.COS_BINS) - 1, 0, self.nc - 2)
+        pa = ev.pbin.to_numpy() * self.nc + cb
+        pb = plane_bin(ev.plane_min, ev.plane_max, self.pbw) if self.use_planes else np.zeros(len(ev), np.int64)
+        order = np.lexsort((pb, pa))
+        self.pa_sorted, self.pb_sorted = pa[order], pb[order]
+        self.full_sorted = self.pa_sorted * self.npb + self.pb_sorted
         self.ev = ev.iloc[order].reset_index(drop=True)
         off = lib["offaxis"]
         ek = self.ev[T.KEY].copy()
         ek["ei"] = np.arange(len(ek))
+        if "nstraw_mu" in self.ev:
+            ek["nstraw_mu"] = self.ev.nstraw_mu.to_numpy()
         off = off.merge(ek, on=T.KEY, how="inner").sort_values("ei", kind="stable").reset_index(drop=True)
         self.off = off
         ei = off.ei.to_numpy()
         self.first = np.searchsorted(ei, np.arange(len(ek)), "left")
         self.count = np.searchsorted(ei, np.arange(len(ek)), "right") - self.first
+        self.last_level = None
 
-    def draw(self, p, uy):
-        """For fast muons (|p| at the first straw, direction y component): (library event index per muon, step table
-        with column `i` = muon index)."""
-        pb = np.clip(np.digitize(p, P_BINS) - 1, 0, len(P_BINS) - 2)
-        cb = np.clip(np.digitize(np.abs(uy), self.COS_BINS) - 1, 0, len(self.COS_BINS) - 2)
-        key = pb * len(self.COS_BINS) + cb
-        lo = np.searchsorted(self.key_sorted, key, "left")
-        hi = np.searchsorted(self.key_sorted, key, "right")
-        for dc in (1, -1, 2, -2):
-            e = hi <= lo
-            if not e.any():
-                break
-            k2 = pb[e] * len(self.COS_BINS) + np.clip(cb[e] + dc, 0, len(self.COS_BINS) - 2)
-            lo[e], hi[e] = np.searchsorted(self.key_sorted, k2, "left"), np.searchsorted(self.key_sorted, k2, "right")
-        ev = np.minimum(lo + (self.rng.random(len(key)) * np.maximum(hi - lo, 1)).astype(np.int64), len(self.ev) - 1)
-        n = self.count[ev]
-        i = np.repeat(np.arange(len(key)), n)
-        src = np.repeat(self.first[ev], n) + (np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n))
+    def _range(self, arr, key):
+        return np.searchsorted(arr, key, "left"), np.searchsorted(arr, key, "right")
+
+    def draw(self, p, uy, plane_min=None, plane_max=None):
+        """For fast muons (|p| and direction y component at the first straw, plane extent): (library event index per
+        muon, step table with column `i` = muon index). `last_level` records the fallback level used per muon
+        (0 = exact key, 1 = neighbouring plane-extent bin, 2 = any plane extent, 3 = neighbouring angle bin)."""
+        pbn = np.clip(np.digitize(p, P_BINS) - 1, 0, len(P_BINS) - 2)
+        cb = np.clip(np.digitize(np.abs(uy), self.COS_BINS) - 1, 0, self.nc - 2)
+        pa = pbn * self.nc + cb
+        n = len(pa)
+        level = np.full(n, -1)
+        lo, hi = np.zeros(n, np.int64), np.zeros(n, np.int64)
+        if self.use_planes and plane_min is not None:
+            nb = 36 // self.pbw + 1
+            b0, b1 = np.asarray(plane_min) // self.pbw, np.asarray(plane_max) // self.pbw
+            for lev, shifts in ((0, [(0, 0)]), (1, [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1)])):
+                for d0, d1 in shifts:
+                    e = level < 0
+                    if not e.any():
+                        break
+                    pbk = np.clip(b0[e] + d0, 0, nb - 1) * nb + np.clip(b1[e] + d1, 0, nb - 1)
+                    l2, h2 = self._range(self.full_sorted, pa[e] * self.npb + pbk)
+                    got = h2 > l2
+                    idx = np.flatnonzero(e)[got]
+                    lo[idx], hi[idx], level[idx] = l2[got], h2[got], lev
+        for lev, dcs in ((2, [0]), (3, [1, -1, 2, -2])):
+            for dc in dcs:
+                e = level < 0
+                if not e.any():
+                    break
+                k2 = pbn[e] * self.nc + np.clip(cb[e] + dc, 0, self.nc - 2)
+                l2, h2 = self._range(self.pa_sorted, k2)
+                got = h2 > l2
+                idx = np.flatnonzero(e)[got]
+                lo[idx], hi[idx], level[idx] = l2[got], h2[got], lev
+        self.last_level = level
+        ev = np.minimum(lo + (self.rng.random(n) * np.maximum(hi - lo, 1)).astype(np.int64), len(self.ev) - 1)
+        cnt = self.count[ev]
+        i = np.repeat(np.arange(n), cnt)
+        src = np.repeat(self.first[ev], cnt) + (np.arange(cnt.sum()) - np.repeat(np.cumsum(cnt) - cnt, cnt))
         st = self.off.iloc[src].reset_index(drop=True)
         st["i"] = i
+        self.last_concentration = draw_concentration(ev, self.count)
         return ev, st
 
 

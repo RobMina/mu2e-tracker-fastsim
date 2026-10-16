@@ -27,7 +27,7 @@ def default_gdml():
     return os.path.join(data, GDML_NAME)
 
 
-def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, **kw):
+def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, tag="", **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom) if stage == "C" else None
@@ -37,11 +37,12 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
         gen = tables.read(f, "gen")
         sub = tables.read(f, "subruns")
         sampler = lib_mod.InStrawSampler(lib, np.random.default_rng([int(seed), i, 1])) if lib else None
-        offaxis = lib_mod.OffAxisSampler(lib, np.random.default_rng([int(seed), i, 2])) if lib and not no_offaxis else None
+        offaxis = (lib_mod.OffAxisSampler(lib, np.random.default_rng([int(seed), i, 2]), plane_bin_width=offaxis_plane_bin)
+                   if lib and not no_offaxis else None)
         sgs, parts = st.make_steps(gen, geom, rng, stage=stage, world=world, sampler=sampler, offaxis=offaxis)
         if offaxis is not None:
             print(f"#   off-axis: {getattr(st.make_steps, 'offaxis_stats', {})}", flush=True)
-        name = f"fasttrk{stage}{'L' if lib else ''}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")
+        name = f"fasttrk{stage}{'L' if lib else ''}{tag}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")
         core_tables.write(os.path.join(outdir, name), {"sgsteps": sgs, "particles": parts, "gen": gen,
                                                         "subruns": sub}, as_ttree=True)
         print(f"# {f}: {len(parts):,} primary muons, {sgs[tables.KEY].drop_duplicates().shape[0]:,} with straw "

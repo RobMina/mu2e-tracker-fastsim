@@ -108,7 +108,8 @@ def add_instraw_secondaries(steps, parts, sampler):
     kept; the digitiser uses eIon, length and type), eion/len/ion/shape from the library. Each copied step becomes a
     SimParticle (pdg from the library, parent = the muon).
     """
-    mu = steps.reset_index(drop=True)
+    steps = steps.reset_index(drop=True)
+    mu = steps[steps.sp == 1].reset_index(drop=True)          # muon crossings only, never pasted secondaries
     p = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     _, st = sampler.draw(p, mu.len.to_numpy())
     if not len(st):
@@ -120,7 +121,7 @@ def add_instraw_secondaries(steps, parts, sampler):
     new["px"] = new["py"] = new["pz"] = 0.0      # secondary momentum is not in the library (digi uses step type)
     rank = new.groupby(KEY).cumcount().to_numpy()
     new["sp"] = SECONDARY_KEY0 + rank
-    out = pd.concat([mu, new], ignore_index=True)
+    out = pd.concat([steps, new], ignore_index=True)
     out["nsgs"] = out.groupby(KEY)["sid"].transform("size")
     sp = new[KEY + ["sp"]].rename(columns={"sp": "key"})
     sp["parent"] = 1
@@ -131,17 +132,26 @@ def add_instraw_secondaries(steps, parts, sampler):
 
 
 NPLANES_, NPANELS_, NSTRAWS_ = 36, 6, 96
+
+
+def _mirror(x, n):
+    """Reflect indices once at the lattice boundaries: -1 -> 1, n -> n - 2 (still outside afterwards: unchanged)."""
+    x = np.asarray(x)
+    y = np.where(x < 0, -x, np.where(x >= n, 2 * (n - 1) - x, x))
+    return np.where((y >= 0) & (y < n), y, x)
 OFFAXIS_KEY0 = 100000   # SimParticle keys of pasted off-axis secondaries: 100000 + (G4 particle rank within the set)
 
 
 def add_offaxis_secondaries(steps, parts, sampler, geom):
     """Append library off-axis secondary steps (decision T2, off-axis component) around each fast muon.
 
-    Per event with muon steps, a G4 event of the same |p| and |cos theta_y| bin is drawn. Each of its off-axis steps
-    is placed by its lattice offsets from an anchor muon step: anchor = the fast muon's k-th straw (k clipped to the
-    fast muon's straw count), then plane + dpl, panel (+ dpa) mod 6, straw + dst. Steps whose target plane is outside
-    0..35 or straw outside 0..95, or that land in a straw the fast muon crosses, are dropped (the in-straw component
-    covers those straws). The step is laid along the target straw axis with the library length, centred on the straw
+    Per event with muon steps, a G4 event matched in |p|, |cos theta_y| and the muon's plane extent is drawn
+    (OffAxisSampler). Each of its off-axis steps is placed by its lattice offsets from an anchor muon step: anchor =
+    the fast muon's straw at the same relative position along the muon (k / straws crossed in the library event,
+    times the fast muon's count), then plane + dpl, panel (+ dpa) mod 6,
+    straw + dst. A target plane outside 0..35 or straw outside 0..95 is mirrored back once at the boundary (-1 -> 1,
+    36 -> 34; counted as reflected); still outside after the mirror, or in a straw the fast muon crosses, the step
+    is dropped (the in-straw component covers the muon's straws). The step is laid along the target straw axis with the library length, centred on the straw
     midpoint; time = anchor time + library delay. Steps of one G4 secondary stay one SimParticle (parent = the muon).
     Returns (steps, parts, stats).
     """
@@ -153,25 +163,38 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     f = mu.groupby(KEY, sort=False).first().reset_index()
     nk = nmu.reindex(pd.MultiIndex.from_frame(f[KEY])).to_numpy()
     p = np.sqrt(f.px ** 2 + f.py ** 2 + f.pz ** 2).to_numpy()
-    _, st = sampler.draw(p, (f.py / p).to_numpy())
+    pl = mu.groupby(KEY, sort=False).plane.agg(["min", "max"]).reindex(pd.MultiIndex.from_frame(f[KEY]))
+    _, st = sampler.draw(p, (f.py / p).to_numpy(), pl["min"].to_numpy(), pl["max"].to_numpy())
     stats = {"drawn": int(len(st))}
     if not len(st):
         stats["placed"] = 0
         return steps, parts, stats
     i = st.i.to_numpy()
-    k = np.minimum(st.k.to_numpy(), nk[i] - 1)
+    # anchor by relative position along the muon (k / straws crossed in the library event), so a set recorded on a
+    # long muon spreads over the fast muon's straws instead of piling onto its last one when k is clipped
+    if "nstraw_mu" in st:
+        k = np.floor(st.k.to_numpy() / np.maximum(st.nstraw_mu.to_numpy(), 1) * nk[i]).astype(np.int64)
+    else:
+        k = st.k.to_numpy()
+    k = np.clip(k, 0, nk[i] - 1)
     anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in KEY}, "k": k}).merge(
         mu[KEY + ["k", "plane", "panel", "straw", "t"]], on=KEY + ["k"], how="left")
-    plane = anc.plane.to_numpy() + st.dpl.to_numpy()
+    plane0 = anc.plane.to_numpy() + st.dpl.to_numpy()
     panel = (anc.panel.to_numpy() + st.dpa.to_numpy()) % NPANELS_
-    straw = anc.straw.to_numpy() + st.dst.to_numpy()
+    straw0 = anc.straw.to_numpy() + st.dst.to_numpy()
+    plane, straw = _mirror(plane0, NPLANES_), _mirror(straw0, NSTRAWS_)
+    reflected = (plane != plane0) | (straw != straw0)
     ok = (plane >= 0) & (plane < NPLANES_) & (straw >= 0) & (straw < NSTRAWS_)
     js = np.where(ok, (plane * NPANELS_ + panel) * NSTRAWS_ + straw, 0).astype(np.int64)
     ev = anc[KEY]
     mu_st = mu[KEY + ["sid"]].drop_duplicates().assign(_m=1)
     in_mu = ev.assign(sid=geom.sid[js]).merge(mu_st, on=KEY + ["sid"], how="left")._m.notna().to_numpy() & ok
     keep = ok & ~in_mu
-    stats.update({"off_lattice": int((~ok).sum()), "in_muon_straw": int(in_mu.sum()), "placed": int(keep.sum())})
+    stats.update({"reflected": int((reflected & ok).sum()), "off_lattice": int((~ok).sum()),
+                  "in_muon_straw": int(in_mu.sum()), "placed": int(keep.sum()),
+                  "draw_level_counts": np.bincount(np.maximum(sampler.last_level, 0), minlength=4).tolist()
+                  if getattr(sampler, "last_level", None) is not None else [],
+                  **getattr(sampler, "last_concentration", {})})
     if not keep.any():
         return steps, parts, stats
     st, i, js, t_anc = st[keep].reset_index(drop=True), i[keep], js[keep], anc.t.to_numpy()[keep]
@@ -192,10 +215,21 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
         new[f"p{c}"] = 0.0
     gkey = pd.DataFrame({"i": i, "gsp": st.sp.to_numpy()})
     new["sp"] = (OFFAXIS_KEY0 + gkey.groupby("i").gsp.rank(method="dense").astype(np.int64).to_numpy() - 1).astype(steps.sp.dtype)
+    new["pdg_"] = st.pdg.to_numpy()
+    # one step per particle per straw, as MakeStrawGasSteps: a mirrored offset can put a second step of the same
+    # G4 particle into a straw it already has; merge them (eIon and length summed, earliest time and geometry kept)
+    n0 = len(new)
+    new = new.sort_values("t", kind="stable")
+    g = new.groupby(KEY + ["sid", "sp"], sort=False)
+    merged = g.first()
+    merged["eion"] = g.eion.sum()
+    merged["len"] = g.len.sum()
+    new = merged.reset_index()
+    stats["merged_same_particle"] = int(n0 - len(new))
     new["nsgs"] = 0
     out = pd.concat([steps, new[steps.columns]], ignore_index=True)
     out["nsgs"] = out.groupby(KEY)["sid"].transform("size")
-    sp = new[KEY + ["sp"]].assign(pdg=st.pdg.to_numpy()).drop_duplicates(KEY + ["sp"]).rename(columns={"sp": "key"})
+    sp = new[KEY + ["sp", "pdg_"]].rename(columns={"pdg_": "pdg"}).drop_duplicates(KEY + ["sp"]).rename(columns={"sp": "key"})
     sp["parent"] = 1
     sp["isprim"] = 0
     sp["ismcprim"] = 0

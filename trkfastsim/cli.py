@@ -35,6 +35,9 @@ def build_parser():
                             help="A: straight from the vertex; C: GDML world material + MSC down to the tracker")
             sp.add_argument("--library", default=None, metavar="ROOT", help="G4 secondary library (buildlib) to paste secondaries")
             sp.add_argument("--no-offaxis", action="store_true", help="with --library: in-straw secondaries only")
+            sp.add_argument("--offaxis-plane-bin", type=int, default=6,
+                            help="off-axis draw: planes per plane-extent bin of the matching key (0 = no plane matching)")
+            sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
         if name == "buildlib":
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
         if name == "v1compare":

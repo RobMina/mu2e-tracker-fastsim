@@ -7,7 +7,8 @@ StrawGasStepTableDumper layout, same (run, subrun, event) keys, so `v1compare FA
     steps gen.001400_00000001.root [...] --gdml mu2e_extracted_v04.gdml --outdir DIR [--seed N] [--stage A|C]
 
 --stage A: straight from the generated vertex; C: GDML world material and multiple scattering down to the tracker.
---library LIB.root: add the G4 library's in-straw secondaries (buildlib); output prefix fasttrk<stage>L.
+--library LIB.root: add the G4 library's secondaries (buildlib): in-straw and off-axis (--no-offaxis: in-straw only);
+output prefix fasttrk<stage>L.
 """
 import os
 
@@ -26,7 +27,7 @@ def default_gdml():
     return os.path.join(data, GDML_NAME)
 
 
-def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, **kw):
+def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom) if stage == "C" else None
@@ -36,7 +37,10 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, **kw):
         gen = tables.read(f, "gen")
         sub = tables.read(f, "subruns")
         sampler = lib_mod.InStrawSampler(lib, np.random.default_rng([int(seed), i, 1])) if lib else None
-        sgs, parts = st.make_steps(gen, geom, rng, stage=stage, world=world, sampler=sampler)
+        offaxis = lib_mod.OffAxisSampler(lib, np.random.default_rng([int(seed), i, 2])) if lib and not no_offaxis else None
+        sgs, parts = st.make_steps(gen, geom, rng, stage=stage, world=world, sampler=sampler, offaxis=offaxis)
+        if offaxis is not None:
+            print(f"#   off-axis: {getattr(st.make_steps, 'offaxis_stats', {})}", flush=True)
         name = f"fasttrk{stage}{'L' if lib else ''}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")
         core_tables.write(os.path.join(outdir, name), {"sgsteps": sgs, "particles": parts, "gen": gen,
                                                         "subruns": sub}, as_ttree=True)

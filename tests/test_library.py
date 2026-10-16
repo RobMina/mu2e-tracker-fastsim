@@ -32,3 +32,46 @@ def test_empty_bin_falls_back_to_a_neighbour():
     s = L.InStrawSampler(_lib(), np.random.default_rng(4))
     xing, _ = s.draw(np.array([3000.0]), np.array([2.5]))   # path bin with no library rows
     assert xing[0] in (0, 1, 2, 3)
+
+
+def test_offaxis_sampler_draws_whole_events_with_empty_ones():
+    ev = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1, 2, 3], "p": 3000.0, "ux": 0.0, "uy": -1.0, "uz": 0.0})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": 1400, "subrun": 1, "event": [2, 2, 2], "eion": 1e-3, "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": 11, "sp": [5, 5, 6], "k": 0, "dpl": 0, "dpa": 0, "dst": [1, 2, 3], "dt": 0.1})
+    s = L.OffAxisSampler({"events": ev, "offaxis": off}, np.random.default_rng(5))
+    evi, st = s.draw(np.full(30_000, 3000.0), np.full(30_000, -0.99))
+    assert abs(len(st) / 30_000 - 1.0) < 0.03                        # 3 steps in 1 of 3 events
+    assert set(st.groupby("i").size().unique()) == {3}
+
+
+def test_offaxis_paste_lattice_offsets():
+    """A fast muon crossing straws (plane 4, panel 2, straw 50) then (plane 5, panel 2, straw 51); library steps
+    anchored on k = 0 at +1 straw, on k = 1 at +1 plane, +7 straws, and one off the lattice (plane + 40)."""
+    from trkfastsim import geometry as G, steps as S
+    n = 36 * 6 * 96
+    up = np.repeat(np.arange(36 * 6), 96)
+    g = G.StrawGeometry(plane=up // 6, panel=up % 6, straw=np.tile(np.arange(96), 216), mid=np.zeros((n, 3)),
+                        dir=np.tile([1.0, 0, 0], (n, 1)), halflen=np.full(n, 500.0), radius=2.5085,
+                        panel_R=np.tile(np.eye(3), (216, 1, 1)), panel_t=np.zeros((216, 3)),
+                        plane_R=np.tile(np.eye(3), (36, 1, 1)), plane_t=np.zeros((36, 3)))
+    def row(pl, pa, s_, t):
+        return {"run": 1400, "subrun": 1, "event": 1, "nsgs": 2, "sid": int(G.straw_id(pl, pa, s_)), "plane": pl,
+                "panel": pa, "straw": s_, "upanel": pl * 6 + pa, "shape": 0, "ion": 0, "sp": 1, "eion": 1e-3,
+                "len": 4.0, "width": 0.0, "t": t, "x0": 0.0, "y0": 0.0, "z0": 0.0, "x1": 0.0, "y1": 0.0, "z1": 0.0,
+                "px": 0.0, "py": -3000.0, "pz": 0.0}
+    steps = pd.DataFrame([row(4, 2, 50, 10.0), row(5, 2, 51, 10.2)])
+    parts = pd.DataFrame({"run": [1400], "subrun": [1], "event": [1], "key": [1], "parent": [-1], "pdg": [13],
+                          "isprim": [1], "ismcprim": [1]})
+    ev = pd.DataFrame({"run": [1400], "subrun": [1], "event": [7], "p": [3000.0], "ux": [0.0], "uy": [-1.0], "uz": [0.0]})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": 1400, "subrun": 1, "event": [7, 7, 7], "eion": [2e-3, 3e-3, 4e-3], "len": 2.0, "ion": 1,
+                        "shape": 0, "pdg": 11, "sp": [9, 9, 10], "k": [0, 1, 1], "dpl": [0, 1, 40], "dpa": 0,
+                        "dst": [1, 7, 0], "dt": [0.5, 0.7, 0.1]})
+    s = L.OffAxisSampler({"events": ev, "offaxis": off}, np.random.default_rng(1))
+    out, pp, st = S.add_offaxis_secondaries(steps, parts, s, g)
+    assert (st["drawn"], st["off_lattice"], st["in_muon_straw"], st["placed"]) == (3, 1, 0, 2)
+    new = out[out.sp != 1].sort_values("t")
+    assert new[["plane", "panel", "straw"]].values.tolist() == [[4, 2, 51], [6, 2, 58]]
+    assert np.allclose(new.t, [10.5, 10.9]) and (out.nsgs == 4).all()
+    assert sorted(pp[pp.key != 1].key.tolist()) == [100000] and pp[pp.key != 1].parent.tolist() == [1]

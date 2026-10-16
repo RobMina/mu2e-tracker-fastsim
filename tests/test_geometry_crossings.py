@@ -67,3 +67,16 @@ def test_tracker_rotation_about_origin():
 
 def test_straw_id_packing():
     assert G.straw_id(35, 5, 95) == (35 << 10) | (5 << 7) | 95
+
+
+def test_point_straw_inside_wall_and_outside():
+    g = _geom(pitch=10.0, h=100.0)
+    pts = np.array([[0.0, 0.0, 1.0], [50.0, 10.0, -2.0], [0.0, 0.0, 2.6], [0.0, 5.0, 0.0], [150.0, 0.0, 0.0]])
+    assert X.point_straw(pts, g).tolist() == [0, 1, -1, -1, -1]
+
+
+def test_nearest_straw_snaps_gap_points_and_rejects_far_ones():
+    g = _geom(pitch=10.0, h=100.0)
+    pts = np.array([[0.0, 4.0, 0.0], [0.0, 6.0, 1.0], [0.0, 0.0, 30.0], [500.0, 0.0, 0.0]])
+    js, d = X.nearest_straw(pts, g, pad=10.0)
+    assert js.tolist() == [0, 1, -1, -1] and np.isclose(d[0], 4.0)

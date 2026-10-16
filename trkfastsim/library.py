@@ -11,12 +11,15 @@ Two components, written as tables in one ROOT file (directory dump/); provenance
                that same straw (nsec), and their summed eion; ``instraw_steps`` lists those steps (crossing index,
                eion, len, ion type, pdg). Pasting draws, for each fast muon straw, a G4 crossing from the same
                (|p|, path) bin and copies its secondary steps into the fast straw.
-  ``offaxis``  one row per non-muon step NOT in a muon straw, in the muon frame: event id, distance along the muon
-               line from its first straw entry (u), signed transverse offsets (v, w) of the step midpoint, the step's
-               eion, len, ion type, pdg; plus per-event keys (muon |p|, direction) for drawing whole events.
+  ``offaxis``  one row per non-muon step NOT in a muon straw, in straw-lattice coordinates relative to an anchor muon
+               step (the muon step nearest in plane, then in time): anchor rank k along the muon (0 = first straw),
+               plane offset dpl, panel offset dpa (mod 6), straw offset dst, delay after the anchor (dt), and the
+               step's eion, len, ion type, shape, pdg and G4 SimParticle key (sp). ``events`` holds per-event keys
+               (muon |p|, direction, straws crossed) for drawing whole events, including those with no off-axis steps.
+               Lattice coordinates, not a continuous muon frame: only 11 % of the straw annulus is gas (144 layers
+               21 mm apart in z), so a continuously transported step lands in a straw by chance (22 % of draws,
+               measured); the secondaries' straw pattern relative to the muon's straws is what transfers.
 
-Frames: the muon line is fitted through its own step midpoints (G4, detector frame); u is along the muon direction,
-v is horizontal and perpendicular to it, w completes the right-handed frame.
 """
 import numpy as np
 import pandas as pd
@@ -29,23 +32,19 @@ P_BINS = np.array([0.0, 300.0, 600.0, 1000.0, 2000.0, 4000.0, 10000.0, 1e9])    
 LEN_BINS = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 4.5, 5.0, 6.0, 8.0, 1e9])             # mm, path in one straw
 
 
-def _muon_frame(mu_steps):
-    """Per event: origin (first entry), unit direction u, and v, w (detector frame) from the muon's own steps."""
-    m = mu_steps.sort_values("t")
-    first = m.groupby(T.KEY, sort=False).first()
-    last = m.groupby(T.KEY, sort=False).last()
-    o = first[["x0", "y0", "z0"]].to_numpy()
-    d = last[["x1", "y1", "z1"]].to_numpy() - o
-    n = np.linalg.norm(d, axis=1)
-    # single-straw muons: use the step's own chord
-    d = np.where(n[:, None] > 1e-6, d, first[["x1", "y1", "z1"]].to_numpy() - o)
-    u = d / np.linalg.norm(d, axis=1)[:, None]
-    v = np.cross(u, [0.0, 1.0, 0.0])
-    vn = np.linalg.norm(v, axis=1)
-    v = np.where(vn[:, None] > 1e-6, v / np.maximum(vn, 1e-12)[:, None], [1.0, 0.0, 0.0])
-    w = np.cross(u, v)
-    f = first.reset_index()[T.KEY]
-    return f, o, u, v, w
+def anchor_offsets(off, mu):
+    """Lattice offsets of steps `off` from their anchor muon step (`mu` sorted by event and time, with rank k)."""
+    a = mu[T.KEY + ["k", "plane", "panel", "straw", "t"]].rename(
+        columns={"plane": "aplane", "panel": "apanel", "straw": "astraw", "t": "ta"})
+    x = off.reset_index().merge(a, on=T.KEY)
+    x["_key"] = (x.plane - x.aplane).abs() * 1e6 + (x.t - x.ta).abs()
+    x = x.sort_values("_key", kind="stable").groupby("index", sort=True).first().reset_index()
+    out = x[T.KEY + ["eion", "len", "ion", "shape", "pdg", "sp", "k"]].copy()
+    out["dpl"] = (x.plane - x.aplane).astype(np.int32)
+    out["dpa"] = ((x.panel - x.apanel) % 6).astype(np.int32)
+    out["dst"] = (x.straw - x.astraw).astype(np.int32)
+    out["dt"] = x.t - x.ta
+    return out
 
 
 def build(paths):
@@ -70,22 +69,18 @@ def build(paths):
     ins["pbin"] = np.digitize(ins.p, P_BINS) - 1
     ins["lbin"] = np.digitize(ins.mu_len, LEN_BINS) - 1
 
-    # off-axis component, in the muon frame
-    keys, o, u, v, w = _muon_frame(mu)
-    fr = keys.copy()
-    for j, c in enumerate("xyz"):
-        fr[f"o{c}"], fr[f"u{c}"], fr[f"v{c}"], fr[f"w{c}"] = o[:, j], u[:, j], v[:, j], w[:, j]
+    # off-axis component, in straw-lattice coordinates relative to an anchor muon step
+    mu = mu.sort_values(T.KEY + ["t"]).reset_index(drop=True)
+    mu["k"] = mu.groupby(T.KEY).cumcount()
     in_mu = sec.merge(mu[T.KEY + ["sid"]].drop_duplicates().assign(_inmu=1), on=T.KEY + ["sid"], how="left")
-    off = sec[in_mu._inmu.isna().to_numpy()].merge(fr, on=T.KEY)
-    mid = 0.5 * (off[["x0", "y0", "z0"]].to_numpy() + off[["x1", "y1", "z1"]].to_numpy())
-    rel = mid - off[["ox", "oy", "oz"]].to_numpy()
-    off_out = off[T.KEY + ["eion", "len", "ion", "shape", "pdg"]].copy()
-    for name, ax in (("u", "u"), ("v", "v"), ("w", "w")):
-        off_out[name] = np.einsum("ij,ij->i", rel, off[[f"{ax}x", f"{ax}y", f"{ax}z"]].to_numpy())
+    off = sec[in_mu._inmu.isna().to_numpy()].reset_index(drop=True)
+    off_out = anchor_offsets(off, mu)
 
     # per-event keys for drawing
-    first = mu.sort_values("t").groupby(T.KEY, sort=False).first().reset_index()
-    ev = first[T.KEY + ["p"]].merge(fr[T.KEY + ["ux", "uy", "uz"]], on=T.KEY)
+    first = mu.groupby(T.KEY, sort=False).first().reset_index()
+    ev = first[T.KEY + ["p"]].copy()
+    for c in ("x", "y", "z"):
+        ev[f"u{c}"] = (first[f"p{c}"] / first.p).to_numpy()
     ev["nstraw_mu"] = mu.groupby(T.KEY).size().reindex(pd.MultiIndex.from_frame(ev[T.KEY])).to_numpy()
     noff = off_out.groupby(T.KEY).size()
     ev["noff"] = noff.reindex(pd.MultiIndex.from_frame(ev[T.KEY])).fillna(0).astype(np.int32).to_numpy()
@@ -103,6 +98,56 @@ def write(path, lib, provenance):
 
 def read(path):
     return {t: core_tables.read(path, t) for t in ("instraw", "instraw_steps", "offaxis", "events")}
+
+
+class OffAxisSampler:
+    """Draw whole G4 events' off-axis secondary sets for fast muons, by muon |p| bin and |cos theta_y| bin.
+
+    Every library event of the bin is a candidate, including events with no off-axis steps (most), so the occupancy
+    is drawn with the right frequency. A drawn set carries lattice offsets (k, dpl, dpa, dst, dt) that
+    steps.add_offaxis_secondaries applies to the fast muon's own straws.
+    """
+
+    COS_BINS = np.array([0.0, 0.5, 0.7, 0.85, 0.95, 1.01])
+
+    def __init__(self, lib, rng):
+        ev = lib["events"].reset_index(drop=True)
+        self.rng = rng
+        cb = np.clip(np.digitize(np.abs(ev.uy), self.COS_BINS) - 1, 0, len(self.COS_BINS) - 2)
+        key = ev.pbin.to_numpy() * len(self.COS_BINS) + cb
+        order = np.argsort(key, kind="stable")
+        self.key_sorted = key[order]
+        self.ev = ev.iloc[order].reset_index(drop=True)
+        off = lib["offaxis"]
+        ek = self.ev[T.KEY].copy()
+        ek["ei"] = np.arange(len(ek))
+        off = off.merge(ek, on=T.KEY, how="inner").sort_values("ei", kind="stable").reset_index(drop=True)
+        self.off = off
+        ei = off.ei.to_numpy()
+        self.first = np.searchsorted(ei, np.arange(len(ek)), "left")
+        self.count = np.searchsorted(ei, np.arange(len(ek)), "right") - self.first
+
+    def draw(self, p, uy):
+        """For fast muons (|p| at the first straw, direction y component): (library event index per muon, step table
+        with column `i` = muon index)."""
+        pb = np.clip(np.digitize(p, P_BINS) - 1, 0, len(P_BINS) - 2)
+        cb = np.clip(np.digitize(np.abs(uy), self.COS_BINS) - 1, 0, len(self.COS_BINS) - 2)
+        key = pb * len(self.COS_BINS) + cb
+        lo = np.searchsorted(self.key_sorted, key, "left")
+        hi = np.searchsorted(self.key_sorted, key, "right")
+        for dc in (1, -1, 2, -2):
+            e = hi <= lo
+            if not e.any():
+                break
+            k2 = pb[e] * len(self.COS_BINS) + np.clip(cb[e] + dc, 0, len(self.COS_BINS) - 2)
+            lo[e], hi[e] = np.searchsorted(self.key_sorted, k2, "left"), np.searchsorted(self.key_sorted, k2, "right")
+        ev = np.minimum(lo + (self.rng.random(len(key)) * np.maximum(hi - lo, 1)).astype(np.int64), len(self.ev) - 1)
+        n = self.count[ev]
+        i = np.repeat(np.arange(len(key)), n)
+        src = np.repeat(self.first[ev], n) + (np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n))
+        st = self.off.iloc[src].reset_index(drop=True)
+        st["i"] = i
+        return ev, st
 
 
 class InStrawSampler:

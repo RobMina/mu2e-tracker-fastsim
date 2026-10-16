@@ -130,10 +130,83 @@ def add_instraw_secondaries(steps, parts, sampler):
     return out, pd.concat([parts, sp], ignore_index=True)
 
 
-def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None):
+NPLANES_, NPANELS_, NSTRAWS_ = 36, 6, 96
+OFFAXIS_KEY0 = 100000   # SimParticle keys of pasted off-axis secondaries: 100000 + (G4 particle rank within the set)
+
+
+def add_offaxis_secondaries(steps, parts, sampler, geom):
+    """Append library off-axis secondary steps (decision T2, off-axis component) around each fast muon.
+
+    Per event with muon steps, a G4 event of the same |p| and |cos theta_y| bin is drawn. Each of its off-axis steps
+    is placed by its lattice offsets from an anchor muon step: anchor = the fast muon's k-th straw (k clipped to the
+    fast muon's straw count), then plane + dpl, panel (+ dpa) mod 6, straw + dst. Steps whose target plane is outside
+    0..35 or straw outside 0..95, or that land in a straw the fast muon crosses, are dropped (the in-straw component
+    covers those straws). The step is laid along the target straw axis with the library length, centred on the straw
+    midpoint; time = anchor time + library delay. Steps of one G4 secondary stay one SimParticle (parent = the muon).
+    Returns (steps, parts, stats).
+    """
+    mu = steps[steps.sp == 1].sort_values(KEY + ["t"]).reset_index(drop=True)
+    if not len(mu):
+        return steps, parts, {"drawn": 0, "placed": 0}
+    mu["k"] = mu.groupby(KEY).cumcount()
+    nmu = mu.groupby(KEY, sort=False).size()
+    f = mu.groupby(KEY, sort=False).first().reset_index()
+    nk = nmu.reindex(pd.MultiIndex.from_frame(f[KEY])).to_numpy()
+    p = np.sqrt(f.px ** 2 + f.py ** 2 + f.pz ** 2).to_numpy()
+    _, st = sampler.draw(p, (f.py / p).to_numpy())
+    stats = {"drawn": int(len(st))}
+    if not len(st):
+        stats["placed"] = 0
+        return steps, parts, stats
+    i = st.i.to_numpy()
+    k = np.minimum(st.k.to_numpy(), nk[i] - 1)
+    anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in KEY}, "k": k}).merge(
+        mu[KEY + ["k", "plane", "panel", "straw", "t"]], on=KEY + ["k"], how="left")
+    plane = anc.plane.to_numpy() + st.dpl.to_numpy()
+    panel = (anc.panel.to_numpy() + st.dpa.to_numpy()) % NPANELS_
+    straw = anc.straw.to_numpy() + st.dst.to_numpy()
+    ok = (plane >= 0) & (plane < NPLANES_) & (straw >= 0) & (straw < NSTRAWS_)
+    js = np.where(ok, (plane * NPANELS_ + panel) * NSTRAWS_ + straw, 0).astype(np.int64)
+    ev = anc[KEY]
+    mu_st = mu[KEY + ["sid"]].drop_duplicates().assign(_m=1)
+    in_mu = ev.assign(sid=geom.sid[js]).merge(mu_st, on=KEY + ["sid"], how="left")._m.notna().to_numpy() & ok
+    keep = ok & ~in_mu
+    stats.update({"off_lattice": int((~ok).sum()), "in_muon_straw": int(in_mu.sum()), "placed": int(keep.sum())})
+    if not keep.any():
+        return steps, parts, stats
+    st, i, js, t_anc = st[keep].reset_index(drop=True), i[keep], js[keep], anc.t.to_numpy()[keep]
+    half = 0.5 * np.minimum(st.len.to_numpy(), 2 * geom.halflen[js])
+    new = pd.DataFrame({c: f[c].to_numpy()[i] for c in KEY})
+    new["sid"] = geom.sid[js]
+    new["plane"], new["panel"], new["straw"], new["upanel"] = geom.plane[js], geom.panel[js], geom.straw[js], geom.upanel[js]
+    new["shape"] = st["shape"].to_numpy()
+    new["ion"] = st["ion"].to_numpy()
+    new["eion"] = st.eion.to_numpy()
+    new["len"] = st.len.to_numpy()
+    new["width"] = 0.0
+    new["t"] = t_anc + st.dt.to_numpy()
+    p0 = geometry.to_detector(geom.mid[js] - geom.dir[js] * half[:, None])
+    p1 = geometry.to_detector(geom.mid[js] + geom.dir[js] * half[:, None])
+    for j, c in enumerate("xyz"):
+        new[f"{c}0"], new[f"{c}1"] = p0[:, j], p1[:, j]
+        new[f"p{c}"] = 0.0
+    gkey = pd.DataFrame({"i": i, "gsp": st.sp.to_numpy()})
+    new["sp"] = (OFFAXIS_KEY0 + gkey.groupby("i").gsp.rank(method="dense").astype(np.int64).to_numpy() - 1).astype(steps.sp.dtype)
+    new["nsgs"] = 0
+    out = pd.concat([steps, new[steps.columns]], ignore_index=True)
+    out["nsgs"] = out.groupby(KEY)["sid"].transform("size")
+    sp = new[KEY + ["sp"]].assign(pdg=st.pdg.to_numpy()).drop_duplicates(KEY + ["sp"]).rename(columns={"sp": "key"})
+    sp["parent"] = 1
+    sp["isprim"] = 0
+    sp["ismcprim"] = 0
+    return out, pd.concat([parts, sp[parts.columns]], ignore_index=True), stats
+
+
+def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
-    sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only."""
+    sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
+    offaxis: an OffAxisSampler to add the library's off-axis secondaries (needs the muon steps first)."""
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world)
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
@@ -183,6 +256,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     parts["pdg"] = mu.pdg.to_numpy()
     parts["isprim"] = 1
     parts["ismcprim"] = 1
+    if offaxis is not None:   # before the in-straw pasting, so the frame uses muon steps only
+        steps, parts, make_steps.offaxis_stats = add_offaxis_secondaries(steps, parts, offaxis, geom)
     if sampler is not None:
         steps, parts = add_instraw_secondaries(steps, parts, sampler)
     return steps, parts

@@ -33,7 +33,8 @@ def build_parser():
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
             sp.add_argument("--stage", default="A", choices=["A", "C"],
                             help="A: straight from the vertex; C: GDML world material + MSC down to the tracker")
-            sp.add_argument("--library", default=None, metavar="ROOT", help="G4 secondary library (buildlib) to paste in-straw secondaries")
+            sp.add_argument("--library", default=None, metavar="ROOT", help="G4 secondary library (buildlib) to paste secondaries")
+            sp.add_argument("--no-offaxis", action="store_true", help="with --library: in-straw secondaries only")
         if name == "buildlib":
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
         if name == "v1compare":

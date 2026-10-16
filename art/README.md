@@ -1,7 +1,7 @@
 # art helpers (muse satellite area)
 
 `TrkFastSim/` is a muse package (a `.muse` file plus `src/SConscript`) built in its own work area, backed by the CVMFS
-Musing `SimJob MDC2025ay`, so no Offline checkout is touched. Same layout as `mu2e-crv-fastsim/art/CrvFastSim`.
+Musing `SimJob MDC2025ay`, so no Offline checkout is touched. Same layout as `crv/art/CrvFastSim` of the umbrella.
 
 | module | role |
 |---|---|
@@ -27,7 +27,7 @@ than failing; `StrawGasStep`, `SimParticle` and `GenParticle` are required.
 ## Build and run
 
 ```bash
-export TRKFS_CODE=/exp/mu2e/app/users/$USER/analysis/mu2e-tracker-fastsim
+source site.env                                        # umbrella root: sets TRKFS_CODE=$M2FS_CODE/tracker
 $TRKFS_CODE/art/setup_area.sh                          # backing link only
 # user, on mu2ebuild02:
 cd $TRKFS_CODE/art && source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh && setup muse && muse setup && muse build -j 32

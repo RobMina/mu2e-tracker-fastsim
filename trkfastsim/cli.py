@@ -30,6 +30,8 @@ def build_parser():
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
+            sp.add_argument("--stage", default="A", choices=["A", "C"],
+                            help="A: straight from the vertex; C: GDML world material + MSC down to the tracker")
         if name == "v1compare":
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
         if name in BATCHABLE:

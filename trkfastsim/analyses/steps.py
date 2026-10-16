@@ -4,7 +4,9 @@ Input: gen tables of the G4 reference (`gen` + `subruns` trees: crvfastsim's gen
 tracker dumper's gen_tables.*.root). Output: fasttrk.<input>.root with the sgsteps/particles/gen/subruns trees in the
 StrawGasStepTableDumper layout, same (run, subrun, event) keys, so `v1compare FAST --compare G4` matches events.
 
-    steps gen.001400_00000001.root [...] --gdml mu2e_extracted_v04.gdml --outdir DIR [--seed N]
+    steps gen.001400_00000001.root [...] --gdml mu2e_extracted_v04.gdml --outdir DIR [--seed N] [--stage A|C]
+
+--stage A: straight from the generated vertex; C: GDML world material and multiple scattering down to the tracker.
 """
 import os
 
@@ -23,14 +25,16 @@ def default_gdml():
     return os.path.join(data, GDML_NAME)
 
 
-def run(inputs, outdir, seed=1, gdml=None, **kw):
-    geom = geometry.from_gdml(gdml or default_gdml())
+def run(inputs, outdir, seed=1, gdml=None, stage="A", **kw):
+    gdml = gdml or default_gdml()
+    geom = geometry.from_gdml(gdml)
+    world = st.load_world(gdml, geom) if stage == "C" else None
     for i, f in enumerate(tables.expand(inputs)):
         rng = np.random.default_rng([int(seed), i])
         gen = tables.read(f, "gen")
         sub = tables.read(f, "subruns")
-        sgs, parts = st.make_steps(gen, geom, rng)
-        name = "fasttrk." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")
+        sgs, parts = st.make_steps(gen, geom, rng, stage=stage, world=world)
+        name = f"fasttrk{stage}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")
         core_tables.write(os.path.join(outdir, name), {"sgsteps": sgs, "particles": parts, "gen": gen,
                                                         "subruns": sub}, as_ttree=True)
         print(f"# {f}: {len(parts):,} primary muons, {sgs[tables.KEY].drop_duplicates().shape[0]:,} with straw "

@@ -6,12 +6,13 @@ plots/<cmd>); --emit X.json / --merge for batchable ones.
 import argparse
 import sys
 
-from .analyses import refcheck, steps, v0check, v1compare
+from .analyses import buildlib, refcheck, steps, v0check, v1compare
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
     "v0check":   (v0check.run,   "T-V0: straws from the GDML against the G4 reference StrawGasStep entry/exit points"),
     "steps":     (steps.run,     "fast StrawGasSteps for the primary muons of gen tables (straight line, G4-matched eIon)"),
+    "buildlib":  (buildlib.run,  "build the G4 secondary library (in-straw and off-axis non-muon StrawGasSteps) from reference tables"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
 }
 BATCHABLE = {"refcheck"}
@@ -32,6 +33,9 @@ def build_parser():
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
             sp.add_argument("--stage", default="A", choices=["A", "C"],
                             help="A: straight from the vertex; C: GDML world material + MSC down to the tracker")
+            sp.add_argument("--library", default=None, metavar="ROOT", help="G4 secondary library (buildlib) to paste in-straw secondaries")
+        if name == "buildlib":
+            sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
         if name == "v1compare":
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
         if name in BATCHABLE:

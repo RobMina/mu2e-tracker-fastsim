@@ -11,7 +11,9 @@ fast muons whose G4 twin scattered out of the tracker and biases the fast arm lo
 Compared distributions among selected events, against the agreed T-V1 thresholds: straws per muon (mean within 1 %),
 per-plane counts, path length (mean within 0.5 %, binned ratio +-2 %), eIon (MPV within 2 %, mean within 3 %, binned
 ratio +-5 %); and the world-model observables at the first straw: |p|, direction cosines and entry position (median
-bias, binned ratio). Per-straw matching on the same event is reported only as a geometry diagnostic (exact for stage
+bias, binned ratio). T-V1b (`all_steps`): every StrawGasStep of the selected events, muon and secondaries: steps and
+eIon per event, eIon per straw (muon + secondaries summed: what the digitiser sees), non-muon share, in-muon-straw vs
+elsewhere. Per-straw matching on the same event is reported only as a geometry diagnostic (exact for stage
 A paths; with independent multiple scattering in both arms its position spread measures the scattering, not a bias).
 """
 import numpy as np
@@ -25,6 +27,12 @@ def _primary_steps(paths):
     p = T.read_many(paths, "particles", T.KEY + ["key", "pdg", "ismcprim"]).rename(columns={"key": "sp"})
     s = s.merge(p, on=T.KEY + ["sp"], how="inner")
     return s[(s.ismcprim == 1) & (s.pdg.abs() == 13)].reset_index(drop=True)
+
+
+def _all_steps(paths):
+    s = T.read_many(paths, "sgsteps")
+    p = T.read_many(paths, "particles", T.KEY + ["key", "pdg", "ismcprim"]).rename(columns={"key": "sp"})
+    return s.merge(p, on=T.KEY + ["sp"], how="left")
 
 
 def _select(s):
@@ -50,12 +58,47 @@ def _rel(a, b):
     return float(a / b - 1)
 
 
+def _all_steps_block(fa_all, ra_all, f_ev, r_ev):
+    """T-V1b: every StrawGasStep (muon + secondaries) in the selected events: per-event step count and eIon sum,
+    per-step eIon/length, the non-muon share, and steps sharing a muon straw vs elsewhere."""
+    out = {}
+    for lab, s, ev in (("fast", fa_all, f_ev), ("g4", ra_all, r_ev)):
+        s = s.merge(ev, on=T.KEY)
+        nonmu = ~((s.ismcprim == 1) & (s.pdg.abs() == 13))
+        mu_st = s[~nonmu][T.KEY + ["sid"]].drop_duplicates().assign(_m=1)
+        inmu = s.merge(mu_st, on=T.KEY + ["sid"], how="left")._m.notna().to_numpy()
+        per = s.groupby(T.KEY).agg(n=("eion", "size"), e=("eion", "sum"))
+        out[lab] = {"steps": int(len(s)), "nonmuon_step_share": float(nonmu.mean()),
+                    "nonmuon_eion_share": float(s.eion[nonmu].sum() / s.eion.sum()),
+                    "nonmuon_in_muon_straw": int((nonmu & inmu).sum()), "nonmuon_elsewhere": int((nonmu & ~inmu).sum()),
+                    "steps_per_event_mean": float(per.n.mean()), "eion_per_event_keV_mean": float(1e3 * per.e.mean()),
+                    "_per_n": per.n.to_numpy(float), "_per_e": 1e3 * per.e.to_numpy(), "_eion": 1e3 * s.eion.to_numpy(),
+                    "_eion_inmu_nonmu": 1e3 * s.eion[nonmu & inmu].to_numpy(),
+                    "_eion_straw": 1e3 * s.groupby(T.KEY + ["sid"]).eion.sum().to_numpy()}
+    f, r = out["fast"], out["g4"]
+    cmp = {"steps_per_event_ratio_minus_1": _rel(f["steps_per_event_mean"], r["steps_per_event_mean"]),
+           "eion_per_event_ratio_minus_1": _rel(f["eion_per_event_keV_mean"], r["eion_per_event_keV_mean"]),
+           "eion_per_straw_mean_ratio_minus_1": _rel(f["_eion_straw"].mean(), r["_eion_straw"].mean()),
+           "eion_per_straw_mpv": {"fast": stats.mpv(f["_eion_straw"], 0, 4, 200), "g4": stats.mpv(r["_eion_straw"], 0, 4, 200)},
+           "eion_per_straw_band": _band(f["_eion_straw"], r["_eion_straw"]),
+           "eion_step_band": _band(f["_eion"], r["_eion"]),
+           "nonmuon_in_muon_straw_per_event_ratio_minus_1": _rel(f["nonmuon_in_muon_straw"] / len(f["_per_n"]),
+                                                                  max(r["nonmuon_in_muon_straw"], 1) / len(r["_per_n"])),
+           "nonmuon_instraw_eion_band": _band(f["_eion_inmu_nonmu"], r["_eion_inmu_nonmu"]) if len(f["_eion_inmu_nonmu"]) else {}}
+    for lab in ("fast", "g4"):
+        for k in [k for k in out[lab] if k.startswith("_")]:
+            del out[lab][k]
+    out["compare"] = cmp
+    return out
+
+
 def run(inputs, outdir, compare=None, **kw):
     if not compare:
         raise SystemExit("v1compare FAST --compare G4REF")
     lt_f, lt_r = T.livetime(T.expand(inputs)), T.livetime(T.expand(compare))
     fa, ra = _primary_steps(inputs), _primary_steps(compare)
     f, r = _select(fa), _select(ra)
+    fa_all, ra_all = _all_steps(inputs), _all_steps(compare)
     nf, nr = f.groupby(T.KEY).size(), r.groupby(T.KEY).size()
     out = {"livetime_s": {"fast": lt_f, "g4": lt_r},
            "events_selected": {"fast": int(len(nf)), "g4": int(len(nr))},
@@ -96,6 +139,7 @@ def run(inputs, outdir, compare=None, **kw):
           "eion_mean": abs(out["eion_keV"]["mean_ratio_minus_1"]) <= 0.03,
           "eion_band": (out["eion_band"].get("max_abs_dev_minus_2sigma") or 1) <= 0.05,
           "time_bias_same_straw": len(ia) > 0 and abs(diag["time_bias_ns"]) <= 0.05}
+    out["all_steps"] = _all_steps_block(fa_all, ra_all, f[T.KEY].drop_duplicates(), r[T.KEY].drop_duplicates())
     out["thresholds_pass"] = th
     for k, v in out.items():
         print(f"{k:34s} {v}")

@@ -97,8 +97,43 @@ def to_plane(gen, geom, rng, world):
     return mu, o, d, p, L, alive
 
 
-def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None):
-    """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event)."""
+SECONDARY_KEY0 = 1000   # SimParticle keys of library secondaries: 1000 + n within the event (the muon is key 1)
+
+
+def add_instraw_secondaries(steps, parts, sampler):
+    """Append library secondary steps sharing the fast muon's straws (decision T2, in-straw component).
+
+    Each muon crossing draws a G4 crossing of the same (|p|, path) bin and copies its secondary steps: same straw and
+    time as the muon step, start/end on the muon chord (the G4 secondaries' own geometry inside the straw is not
+    kept; the digitiser uses eIon, length and type), eion/len/ion/shape from the library. Each copied step becomes a
+    SimParticle (pdg from the library, parent = the muon).
+    """
+    mu = steps.reset_index(drop=True)
+    p = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
+    _, st = sampler.draw(p, mu.len.to_numpy())
+    if not len(st):
+        return steps, parts
+    src = mu.iloc[st.i.to_numpy()].reset_index(drop=True)
+    new = src.copy()
+    for c in ("eion", "len", "ion", "shape"):
+        new[c] = st[c].to_numpy().astype(src[c].dtype)
+    new["px"] = new["py"] = new["pz"] = 0.0      # secondary momentum is not in the library (digi uses step type)
+    rank = new.groupby(KEY).cumcount().to_numpy()
+    new["sp"] = SECONDARY_KEY0 + rank
+    out = pd.concat([mu, new], ignore_index=True)
+    out["nsgs"] = out.groupby(KEY)["sid"].transform("size")
+    sp = new[KEY + ["sp"]].rename(columns={"sp": "key"})
+    sp["parent"] = 1
+    sp["pdg"] = st.pdg.to_numpy()
+    sp["isprim"] = 0
+    sp["ismcprim"] = 0
+    return out, pd.concat([parts, sp], ignore_index=True)
+
+
+def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None):
+    """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
+
+    sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only."""
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world)
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
@@ -148,4 +183,6 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None):
     parts["pdg"] = mu.pdg.to_numpy()
     parts["isprim"] = 1
     parts["ismcprim"] = 1
+    if sampler is not None:
+        steps, parts = add_instraw_secondaries(steps, parts, sampler)
     return steps, parts

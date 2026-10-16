@@ -1,0 +1,4 @@
+# Gen-only variant for the gen.* stream (every generated event): GenParticles and CosmicLivetime, no steps.
+#include "TrkFastSim/fcl/dump_sgsteps.fcl"
+physics.analyzers.dump.writeSteps : false
+services.TFileService.fileName : "gen.root"

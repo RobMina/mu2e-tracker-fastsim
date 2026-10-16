@@ -1,0 +1,15 @@
+# Dump StrawGasSteps, SurfaceSteps, VD steps, MCTrajectory points, SimParticles, GenParticles and CosmicLivetime
+# of a dts file (stock ExtractedCRY output, compressDetStepMCs products) to flat TTrees in directory dump/.
+#include "Offline/fcl/minimalMessageService.fcl"
+process_name : sgsdump
+source : { module_type : RootInput }
+services : {
+  message : @local::default_message
+  TFileService : { fileName : "sgsteps.root" }
+  GlobalConstantsService : { inputFile : "Offline/GlobalConstantsService/data/globalConstants_01.txt" }
+}
+physics : {
+  analyzers : { dump : { module_type : StrawGasStepTableDumper } }
+  e1 : [ dump ]
+  end_paths : [ e1 ]
+}

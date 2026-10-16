@@ -13,3 +13,7 @@ output/
 plots/
 build/
 site.env
+# muse work area state
+art/build/
+art/backing
+*.dblite

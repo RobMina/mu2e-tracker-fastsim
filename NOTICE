@@ -1,0 +1,11 @@
+mu2e-tracker-fastsim
+Copyright 2026 the Mu2e Genesis team (Mu2e Collaboration)
+
+Licensed under the Apache License, Version 2.0 (LICENSE).
+
+Parts of this code will re-implement Mu2e Offline (https://github.com/Mu2e/Offline, Apache-2.0) tracker modules
+(MakeStrawGasSteps, StrawDigisFromStrawGasSteps, StrawHitReco, CosmicReco) and KinKal
+(https://github.com/KFTrack/KinKal, Apache-2.0) fits.
+
+Mu2e-internal inputs (tracker conditions, alignment and calibration tables, detector data) and physics results are
+not part of this repository and must not be added to it.

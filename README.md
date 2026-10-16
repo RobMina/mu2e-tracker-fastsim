@@ -7,7 +7,8 @@ crossings, tables) come from [`mu2e-fastsim-core`](https://github.com/RobMina/mu
 submodules of the umbrella repository [`mu2e-fastsim`](https://github.com/RobMina/mu2e-fastsim).
 
 Status (2026-10-16): skeleton; technical plan in `docs/plan.md`; reference-table dumper `art/TrkFastSim`
-(`StrawGasStepTableDumper`, see `art/README.md`).
+(`StrawGasStepTableDumper`, see `art/README.md`); table readers and the PrimaryFilter tracker term in
+`trkfastsim/tables.py`; CLI `python3 -m trkfastsim refcheck <tables>` (content check, stats JSON).
 
 This repository holds technical software only: no physics results, no Mu2e-internal conditions, tables or data.
 

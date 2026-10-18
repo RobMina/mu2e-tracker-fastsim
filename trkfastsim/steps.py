@@ -3,7 +3,8 @@
 Stages (as the CRV transport): A = straight line from the generated vertex, air mean loss, no MSC; C = the GDML world
 material above the tracker (building, overburden, CRV modules, electronics) in height bands down to a plane just above
 the straws (mu2efastsim.transport.world_loss), energy loss per material and correlated Highland scattering to that
-plane (msc_to_plane), then straight inside the tracker volume.
+plane (msc_to_plane), then straight inside the tracker volume. sliced_msc: each height band scatters with its own
+|p| (msc_to_plane band_p) instead of one geometric-mean |p| for the column.
 
 Per primary muon:
   1. straw gas crossings (crossings.straw_crossings), ordered along the track;
@@ -70,7 +71,7 @@ def load_world(gdml_path, geom):
     return [q for q in world_mod.load(gdml_path, y_min=plane_y(geom)) if q[0] != "StrawGas"]
 
 
-def to_plane(gen, geom, rng, world):
+def to_plane(gen, geom, rng, world, sliced_msc=False):
     """Stage C transport of the primary muons to the plane above the tracker.
 
     Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]); tracks
@@ -87,10 +88,10 @@ def to_plane(gen, geom, rng, world):
     L = np.zeros(len(mu))
     alive = np.ones(len(mu), bool)
     if near.any():
-        pw, xx0, ok, bxx0, bh = tr.world_loss(rng, o[near], d[near], p0[near], world, edges)
+        pw, xx0, ok, bxx0, bh, bp = tr.world_loss(rng, o[near], d[near], p0[near], world, edges, return_band_p=True)
         p_msc = np.maximum(np.sqrt(p0[near] * np.maximum(pw, 1.0)), 1.0)   # geometric mean over the column
         on, dn, Ln = tr.msc_to_plane(rng, o[near], d[near], p_msc, y_pl, eloss.radiation_length_mm(materials.AIR),
-                                     xx0, bxx0, bh)
+                                     xx0, bxx0, bh, band_p=bp if sliced_msc else None)
         o, d = o.copy(), d.copy()
         o[near], d[near], L[near], p[near] = on, dn, Ln, pw
         alive[np.flatnonzero(near)[~ok]] = False
@@ -236,13 +237,13 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     return out, pd.concat([parts, sp[parts.columns]], ignore_index=True), stats
 
 
-def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None):
+def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
     offaxis: an OffAxisSampler to add the library's off-axis secondaries (needs the muon steps first)."""
     if stage == "C":
-        mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world)
+        mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc)
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     else:
         mu = primary_muons(gen)

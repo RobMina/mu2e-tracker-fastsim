@@ -8,7 +8,9 @@ Two tests, so population and model are separated:
   1. model on G4 kinematics: for every G4 muon step, resample eIon with mu2efastsim.eloss.sample_loss at the step's
      own |p| and path length; variants split the path into n equal sub-steps and sum (G4 may split a gas crossing);
      compared per path-length bin by quantiles and the share of steps in the 2.2-3.3 keV window.
-  2. population (with --fast): the fast run's muon steps against G4 in path length and |p|.
+  2. population (with --fast): the fast run's muon steps against G4 in path length and |p|, both arms restricted to
+     events passing the PrimaryFilter tracker term (as v1compare): the G4 tables hold only filter-accepted events,
+     so an unselected fast sample carries events G4 kept only through its CRV term or not at all.
 """
 import numpy as np
 
@@ -27,6 +29,11 @@ def _muon_steps(paths):
     s = s[(s.ismcprim == 1) & (s.pdg.abs() == 13)].reset_index(drop=True)
     s["p"] = np.sqrt(s.px ** 2 + s.py ** 2 + s.pz ** 2)
     return s
+
+
+def _select(s):
+    f = T.trk_filter(s)
+    return s.merge(f[f.pass_trk].reset_index()[T.KEY], on=T.KEY)
 
 
 def _summary(e_kev):
@@ -68,9 +75,12 @@ def run(inputs, outdir, fast=None, seed=1, splits="1,2,4", **kw):
             row[f"model_split{n}"] = _summary(e[m])
         out["by_len"].append(row)
     if fast:
-        f = _muon_steps(T.expand(fast))
+        f = _select(_muon_steps(T.expand(fast)))
+        g = _select(g)
+        eg = 1e3 * g.eion.to_numpy()
         ef = 1e3 * f.eion.to_numpy()
         out["population"] = {
+            "selection": "PrimaryFilter tracker term, both arms", "g4_steps": int(len(g)),
             "fast_steps": int(len(f)), "len_band": stats.ratio_band(f.len, g.len)["max_abs_dev_minus_2sigma"],
             "p_band": stats.ratio_band(f.p, g.p)["max_abs_dev_minus_2sigma"],
             "len_q": {"fast": np.quantile(f.len, QS).round(3).tolist(), "g4": np.quantile(g.len, QS).round(3).tolist()},

@@ -6,7 +6,7 @@ plots/<cmd>); --emit X.json / --merge for batchable ones.
 import argparse
 import sys
 
-from .analyses import buildlib, elosscheck, refcheck, steps, v0check, v1compare
+from .analyses import buildlib, elosscheck, refcheck, steps, v0check, v1compare, worldcheck
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -14,6 +14,7 @@ ANALYSES = {
     "steps":     (steps.run,     "fast StrawGasSteps for the primary muons of gen tables (straight line, G4-matched eIon)"),
     "buildlib":  (buildlib.run,  "build the G4 secondary library (in-straw and off-axis non-muon StrawGasSteps) from reference tables"),
     "elosscheck": (elosscheck.run, "primary-muon eIon per straw: fast Urban sampler vs G4 per path-length bin (model and population)"),
+    "worldcheck": (worldcheck.run, "world model event by event: |p| at the first straw vs generation, delivery and loss, fast vs G4"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
 }
 BATCHABLE = {"refcheck"}
@@ -28,7 +29,7 @@ def build_parser():
                             formatter_class=argparse.RawDescriptionHelpFormatter)
         sp.add_argument("inputs", nargs="+", help="input files (globs allowed, quote them)")
         sp.add_argument("--outdir", default=None, help="output dir (default plots/<cmd>)")
-        if name in ("v0check", "steps"):
+        if name in ("v0check", "steps", "worldcheck"):
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
@@ -46,7 +47,7 @@ def build_parser():
             sp.add_argument("--splits", default="1,2,4", help="sub-step counts to test, comma-separated")
         if name == "buildlib":
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
-        if name == "v1compare":
+        if name in ("v1compare", "worldcheck"):
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")

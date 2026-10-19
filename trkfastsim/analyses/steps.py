@@ -29,7 +29,7 @@ def default_gdml():
 
 
 def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, tag="",
-        sliced_msc=False, no_interior=False, **kw):
+        sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom) if stage == "C" else None
@@ -46,7 +46,7 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
         offaxis = (lib_mod.OffAxisSampler(lib, np.random.default_rng([int(seed), i, 2]), plane_bin_width=offaxis_plane_bin)
                    if lib and not no_offaxis else None)
         sgs, parts = st.make_steps(gen, geom, rng, stage=stage, world=world, sampler=sampler, offaxis=offaxis,
-                                   sliced_msc=sliced_msc, interior=interior)
+                                   sliced_msc=sliced_msc, interior=interior, near_margin=near_margin)
         if offaxis is not None:
             print(f"#   off-axis: {getattr(st.make_steps, 'offaxis_stats', {})}", flush=True)
         name = f"fasttrk{stage}{'L' if lib else ''}{tag}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")

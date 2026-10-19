@@ -41,6 +41,9 @@ def build_parser():
                             help="off-axis draw: planes per plane-extent bin of the matching key (0 = no plane matching)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
+            sp.add_argument("--near-margin", type=float, default=1500.0,
+                            help="stage C: transport through the world only muons whose straight line passes within this "
+                                 "many mm of the straws' footprint at the plane (1e9 = every downward muon)")
             sp.add_argument("--no-interior", action="store_true",
                             help="stage C: leave out the tracker's support structure (rings, ribs, beams) between straws")
         if name == "elosscheck":

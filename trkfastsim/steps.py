@@ -126,7 +126,7 @@ class TrackerInterior:
         return out, stats
 
 
-def to_plane(gen, geom, rng, world, sliced_msc=False):
+def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN):
     """Stage C transport of the primary muons to the plane above the tracker.
 
     Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]); tracks
@@ -138,7 +138,7 @@ def to_plane(gen, geom, rng, world, sliced_msc=False):
     d = mu[["px", "py", "pz"]].to_numpy() / p0[:, None]
     y_pl = plane_y(geom)
     edges = np.r_[BAND_EDGES_Y[BAND_EDGES_Y > y_pl], y_pl]
-    near = near_tracker(o, d, geom, y_pl)
+    near = near_tracker(o, d, geom, y_pl, margin=near_margin)
     p = p0.copy()
     L = np.zeros(len(mu))
     alive = np.ones(len(mu), bool)
@@ -293,14 +293,14 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
 
 
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
-               interior=None):
+               interior=None, near_margin=FOOTPRINT_MARGIN):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
     offaxis: an OffAxisSampler to add the library's off-axis secondaries (needs the muon steps first).
     interior: a TrackerInterior to lose energy in the tracker's support structure between straws (None = off)."""
     if stage == "C":
-        mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc)
+        mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin)
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     else:
         mu = primary_muons(gen)

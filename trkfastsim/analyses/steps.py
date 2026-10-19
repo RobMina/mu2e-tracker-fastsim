@@ -7,6 +7,7 @@ StrawGasStepTableDumper layout, same (run, subrun, event) keys, so `v1compare FA
     steps gen.001400_00000001.root [...] --gdml mu2e_extracted_v04.gdml --outdir DIR [--seed N] [--stage A|C]
 
 --stage A: straight from the generated vertex; C: GDML world material and multiple scattering down to the tracker.
+Stage C includes the tracker's support structure (TrackerInterior) unless --no-interior.
 --library LIB.root: add the G4 library's secondaries (buildlib): in-straw and off-axis (--no-offaxis: in-straw only);
 output prefix fasttrk<stage>L.
 """
@@ -28,10 +29,14 @@ def default_gdml():
 
 
 def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, tag="",
-        sliced_msc=False, **kw):
+        sliced_msc=False, no_interior=False, **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom) if stage == "C" else None
+    interior = st.TrackerInterior(gdml, geom) if stage == "C" and not no_interior else None
+    if interior is not None:
+        print(f"# tracker interior: {len(interior.shells)} support shells ({interior.shells.n_coaxial} coaxial)"
+              + (f"; materials without constants (treated as Al): {interior.unknown}" if interior.unknown else ""), flush=True)
     lib = lib_mod.read(library) if library else None
     for i, f in enumerate(tables.expand(inputs)):
         rng = np.random.default_rng([int(seed), i])
@@ -41,7 +46,7 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
         offaxis = (lib_mod.OffAxisSampler(lib, np.random.default_rng([int(seed), i, 2]), plane_bin_width=offaxis_plane_bin)
                    if lib and not no_offaxis else None)
         sgs, parts = st.make_steps(gen, geom, rng, stage=stage, world=world, sampler=sampler, offaxis=offaxis,
-                                   sliced_msc=sliced_msc)
+                                   sliced_msc=sliced_msc, interior=interior)
         if offaxis is not None:
             print(f"#   off-axis: {getattr(st.make_steps, 'offaxis_stats', {})}", flush=True)
         name = f"fasttrk{stage}{'L' if lib else ''}{tag}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")

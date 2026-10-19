@@ -41,6 +41,8 @@ def build_parser():
                             help="off-axis draw: planes per plane-extent bin of the matching key (0 = no plane matching)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
+            sp.add_argument("--no-interior", action="store_true",
+                            help="stage C: leave out the tracker's support structure (rings, ribs, beams) between straws")
         if name == "elosscheck":
             sp.add_argument("--fast", nargs="+", default=None, metavar="ROOT", help="fast-sim tables for the population check")
             sp.add_argument("--seed", type=int, default=1)

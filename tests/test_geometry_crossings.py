@@ -80,3 +80,26 @@ def test_nearest_straw_snaps_gap_points_and_rejects_far_ones():
     pts = np.array([[0.0, 4.0, 0.0], [0.0, 6.0, 1.0], [0.0, 0.0, 30.0], [500.0, 0.0, 0.0]])
     js, d = X.nearest_straw(pts, g, pad=10.0)
     assert js.tolist() == [0, 1, -1, -1] and np.isclose(d[0], 4.0)
+
+
+def test_interior_loss_accumulates_along_the_muon():
+    """TrackerInterior.loss_to_straws: segment columns between consecutive straws, cumulative per muon."""
+    from mu2efastsim import world as Wd
+    from trkfastsim import steps as S
+    interior = S.TrackerInterior.__new__(S.TrackerInterior)
+    # one copper slab-like shell: coaxial with z, rmin 100, rmax 110 (10 mm wall), long in z
+    tube = [("G4_Cu", np.eye(3), np.array([0.0, 0.0, 0.0]), 100.0, 110.0, 1000.0, 0.0, 2 * np.pi)]
+    interior.shells = Wd.CoaxialShells(tube, axis_point=[0.0, 0.0, 0.0])
+    interior.nsub = 8
+    rng = np.random.default_rng(1)
+    o = np.array([[0.0, 200.0, 0.0]])
+    d = np.array([[0.0, -1.0, 0.0]])
+    p = np.array([3000.0])
+    # straws at 50 mm (y = 150: before the wall), 95 mm (y = 105: in the upper wall, 5 mm crossed), 320 mm
+    # (y = -120: past the lower wall, both walls crossed)
+    it = np.array([0, 0, 0])
+    s_in = np.array([50.0, 95.0, 320.0])
+    lost, stats = interior.loss_to_straws(rng, o, d, p, it, s_in)
+    # 10 mm Cu = 8.96 g/cm2: Bethe mean ~13 MeV, one Urban sample per wall sits around it (MPV lower)
+    assert lost[0] == 0 and 2 < lost[1] < 15 and lost[2] > lost[1] and 10 < lost[2] < 50
+    assert abs(stats["G4_Cu"] - 20.0) < 0.5

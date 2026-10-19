@@ -71,6 +71,61 @@ def load_world(gdml_path, geom):
     return [q for q in world_mod.load(gdml_path, y_min=plane_y(geom)) if q[0] != "StrawGas"]
 
 
+INTERIOR_SKIP = ("TrackerStraw", "TrackerWire")   # the straws themselves are handled by crossings/eIon
+
+
+class TrackerInterior:
+    """The tracker's own support structure (rings, ribs, beams, manifolds, electronics) for the fast transport.
+
+    Built once from the GDML (tube and polycone solids inside the tracker region, without the straws) as coaxial
+    shells about the tracker axis (mu2efastsim.world.CoaxialShells). For each muon crossing it supplies the material
+    column between the plane above the tracker and each straw entry, and the energy lost in it (sliced, sampled with
+    the Urban model per material), so |p| drops along the track as in G4. Scattering in this material is not applied
+    (the muon stays straight inside the tracker volume). Off: pass interior=None to make_steps (CLI --no-interior).
+    """
+
+    def __init__(self, gdml_path, geom, nsub=8, pad=300.0):
+        from mu2efastsim import world as world_mod
+        lo, hi = crossings.panel_boxes(geom)
+        bbox = (lo.min(0) - pad, hi.max(0) + pad)
+        tubes = world_mod.load_tubes(gdml_path, bbox=bbox, skip_names=INTERIOR_SKIP)
+        tubes = [t for t in tubes if t[0] != "StrawGas"]           # gas manifolds: negligible, not a loss material
+        self.shells = world_mod.CoaxialShells(tubes, axis_point=geometry.DETECTOR_ORIGIN_EXTRACTED)
+        self.nsub = nsub
+        self.unknown = sorted({t[0] for t in tubes} - set(materials.BY_NAME))
+
+    def loss_to_straws(self, rng, o, d, p, it, s_in):
+        """Energy lost [MeV] in the interior between each muon's origin o (on the plane) and each straw entry.
+
+        o, d, p: per muon [N]; it, s_in: per crossing (muon index, path length to the straw entry), sorted by muon then
+        s_in. The column to the farthest straw of each muon is integrated once in up to `nseg` segments ending at the
+        crossings; the loss is sampled segment by segment and accumulated."""
+        if not len(it):
+            return np.zeros(0), {}
+        out = np.zeros(len(it))
+        first = np.r_[True, it[1:] != it[:-1]]
+        prev_s = np.where(first, 0.0, np.r_[0.0, s_in[:-1]])
+        seg_len = s_in - prev_s
+        seg_o = o[it] + d[it] * prev_s[:, None]
+        col = self.shells.column(seg_o, d[it], seg_len, nsub=self.nsub)
+        pk = p[it].copy()
+        lost_seg = np.zeros(len(it))
+        stats = {}
+        for name, c in col.items():
+            if not c.any():
+                continue
+            mat = materials.BY_NAME.get(name, materials.ALUMINIUM)
+            hit = np.flatnonzero(c > 0)
+            lost_seg[hit] += tr.slab_loss(rng, mat, np.maximum(pk[hit], 1.0), c[hit])
+            stats[name] = float(c.sum())
+        # cumulative loss along each muon
+        grp = np.cumsum(first) - 1
+        cum = np.cumsum(lost_seg)
+        base = np.r_[0.0, cum][np.flatnonzero(first)][grp]
+        out = cum - base
+        return out, stats
+
+
 def to_plane(gen, geom, rng, world, sliced_msc=False):
     """Stage C transport of the primary muons to the plane above the tracker.
 
@@ -237,11 +292,13 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     return out, pd.concat([parts, sp[parts.columns]], ignore_index=True), stats
 
 
-def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False):
+def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
+               interior=None):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
-    offaxis: an OffAxisSampler to add the library's off-axis secondaries (needs the muon steps first)."""
+    offaxis: an OffAxisSampler to add the library's off-axis secondaries (needs the muon steps first).
+    interior: a TrackerInterior to lose energy in the tracker's support structure between straws (None = off)."""
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc)
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
@@ -260,6 +317,14 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     p = p_start[it]
     if air_loss:
         p = np.maximum(p - eloss.dedx_restricted(materials.AIR, p_start[it], 1e9) * s_in, 1.0)
+    if interior is not None and len(it):
+        lost, make_steps.interior_stats = interior.loss_to_straws(rng, o, d, p_start, it, s_in)
+        tk = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU - lost
+        stopped = tk <= 0.5
+        p = np.sqrt(np.clip((np.maximum(tk, 0.5) + eloss.MMU) ** 2 - eloss.MMU ** 2, 1.0, None))
+        if stopped.any():   # a muon ranging out in the support structure makes no further straw steps
+            keep = ~stopped
+            it, js, s_in, s_out, path, p = it[keep], js[keep], s_in[keep], s_out[keep], path[keep], p[keep]
     eion = eloss.sample_loss(rng, STRAW_GAS, p, path, delta_cut_mev())
     e = np.sqrt(p ** 2 + eloss.MMU ** 2)
     bg = p / eloss.MMU

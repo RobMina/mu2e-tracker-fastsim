@@ -66,9 +66,12 @@ def near_tracker(o, d, geom, y_plane, margin=FOOTPRINT_MARGIN):
 
 
 def load_world(gdml_path, geom):
-    """GDML world pieces above the MSC plane, without the straw gas (the tracker itself is handled by crossings)."""
+    """GDML world pieces above the MSC plane, without the straw gas (the tracker itself is handled by crossings),
+    pre-split into the stage C height bands and packed for vectorised columns (transport.BandedWorld)."""
     from mu2efastsim import world as world_mod
-    return [q for q in world_mod.load(gdml_path, y_min=plane_y(geom)) if q[0] != "StrawGas"]
+    pieces = [q for q in world_mod.load(gdml_path, y_min=plane_y(geom)) if q[0] != "StrawGas"]
+    y_pl = plane_y(geom)
+    return tr.BandedWorld(pieces, np.r_[BAND_EDGES_Y[BAND_EDGES_Y > y_pl], y_pl])
 
 
 INTERIOR_SKIP = ("TrackerStraw", "TrackerWire")   # the straws themselves are handled by crossings/eIon

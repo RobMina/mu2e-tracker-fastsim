@@ -45,7 +45,7 @@ def _column(gen_mu, world, y_plane):
     d = gen_mu[["px", "py", "pz"]].to_numpy() / p[:, None]
     down = d[:, 1] < 0
     L = np.where(down, (o[:, 1] - y_plane) / -np.where(down, d[:, 1], -1.0), 0.0)
-    col = world_mod.column(world, o, d, L)
+    col = world_mod.column(world.pieces() if hasattr(world, "pieces") else world, o, d, L)
     gcm2 = np.zeros(len(o))
     xx0 = np.zeros(len(o))
     from mu2efastsim import eloss

@@ -28,9 +28,13 @@ def straw_crossings(origin, direction, geom, chunk: int = 8192):
     """Rows (track, straw index, s_in, s_out) of every straw gas volume each track crosses, sorted by track, s_in."""
     lo, hi = panel_boxes(geom)
     straws_of = np.argsort(geom.upanel, kind="stable").reshape(lo.shape[0], -1)   # [216, 96] straw indices
+    # one envelope box around all panels first: most tracks of a shard never come near the tracker
+    env = box.crossings(origin, direction, lo.min(0)[None], hi.max(0)[None], backend="numpy")
+    sel = np.unique(env[:, 0].astype(np.int64)) if len(env) else np.zeros(0, np.int64)
     out = []
-    for c0 in range(0, len(origin), chunk):
-        o, d = origin[c0:c0 + chunk], direction[c0:c0 + chunk]
+    for c0 in range(0, len(sel), chunk):
+        idx = sel[c0:c0 + chunk]
+        o, d = origin[idx], direction[idx]
         pc = box.crossings(o, d, lo, hi, backend="numpy")          # (track, panel, ...)
         if not len(pc):
             continue
@@ -62,7 +66,7 @@ def straw_crossings(origin, direction, geom, chunk: int = 8192):
         inside_len = (np.abs(da) > 1e-12) | (np.abs(wa) <= h)
         s_in, s_out = np.maximum(np.maximum(s0, zl), 0.0), np.minimum(s1, zh)
         keep = ok & inside_len & (s_out > s_in)
-        out.append(np.stack([it[keep] + c0, js[keep], s_in[keep], s_out[keep]], 1))
+        out.append(np.stack([idx[it[keep]], js[keep], s_in[keep], s_out[keep]], 1))
     if not out:
         return np.zeros((0, 4))
     r = np.concatenate(out)

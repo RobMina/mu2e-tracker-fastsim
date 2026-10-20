@@ -144,8 +144,8 @@ umbrella history, and run the script from that checkout.
 |---|---|---|---|
 | `base` | `c1SIs` | `--no-interior-msc --no-msc-tail`: support loss, straight tracks in the tracker | any; the script only rescores an existing `fast_c1SIs`, made with `steps ... --outdir $M2FS_DATA/trk_fastsim/fast_c1SIs --seed 1 --stage C --sliced-msc --no-interior-msc --no-msc-tail` |
 | `vac` / `vactail` | `c1SIsV` / `c1SIsVT` | straws and support scatter, no sense wire; without / with the nuclear-only tail | tracker `e6e16ed` |
-| `wire` / `wiretail` | `c1SIsX` / `c1SIsXT` | + sense wire; without / with the nuclear + electron tail | tracker `52a7522` to `94e53a8` (later code adds the kink fix below) |
-| `default` | `c1SIsD` | no flags: `wiretail` + the kink fix (a kink no longer cuts the next straw's chord short) | the commit after `bff9271` and later |
+| `wire` / `wiretail` | `c1SIsX` / `c1SIsXT` | + sense wire; without / with the nuclear + electron tail | tracker `52a7522` to `bff9271` (later code adds the kink fix) |
+| `default` | `c1SIsD` | no flags: `wiretail` + the kink fix (a kink no longer cuts the next straw's chord short) | `b1f77f2` and later |
 | `rescore_<SUFFIX>` | `c1SIs<SUFFIX>` | reruns only the comparisons on an existing `fast_c1SIs<SUFFIX>` (`rescore_base` for `fast_c1SIs`) | any |
 
 The `msc`, `tail`, `wall` and `walltail` arms in the script are intermediate states of 2026-10-19 (support-only

@@ -351,7 +351,7 @@ def _kink(pos, d, dth, dy):
     return pos + u * dy[:, [0]] + v * dy[:, [1]], dn
 
 
-def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN, msc_tail=False, tail_k=None):
+def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN, msc_tail=True, tail_k=None):
     """Stage C transport of the primary muons to the plane above the tracker.
 
     Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]); tracks
@@ -521,14 +521,14 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
 
 
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
-               interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=False, tail_k=None):
+               interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
     offaxis: an OffAxisSampler to add the library's off-axis secondaries (needs the muon steps first).
     interior: a TrackerInterior to lose energy in the tracker's support structure between straws (None = off).
     interior_msc: with interior, also scatter in it segment by segment (TrackerInterior.transport); False = the muon
-    stays straight inside the tracker (loss only). msc_tail: add the single-scattering tail to the Gaussian core, in
+    stays straight inside the tracker (loss only). msc_tail (default on): the single-scattering tail on the Gaussian core, in
     the world column above the plane (stage C) and in the interior; tail_k: tail threshold in units of theta0 (None =
     where the tail density crosses the Gaussian)."""
     if stage == "C":

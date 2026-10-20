@@ -49,10 +49,11 @@ def build_parser():
                             help="stage C: leave out the tracker's support structure (rings, ribs, beams) between straws")
             sp.add_argument("--no-interior-msc", action="store_true",
                             help="stage C: energy loss in the support structure but no scattering in it (straight tracks)")
-            sp.add_argument("--msc-tail", action="store_true",
-                            help="stage C: add the single-scattering (Rutherford) tail to the Gaussian MSC core")
+            sp.add_argument("--msc-tail", action=argparse.BooleanOptionalAction, default=True,
+                            help="stage C: single-scattering (Rutherford) tail on top of the Gaussian MSC core "
+                                 "(default on; --no-msc-tail for the Gaussian core only)")
             sp.add_argument("--tail-k", type=float, default=None,
-                            help="with --msc-tail: tail threshold in units of theta0 (default: where tail and Gaussian cross)")
+                            help="tail threshold in units of theta0 (default: where tail and Gaussian cross)")
         if name == "elosscheck":
             sp.add_argument("--fast", nargs="+", default=None, metavar="ROOT", help="fast-sim tables for the population check")
             sp.add_argument("--seed", type=int, default=1)

@@ -5,22 +5,24 @@
 # scattering only, outputs of 2026-10-19 15:20, before the straw/air scattering: rerun needs that code); wall (in-tracker
 # scattering in support, straws and air, outputs of 2026-10-19 21:40: air was dropped after), walltail (wall + tail);
 # vac / vactail (support and straws, vacuum gaps, nuclear-only tail: outputs of 2026-10-19 22:00, before the wire);
-# wire (vac + the sense wire: the current default), wiretail (wire + nuclear and electron single-scattering tail). Outputs under $M2FS_DATA/trk_fastsim; one line per arm in stagec_msc_ab.log.
+# wire (vac + the sense wire, no tail), wiretail (wire + nuclear and electron single-scattering tail);
+# default (no flags: the current defaults, = wiretail since the tail went on by default on 2026-10-20). Outputs under $M2FS_DATA/trk_fastsim; one line per arm in stagec_msc_ab.log.
 set -u
 D=$M2FS_DATA/trk_fastsim
 G20="$CRVFS_DATA/g4ref_v1_tables/gen.001400_*.root"
 REF="$D/g4ref_v1_tables/sgsteps.*.root"
 for arm in "$@"; do
   case $arm in
-    base) O=$D/fast_c1SIs; flags="--no-interior-msc" ;;
-    msc)  O=$D/fast_c1SIsM; flags="" ;;
+    base) O=$D/fast_c1SIs; flags="--no-interior-msc --no-msc-tail" ;;
+    msc)  O=$D/fast_c1SIsM; flags="--no-msc-tail" ;;
     tail) O=$D/fast_c1SIsMT; flags="--msc-tail" ;;
-    wall) O=$D/fast_c1SIsW; flags="" ;;
+    wall) O=$D/fast_c1SIsW; flags="--no-msc-tail" ;;
     walltail) O=$D/fast_c1SIsWT; flags="--msc-tail" ;;
-    vac) O=$D/fast_c1SIsV; flags="" ;;
+    vac) O=$D/fast_c1SIsV; flags="--no-msc-tail" ;;
     vactail) O=$D/fast_c1SIsVT; flags="--msc-tail" ;;
-    wire) O=$D/fast_c1SIsX; flags="" ;;
+    wire) O=$D/fast_c1SIsX; flags="--no-msc-tail" ;;
     wiretail) O=$D/fast_c1SIsXT; flags="--msc-tail" ;;
+    default) O=$D/fast_c1SIsD; flags="" ;;
     *) echo "unknown arm $arm"; exit 2 ;;
   esac
   tag=$(basename $O | sed 's/^fast_//')

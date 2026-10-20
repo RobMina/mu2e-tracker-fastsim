@@ -8,8 +8,9 @@ StrawGasStepTableDumper layout, same (run, subrun, event) keys, so `v1compare FA
 
 --stage A: straight from the generated vertex; C: GDML world material and multiple scattering down to the tracker.
 Stage C includes the tracker's support structure (TrackerInterior: loss and scattering per segment between straws)
-unless --no-interior; --no-interior-msc keeps the loss but no scattering in it. --msc-tail adds the single-scattering
-tail above the Gaussian core (world column and interior), --tail-k K puts its threshold at K theta0.
+unless --no-interior; --no-interior-msc keeps the loss but no scattering in it. The single-scattering tail above
+the Gaussian core (world column and interior) is on by default (--no-msc-tail: Gaussian only); --tail-k K puts its
+threshold at K theta0.
 --library LIB.root: add the G4 library's secondaries (buildlib): in-straw and off-axis (--no-offaxis: in-straw only);
 output prefix fasttrk<stage>L.
 """
@@ -31,7 +32,7 @@ def default_gdml():
 
 
 def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, tag="",
-        sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=False,
+        sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True,
         tail_k=None, **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)

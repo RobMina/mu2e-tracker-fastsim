@@ -73,6 +73,8 @@ class StrawGeometry:
     plane_t: np.ndarray      # [36, 3]
     wall_rmax: float = None  # outer radius of the straw wall (Mylar + outer metal); None = radius + 0.015
     metal_t: float = 0.0     # thickness of the wall's outer metal layer (Al6061), inside wall_rmax
+    wire_r: float = 0.0      # sense wire outer radius (W core + Au plating); 0 = no wire
+    wire_plate_t: float = 0.0  # Au plating thickness, inside wire_r
 
     @property
     def nstraws(self):
@@ -121,7 +123,7 @@ def from_gdml(path: str) -> StrawGeometry:
         raise ValueError(f"expected one StrawPanelEnvelope logical volume, found {len(env)}")
     env = env[0]
     s_loc = {}
-    radius, wall_rmax, metal_t = None, None, 0.0
+    radius, wall_rmax, metal_t, wire_r, wire_plate_t = None, None, 0.0, 0.0, 0.0
     for pv in vols[env].findall("physvol"):
         lv = pv.find("volumeref").get("ref")
         if not _GAS.match(_strip(lv)):
@@ -131,6 +133,14 @@ def from_gdml(path: str) -> StrawGeometry:
         tube = solids[vols[lv].find("solidref").get("ref")]
         for d in vols[lv].findall("physvol"):
             dlv = d.find("volumeref").get("ref")
+            if _strip(dlv).startswith("TrackerWireCore_"):
+                csol = solids[vols[dlv].find("solidref").get("ref")]
+                wire_r = float(csol.get("rmax"))
+                for m in vols[dlv].findall("physvol"):
+                    mlv = m.find("volumeref").get("ref")
+                    if _strip(mlv).startswith("TrackerWirePlate_"):
+                        psol = solids[vols[mlv].find("solidref").get("ref")]
+                        wire_plate_t = float(psol.get("rmax")) - float(psol.get("rmin"))
             if _strip(dlv).startswith("TrackerStrawWall_"):
                 wsol = solids[vols[dlv].find("solidref").get("ref")]
                 radius, wall_rmax = float(wsol.get("rmin")), float(wsol.get("rmax"))
@@ -174,7 +184,7 @@ def from_gdml(path: str) -> StrawGeometry:
                          mid=mid, dir=dirs / np.linalg.norm(dirs, axis=1)[:, None],
                          halflen=np.tile(sl_h, NPLANES * NPANELS), radius=radius,
                          panel_R=panel_R, panel_t=panel_t, plane_R=plane_R, plane_t=plane_t,
-                         wall_rmax=wall_rmax, metal_t=metal_t)
+                         wall_rmax=wall_rmax, metal_t=metal_t, wire_r=wire_r, wire_plate_t=wire_plate_t)
 
 
 def rotation_xyz(rx, ry, rz):

@@ -4,7 +4,8 @@
 # Arms: base (fast_c1SIs, existing outputs: v1compare/worldcheck rerun only); msc / tail (support-structure
 # scattering only, outputs of 2026-10-19 15:20, before the straw/air scattering: rerun needs that code); wall (in-tracker
 # scattering in support, straws and air, outputs of 2026-10-19 21:40: air was dropped after), walltail (wall + tail);
-# vac (in-tracker scattering in support and straws, vacuum gaps as in the GDML: the current default), vactail (vac + tail). Outputs under $M2FS_DATA/trk_fastsim; one line per arm in stagec_msc_ab.log.
+# vac / vactail (support and straws, vacuum gaps, nuclear-only tail: outputs of 2026-10-19 22:00, before the wire);
+# wire (vac + the sense wire: the current default), wiretail (wire + nuclear and electron single-scattering tail). Outputs under $M2FS_DATA/trk_fastsim; one line per arm in stagec_msc_ab.log.
 set -u
 D=$M2FS_DATA/trk_fastsim
 G20="$CRVFS_DATA/g4ref_v1_tables/gen.001400_*.root"
@@ -18,6 +19,8 @@ for arm in "$@"; do
     walltail) O=$D/fast_c1SIsWT; flags="--msc-tail" ;;
     vac) O=$D/fast_c1SIsV; flags="" ;;
     vactail) O=$D/fast_c1SIsVT; flags="--msc-tail" ;;
+    wire) O=$D/fast_c1SIsX; flags="" ;;
+    wiretail) O=$D/fast_c1SIsXT; flags="--msc-tail" ;;
     *) echo "unknown arm $arm"; exit 2 ;;
   esac
   tag=$(basename $O | sed 's/^fast_//')
@@ -31,5 +34,7 @@ for arm in "$@"; do
     || { echo "$arm v1compare failed"; tail -20 $O/v1.log; exit 1; }
   python3 -m trkfastsim worldcheck "$O/fasttrkC.*.root" --compare "$REF" --outdir $D/plots/worldcheck_$tag > $O/world.log 2>&1 \
     || { echo "$arm worldcheck failed"; tail -20 $O/world.log; exit 1; }
+  python3 -m trkfastsim msccheck "$O/fasttrkC.*.root" --compare "$REF" --outdir $D/plots/msccheck_$tag > $O/msc.log 2>&1 \
+    || { echo "$arm msccheck failed"; tail -20 $O/msc.log; exit 1; }
   echo "$arm $tag steps_wall_s=$(cat $O/time.log 2>/dev/null | tail -1) nfiles=$(ls $O/fasttrkC.*.root | wc -l)" | tee -a $D/stagec_msc_ab.log
 done

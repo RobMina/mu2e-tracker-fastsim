@@ -205,3 +205,22 @@ def test_interior_transport_scatters_in_straws_and_air():
     # straight with kink_xx0 huge (no support crossed): no kinks
     interior.transport(np.random.default_rng(6), o[:100], d[:100], p[:100], g, kink_xx0=1e9)
     assert interior.last_stats["kinks"] == 0
+
+
+def test_interior_transport_wire_hits_add_large_angles():
+    """A thick sense wire on the straw axes: tracks that cross it scatter far more than those that miss it."""
+    interior = _plate_interior(10.0)
+    g = _layers([60.0, 20.0, -20.0, -60.0], pitch=6.0)
+    g.wall_rmax, g.metal_t = R + 0.015, 5e-5
+    g.wire_r, g.wire_plate_t = 0.5, 0.01               # 1 mm tungsten wire: hit by ~1/5 of tracks through a straw
+    n = 20_000
+    rng = np.random.default_rng(8)
+    o = np.c_[np.zeros(n), np.full(n, 95.0), rng.uniform(-2.5, 2.5, n)]
+    d = np.tile([0.0, -1.0, 0.0], (n, 1))
+    out = interior.transport(np.random.default_rng(9), o, d, np.full(n, 1000.0), g, tail=False, wire=True)
+    ref = interior.transport(np.random.default_rng(9), o, d, np.full(n, 1000.0), g, tail=False, wire=False)
+    assert interior.last_stats["wire_hits"] == 0
+    last = lambda r: np.r_[r["it"][1:] != r["it"][:-1], True]
+    a = np.abs(np.arctan2(out["dir"][last(out), 2], -out["dir"][last(out), 1]))
+    b = np.abs(np.arctan2(ref["dir"][last(ref), 2], -ref["dir"][last(ref), 1]))
+    assert np.quantile(a, 0.95) > 3 * np.quantile(b, 0.95)

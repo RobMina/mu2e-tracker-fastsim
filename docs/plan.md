@@ -10,9 +10,10 @@ Technical scope only; physics results live outside this repository.
 - Geometry from an Offline `Tracker` dump with the KPP panel map; the sim alignment (`AlignedTrackerSim`) and the
   reco alignment (`AlignedTracker`) are separate, independently configurable inputs.
 - Inside the tracker: energy loss in the support structure and multiple scattering in the support structure and the
-  straws (Mylar wall, outer metal, gas), segment by segment between straws (Highland core with the log term on the
+  straws (Mylar wall, outer metal, gas, sense wire: W core with Au plating, at the track's distance from the axis),
+  segment by segment between straws (Highland core with the log term on the
   cumulative in-tracker x/X0; optional single-scattering tail above the core, screened Rutherford on the nuclei with
-  an exponential nuclear form factor). The track kinks after each support segment and every 1e-3 X0 of straw
+  an exponential nuclear form factor per material, plus atomic electrons up to m_e/m_mu). The track kinks after each support segment and every 1e-3 X0 of straw
   material, and its straw crossings are recomputed. Gaps are vacuum, as in the GDML (DSVacuum). The same tail can be
   added in the world column above.
 - Energy loss in the gas from `mu2efastsim.eloss` (Urban model, tracker region cut 0.001 mm); secondaries from a

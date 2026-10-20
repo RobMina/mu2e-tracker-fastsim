@@ -91,7 +91,7 @@ class TrackerInterior:
     --no-interior).
 
     transport() also scatters, segment by segment: in this material and in the thin material between and in the
-    straws (straw walls, gas; optionally a gap medium, none by default), Gaussian core (Highland, log term on the cumulative in-tracker x/X0) plus
+    straws (straw walls, gas, sense wire; optionally a gap medium, none by default), Gaussian core (Highland, log term on the cumulative in-tracker x/X0) plus
     optionally the single-scattering tail; the track kinks after each support segment and every KINK_XX0 of thin
     material, and its straw crossings are recomputed from there. loss_to_straws() is the straight-line (loss only) form.
     """
@@ -137,13 +137,14 @@ class TrackerInterior:
         out = cum - base
         return out, stats
 
-    def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, max_iter=400,
-                  stats=None):
+    def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
+                  max_iter=400, stats=None):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
         of its straw entry: the previous straw of this pass (two wall chords, Mylar + outer metal from the gas chord and
-        wall_rmax, and its gas chord), then the segment from that straw's exit (or the pass origin) to this entry:
+        wall_rmax; its gas chord; the sense wire, W core and Au plating, at the track's distance from the straw axis, if
+        `wire`), then the segment from that straw's exit (or the pass origin) to this entry:
         support structure (shells column) and the gap medium `gap` in the rest (default none: the tracker volumes are
         DSVacuum in the GDML). Energy loss is sampled in the support material
         (slab_loss) and applies from this straw on. Scattering: rows are grouped from the pass origin until their summed
@@ -151,7 +152,8 @@ class TrackerInterior:
         the correlated (angle, displacement) Gaussian, Highland with the log term on the cumulative in-tracker x/X0
         (transport.highland_var_increment), each piece at its own lever arm (support and air at the segment midpoint,
         straw material at its chord midpoint), plus the single-scattering tail on the group's nuclear chi_c^2 if
-        `tail`. Rows before the kink row are final; crossings are then recomputed from the kinked track (straws already
+        `tail`: per material on nuclei (each with its form factor) and on atomic electrons (up to ME_OVER_MMU), above
+        the angle where the summed single-scattering density crosses the Gaussian. Rows before the kink row are final; crossings are then recomputed from the kinked track (straws already
         recorded for that muon are skipped). The material behind a muon's last straw is not scattered. Returns a dict of per-crossing arrays sorted by muon then path: it, js, pos0, pos1 (Mu2e frame),
         dir, path (to the entry, from the plane), lost (interior loss before the entry, MeV).
         """
@@ -169,9 +171,12 @@ class TrackerInterior:
         r_out = geom.wall_rmax if geom.wall_rmax is not None else r_in + 0.015
         f_metal = min(max(geom.metal_t / max(r_out - r_in, 1e-9), 0.0), 1.0)
         gapm = gap if gap is not None else materials.AIR          # placeholder material; zero length when gap is None
-        thin = [(gapm, "air"), (materials.MYLAR, "mylar"), (materials.ALUMINIUM_6061, "metal"), (STRAW_GAS, "gas")]
+        thin = [(gapm, "air"), (materials.MYLAR, "mylar"), (materials.ALUMINIUM_6061, "metal"), (STRAW_GAS, "gas"),
+                (materials.TUNGSTEN, "wire"), (materials.GOLD, "plate")]
+        rw, rw_in = geom.wire_r if wire else 0.0, max(geom.wire_r - geom.wire_plate_t, 0.0) if wire else 0.0
         x0 = {m.name: eloss.radiation_length_mm(m) for m, _ in thin}
-        st = {"kinks": 0, "tail_scatters": 0, "stopped": 0, "iterations": 0, "capped": 0} if stats is None else stats
+        st = ({"kinks": 0, "tail_scatters": 0, "stopped": 0, "iterations": 0, "capped": 0, "wire_hits": 0}
+              if stats is None else stats)
         for _ in range(max_iter):
             if not len(act):
                 break
@@ -208,7 +213,18 @@ class TrackerInterior:
             ua = np.sqrt(np.clip(1 - np.einsum("ij,ij->i", d[it], geom.dir[js]) ** 2, 1e-12, None))
             q = 0.5 * gas * ua
             wall = 2 * (np.sqrt(r_out ** 2 - r_in ** 2 + q ** 2) - q) / ua
-            lens = {"air": np.clip(seg - solid, 0, None) * (gap is not None), "mylar": wall * (1 - f_metal), "metal": wall * f_metal, "gas": gas}
+            lens = {"air": np.clip(seg - solid, 0, None) * (gap is not None), "mylar": wall * (1 - f_metal),
+                    "metal": wall * f_metal, "gas": gas, "wire": np.zeros(nr), "plate": np.zeros(nr)}
+            if rw > 0:
+                # sense wire: chord at the track's distance b from the straw axis (on the wire's own line)
+                nx = np.cross(d[it], geom.dir[js])
+                b = np.abs(np.einsum("ij,ij->i", o[it] - geom.mid[js], nx)) / np.maximum(np.linalg.norm(nx, axis=1), 1e-12)
+                c_out = 2 * np.sqrt(np.clip(rw ** 2 - b ** 2, 0, None)) / ua
+                c_in = 2 * np.sqrt(np.clip(rw_in ** 2 - b ** 2, 0, None)) / ua
+                hitw = gas > 0
+                lens["wire"] = np.where(hitw, c_in, 0.0)
+                lens["plate"] = np.where(hitw, c_out - c_in, 0.0)
+                st["wire_hits"] += int((hitw & (c_out > 0)).sum())
             # straw material moves to the next row of the same muon (it lies in front of that row's straw)
             x_straw_own = sum(lens[k] / x0[m.name] for m, k in thin if k != "air")
             x_air = lens["air"] / x0[gapm.name]
@@ -282,12 +298,18 @@ class TrackerInterior:
                 parts = [(materials.BY_NAME.get(m, materials.ALUMINIUM), c[member]) for m, c in col.items()]
                 parts += [(gapm, lens["air"][member])]
                 parts += [(m, np.where(own, lens[k][pr], 0.0)) for m, k in thin if k != "air"]
+                nuc, che = [], np.zeros(len(km))
                 for mat, ln in parts:
                     x2 = np.bincount(gk, tr.chi_c2(mat, ln, pm, electrons=False), minlength=len(km))
-                    chic2 += x2
-                    thw += x2 * tr.theta_nuclear(mat, p_k)
-                thn = thw / np.maximum(chic2, 1e-300)
-                tt = tr.single_scatter_tail(rng, chic2, tr.tail_threshold(chic2, a, tail_k), thn)
+                    if x2.any():
+                        nuc.append((mat, x2))
+                        chic2 += x2
+                    che += np.bincount(gk, tr.chi_c2_electron(mat, ln, pm), minlength=len(km))
+                th_min = tr.tail_threshold(chic2 + che, a, tail_k)
+                tt = np.zeros((len(km), 2))
+                for mat, x2 in nuc:                      # each material with its own form factor
+                    tt += tr.single_scatter_tail(rng, x2, th_min, tr.theta_nuclear(mat, p_k))
+                tt += tr.single_scatter_tail(rng, che, th_min, None, tr.ME_OVER_MMU)
                 st["tail_scatters"] += int((tt != 0).any(1).sum())
                 dth += tt
                 dy += tt * w1[:, None]

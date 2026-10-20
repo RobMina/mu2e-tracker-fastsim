@@ -46,6 +46,12 @@ def build_parser():
                                  "many mm of the straws' footprint at the plane (1e9 = every downward muon)")
             sp.add_argument("--no-interior", action="store_true",
                             help="stage C: leave out the tracker's support structure (rings, ribs, beams) between straws")
+            sp.add_argument("--no-interior-msc", action="store_true",
+                            help="stage C: energy loss in the support structure but no scattering in it (straight tracks)")
+            sp.add_argument("--msc-tail", action="store_true",
+                            help="stage C: add the single-scattering (Rutherford) tail to the Gaussian MSC core")
+            sp.add_argument("--tail-k", type=float, default=None,
+                            help="with --msc-tail: tail threshold in units of theta0 (default: where tail and Gaussian cross)")
         if name == "elosscheck":
             sp.add_argument("--fast", nargs="+", default=None, metavar="ROOT", help="fast-sim tables for the population check")
             sp.add_argument("--seed", type=int, default=1)

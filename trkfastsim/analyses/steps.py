@@ -7,7 +7,9 @@ StrawGasStepTableDumper layout, same (run, subrun, event) keys, so `v1compare FA
     steps gen.001400_00000001.root [...] --gdml mu2e_extracted_v04.gdml --outdir DIR [--seed N] [--stage A|C]
 
 --stage A: straight from the generated vertex; C: GDML world material and multiple scattering down to the tracker.
-Stage C includes the tracker's support structure (TrackerInterior) unless --no-interior.
+Stage C includes the tracker's support structure (TrackerInterior: loss and scattering per segment between straws)
+unless --no-interior; --no-interior-msc keeps the loss but no scattering in it. --msc-tail adds the single-scattering
+tail above the Gaussian core (world column and interior), --tail-k K puts its threshold at K theta0.
 --library LIB.root: add the G4 library's secondaries (buildlib): in-straw and off-axis (--no-offaxis: in-straw only);
 output prefix fasttrk<stage>L.
 """
@@ -29,7 +31,8 @@ def default_gdml():
 
 
 def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, tag="",
-        sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, **kw):
+        sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=False,
+        tail_k=None, **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom) if stage == "C" else None
@@ -46,7 +49,10 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
         offaxis = (lib_mod.OffAxisSampler(lib, np.random.default_rng([int(seed), i, 2]), plane_bin_width=offaxis_plane_bin)
                    if lib and not no_offaxis else None)
         sgs, parts = st.make_steps(gen, geom, rng, stage=stage, world=world, sampler=sampler, offaxis=offaxis,
-                                   sliced_msc=sliced_msc, interior=interior, near_margin=near_margin)
+                                   sliced_msc=sliced_msc, interior=interior, near_margin=near_margin,
+                                   interior_msc=not no_interior_msc, msc_tail=msc_tail, tail_k=tail_k)
+        if interior is not None:
+            print(f"#   interior: {getattr(st.make_steps, 'interior_stats', {})}", flush=True)
         if offaxis is not None:
             print(f"#   off-axis: {getattr(st.make_steps, 'offaxis_stats', {})}", flush=True)
         name = f"fasttrk{stage}{'L' if lib else ''}{tag}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")

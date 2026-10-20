@@ -11,7 +11,7 @@ fast muons whose G4 twin scattered out of the tracker and biases the fast arm lo
 Compared distributions among selected events, against the agreed T-V1 thresholds: straws per muon (mean within 1 %),
 per-plane counts, path length (mean within 0.5 %, binned ratio +-2 %), eIon (MPV within 2 %, mean within 3 %, binned
 ratio +-5 %); and the world-model observables at the first straw: |p|, direction cosines and entry position (median
-bias, binned ratio). T-V1b (`all_steps`): every StrawGasStep of the selected events, muon and secondaries: steps and
+bias, binned ratio); the in-tracker scattering: deflection between the first and last straw per |p| bin. T-V1b (`all_steps`): every StrawGasStep of the selected events, muon and secondaries: steps and
 eIon per event, eIon per straw (muon + secondaries summed: what the digitiser sees), non-muon share, in-muon-straw vs
 elsewhere. Per-straw matching on the same event is reported only as a geometry diagnostic (exact for stage
 A paths; with independent multiple scattering in both arms its position spread measures the scattering, not a bias).
@@ -47,6 +47,40 @@ def _first(s):
     pos = geometry.to_mu2e(f[["x0", "y0", "z0"]].to_numpy())
     return {"p": p.to_numpy(), "ux": (f.px / p).to_numpy(), "uy": (f.py / p).to_numpy(), "uz": (f.pz / p).to_numpy(),
             "x": pos[:, 0], "y": pos[:, 1], "z": pos[:, 2]}
+
+
+DEFL_P_EDGES = np.array([50.0, 300.0, 500.0, 1000.0, 2000.0, 5000.0, 1e9])   # MeV/c, |p| at the first straw
+
+
+def _deflection(s):
+    """Per selected muon: space angle [mrad] between its momentum at the first and at the last straw (time order),
+    |p| at the first straw, and the vertical drop between them [mm]."""
+    s = s.sort_values("t")
+    g = s.groupby(T.KEY, sort=False)
+    a, b = g[["px", "py", "pz", "y0"]].first().to_numpy(), g[["px", "py", "pz", "y0"]].last().to_numpy()
+    pa, pb = np.linalg.norm(a[:, :3], axis=1), np.linalg.norm(b[:, :3], axis=1)
+    c = np.clip(np.einsum("ij,ij->i", a[:, :3], b[:, :3]) / np.maximum(pa * pb, 1e-12), -1, 1)
+    return 1e3 * np.arccos(c), pa, a[:, 3] - b[:, 3]
+
+
+def _deflection_block(f, r):
+    """In-tracker deflection, first to last straw, fast against G4 per |p| bin: median, q90, q99 and the share above
+    10x the bin median (the single-scattering tail)."""
+    out = {}
+    (tf, pf, _), (tr_, pr, _) = _deflection(f), _deflection(r)
+    for lo, hi in zip(DEFL_P_EDGES[:-1], DEFL_P_EDGES[1:]):
+        mf, mr = (pf >= lo) & (pf < hi), (pr >= lo) & (pr < hi)
+        if mf.sum() < 20 or mr.sum() < 20:
+            continue
+        a, b = tf[mf], tr_[mr]
+        med = np.median(b)
+        out[f"{int(lo)}-{int(min(hi, 1e6))}"] = {
+            "n": [int(mf.sum()), int(mr.sum())],
+            "median_mrad": [float(np.median(a)), float(med)],
+            "q90_mrad": [float(np.quantile(a, 0.9)), float(np.quantile(b, 0.9))],
+            "q99_mrad": [float(np.quantile(a, 0.99)), float(np.quantile(b, 0.99))],
+            "share_above_10x_g4_median": [float(np.mean(a > 10 * med)), float(np.mean(b > 10 * med))]}
+    return out
 
 
 def _band(a, b):
@@ -139,6 +173,7 @@ def run(inputs, outdir, compare=None, **kw):
           "eion_mean": abs(out["eion_keV"]["mean_ratio_minus_1"]) <= 0.03,
           "eion_band": (out["eion_band"].get("max_abs_dev_minus_2sigma") or 1) <= 0.05,
           "time_bias_same_straw": len(ia) > 0 and abs(diag["time_bias_ns"]) <= 0.05}
+    out["deflection_first_to_last"] = _deflection_block(f, r)      # [fast, g4] per |p| bin
     out["all_steps"] = _all_steps_block(fa_all, ra_all, f[T.KEY].drop_duplicates(), r[T.KEY].drop_duplicates())
     out["thresholds_pass"] = th
     for k, v in out.items():

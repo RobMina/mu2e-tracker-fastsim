@@ -71,6 +71,8 @@ class StrawGeometry:
     panel_t: np.ndarray      # [216, 3]
     plane_R: np.ndarray      # [36, 3, 3]
     plane_t: np.ndarray      # [36, 3]
+    wall_rmax: float = None  # outer radius of the straw wall (Mylar + outer metal); None = radius + 0.015
+    metal_t: float = 0.0     # thickness of the wall's outer metal layer (Al6061), inside wall_rmax
 
     @property
     def nstraws(self):
@@ -119,7 +121,7 @@ def from_gdml(path: str) -> StrawGeometry:
         raise ValueError(f"expected one StrawPanelEnvelope logical volume, found {len(env)}")
     env = env[0]
     s_loc = {}
-    radius = None
+    radius, wall_rmax, metal_t = None, None, 0.0
     for pv in vols[env].findall("physvol"):
         lv = pv.find("volumeref").get("ref")
         if not _GAS.match(_strip(lv)):
@@ -130,7 +132,13 @@ def from_gdml(path: str) -> StrawGeometry:
         for d in vols[lv].findall("physvol"):
             dlv = d.find("volumeref").get("ref")
             if _strip(dlv).startswith("TrackerStrawWall_"):
-                radius = float(solids[vols[dlv].find("solidref").get("ref")].get("rmin"))
+                wsol = solids[vols[dlv].find("solidref").get("ref")]
+                radius, wall_rmax = float(wsol.get("rmin")), float(wsol.get("rmax"))
+                for m in vols[dlv].findall("physvol"):
+                    mlv = m.find("volumeref").get("ref")
+                    if _strip(mlv).startswith("TrackerStrawWallOuterMetal_"):
+                        msol = solids[vols[mlv].find("solidref").get("ref")]
+                        metal_t = float(msol.get("rmax")) - float(msol.get("rmin"))
         s_loc[copy] = (t, R @ np.array([0.0, 0.0, 1.0]), 0.5 * float(tube.get("z")))
     if sorted(s_loc) != list(range(NSTRAWS)):
         raise ValueError(f"panel envelope holds straw copies {sorted(s_loc)[:5]}..., expected 0..{NSTRAWS - 1}")
@@ -165,7 +173,8 @@ def from_gdml(path: str) -> StrawGeometry:
     return StrawGeometry(plane=up // NPANELS, panel=up % NPANELS, straw=np.tile(np.arange(NSTRAWS), NPLANES * NPANELS),
                          mid=mid, dir=dirs / np.linalg.norm(dirs, axis=1)[:, None],
                          halflen=np.tile(sl_h, NPLANES * NPANELS), radius=radius,
-                         panel_R=panel_R, panel_t=panel_t, plane_R=plane_R, plane_t=plane_t)
+                         panel_R=panel_R, panel_t=panel_t, plane_R=plane_R, plane_t=plane_t,
+                         wall_rmax=wall_rmax, metal_t=metal_t)
 
 
 def rotation_xyz(rx, ry, rz):

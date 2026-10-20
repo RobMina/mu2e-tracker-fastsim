@@ -3,8 +3,10 @@
 Stages (as the CRV transport): A = straight line from the generated vertex, air mean loss, no MSC; C = the GDML world
 material above the tracker (building, overburden, CRV modules, electronics) in height bands down to a plane just above
 the straws (mu2efastsim.transport.world_loss), energy loss per material and correlated Highland scattering to that
-plane (msc_to_plane), then straight inside the tracker volume. sliced_msc: each height band scatters with its own
-|p| (msc_to_plane band_p) instead of one geometric-mean |p| for the column.
+plane (msc_to_plane), then through the tracker with energy loss and scattering in its support structure segment by
+segment between straws (TrackerInterior.transport; straight between kinks). sliced_msc: each height band scatters with
+its own |p| (msc_to_plane band_p) instead of one geometric-mean |p| for the column. msc_tail: single-scattering
+(Rutherford) tail above the Gaussian core, in the world column and in the interior.
 
 Per primary muon:
   1. straw gas crossings (crossings.straw_crossings), ordered along the track;
@@ -75,6 +77,8 @@ def load_world(gdml_path, geom):
 
 
 INTERIOR_SKIP = ("TrackerStraw", "TrackerWire")   # the straws themselves are handled by crossings/eIon
+KINK_XX0 = 1e-3      # x/X0 of thin material (straws, gaps) accumulated before the in-tracker transport kinks the track
+GAP_MATERIAL = None  # medium between straws and support inside the tracker: the GDML's DSVacuum (None = no material)
 
 
 class TrackerInterior:
@@ -83,8 +87,13 @@ class TrackerInterior:
     Built once from the GDML (tube and polycone solids inside the tracker region, without the straws) as coaxial
     shells about the tracker axis (mu2efastsim.world.CoaxialShells). For each muon crossing it supplies the material
     column between the plane above the tracker and each straw entry, and the energy lost in it (sliced, sampled with
-    the Urban model per material), so |p| drops along the track as in G4. Scattering in this material is not applied
-    (the muon stays straight inside the tracker volume). Off: pass interior=None to make_steps (CLI --no-interior).
+    the Urban model per material), so |p| drops along the track as in G4. Off: pass interior=None to make_steps (CLI
+    --no-interior).
+
+    transport() also scatters, segment by segment: in this material and in the thin material between and in the
+    straws (straw walls, gas; optionally a gap medium, none by default), Gaussian core (Highland, log term on the cumulative in-tracker x/X0) plus
+    optionally the single-scattering tail; the track kinks after each support segment and every KINK_XX0 of thin
+    material, and its straw crossings are recomputed from there. loss_to_straws() is the straight-line (loss only) form.
     """
 
     def __init__(self, gdml_path, geom, nsub=8, pad=300.0):
@@ -128,8 +137,199 @@ class TrackerInterior:
         out = cum - base
         return out, stats
 
+    def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, max_iter=400,
+                  stats=None):
+        """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
-def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN):
+        o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
+        of its straw entry: the previous straw of this pass (two wall chords, Mylar + outer metal from the gas chord and
+        wall_rmax, and its gas chord), then the segment from that straw's exit (or the pass origin) to this entry:
+        support structure (shells column) and the gap medium `gap` in the rest (default none: the tracker volumes are
+        DSVacuum in the GDML). Energy loss is sampled in the support material
+        (slab_loss) and applies from this straw on. Scattering: rows are grouped from the pass origin until their summed
+        x/X0 reaches kink_xx0 or a row holds support material; the group kinks at the entry of that row's straw with
+        the correlated (angle, displacement) Gaussian, Highland with the log term on the cumulative in-tracker x/X0
+        (transport.highland_var_increment), each piece at its own lever arm (support and air at the segment midpoint,
+        straw material at its chord midpoint), plus the single-scattering tail on the group's nuclear chi_c^2 if
+        `tail`. Rows before the kink row are final; crossings are then recomputed from the kinked track (straws already
+        recorded for that muon are skipped). The material behind a muon's last straw is not scattered. Returns a dict of per-crossing arrays sorted by muon then path: it, js, pos0, pos1 (Mu2e frame),
+        dir, path (to the entry, from the plane), lost (interior loss before the entry, MeV).
+        """
+        n = len(p)
+        o, d = o.copy(), d.copy()
+        tk_start = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU
+        lost = np.zeros(n)
+        travelled = np.zeros(n)
+        xcum = np.zeros(n)
+        act = np.arange(n)
+        rows = []
+        done = np.zeros(0, np.int64)                 # muon * nstraw + straw of the recorded crossings
+        ns = len(geom.sid)
+        r_in = geom.radius
+        r_out = geom.wall_rmax if geom.wall_rmax is not None else r_in + 0.015
+        f_metal = min(max(geom.metal_t / max(r_out - r_in, 1e-9), 0.0), 1.0)
+        gapm = gap if gap is not None else materials.AIR          # placeholder material; zero length when gap is None
+        thin = [(gapm, "air"), (materials.MYLAR, "mylar"), (materials.ALUMINIUM_6061, "metal"), (STRAW_GAS, "gas")]
+        x0 = {m.name: eloss.radiation_length_mm(m) for m, _ in thin}
+        st = {"kinks": 0, "tail_scatters": 0, "stopped": 0, "iterations": 0, "capped": 0} if stats is None else stats
+        for _ in range(max_iter):
+            if not len(act):
+                break
+            st["iterations"] += 1
+            xs = crossings.straw_crossings(o[act], d[act], geom)
+            if not len(xs):
+                break
+            loc = xs[:, 0].astype(np.int64)
+            keep = (xs[:, 3] > 1e-9) & ~np.isin(act[loc] * ns + xs[:, 1].astype(np.int64), done)
+            xs, loc = xs[keep], loc[keep]
+            if not len(xs):
+                break
+            it = act[loc]
+            js = xs[:, 1].astype(np.int64)
+            s_in, s_out = xs[:, 2], xs[:, 3]
+            nr = len(it)
+            idx = np.arange(nr)
+            first = np.r_[True, it[1:] != it[:-1]]
+            grp = np.cumsum(first) - 1
+            start = np.flatnonzero(first)
+            row_end = np.r_[start[1:], nr]
+            prev = np.where(first, 0.0, np.r_[0.0, s_out[:-1]])
+            seg = np.clip(s_in - prev, 0.0, None)
+            # support structure in the segment before each straw
+            col = self.shells.column(o[it] + d[it] * prev[:, None], d[it], seg, nsub=self.nsub)
+            col = {m: c for m, c in col.items() if c.any()}
+            solid = np.zeros(nr)
+            x_sup = np.zeros(nr)
+            for m, c in col.items():
+                solid += c
+                x_sup += c / eloss.radiation_length_mm(materials.BY_NAME.get(m, materials.ALUMINIUM))
+            # thin material: air in the segment, the straw's walls (both sides) and gas
+            gas = s_out - s_in
+            ua = np.sqrt(np.clip(1 - np.einsum("ij,ij->i", d[it], geom.dir[js]) ** 2, 1e-12, None))
+            q = 0.5 * gas * ua
+            wall = 2 * (np.sqrt(r_out ** 2 - r_in ** 2 + q ** 2) - q) / ua
+            lens = {"air": np.clip(seg - solid, 0, None) * (gap is not None), "mylar": wall * (1 - f_metal), "metal": wall * f_metal, "gas": gas}
+            # straw material moves to the next row of the same muon (it lies in front of that row's straw)
+            x_straw_own = sum(lens[k] / x0[m.name] for m, k in thin if k != "air")
+            x_air = lens["air"] / x0[gapm.name]
+            prow = np.where(first, -1, idx - 1)                        # previous row of this muon in this pass
+            x_str = np.where(first, 0.0, x_straw_own[np.maximum(prow, 0)])
+            h_mid_str = np.where(first, 0.0, 0.5 * (s_in + s_out)[np.maximum(prow, 0)])
+            xrow = x_sup + x_air + x_str
+            # group from the start of this iteration: kink at the first row reaching kink_xx0 or holding support
+            cx = np.cumsum(xrow)
+            cx = cx - np.r_[0.0, cx][start][grp]
+            trig = (cx >= kink_xx0) | (x_sup > 1e-9)
+            fm = np.minimum.reduceat(np.where(trig, idx, nr), start)
+            kinked = fm < row_end
+            upto = idx <= np.where(kinked, fm, row_end - 1)[grp]     # rows whose support loss is sampled
+            fin = idx < np.where(kinked, fm, row_end)[grp]           # final rows: before the kink row
+            # energy loss in the support material of rows up to the kink row, at the |p| entering this iteration
+            pk = _p_of(tk_start[it] - lost[it])
+            lseg = np.zeros(nr)
+            for m, c in col.items():
+                h = np.flatnonzero((c > 0) & upto)
+                if len(h):
+                    lseg[h] += tr.slab_loss(rng, materials.BY_NAME.get(m, materials.ALUMINIUM), np.maximum(pk[h], 1.0), c[h])
+            cum = np.cumsum(lseg)
+            cum = cum - np.r_[0.0, cum][start][grp]
+            loss_at = lost[it] + cum
+            dead = tk_start[it] - loss_at <= 0.5
+            dead_from = np.full(n, nr)
+            if dead.any():
+                np.minimum.at(dead_from, it[dead], idx[dead])
+                st["stopped"] += int(len(np.unique(it[dead])))
+            ok = fin & (idx < dead_from[it])
+            if ok.any():
+                rows.append({"it": it[ok], "js": js[ok], "pos0": o[it[ok]] + d[it[ok]] * s_in[ok, None],
+                             "pos1": o[it[ok]] + d[it[ok]] * s_out[ok, None], "dir": d[it[ok]].copy(),
+                             "path": travelled[it[ok]] + s_in[ok], "lost": loss_at[ok]})
+                done = np.r_[done, it[ok] * ns + js[ok]]
+            kr = fm[kinked]
+            km = it[kr]
+            go = dead_from[km] > kr
+            kr, km = kr[go], km[go]
+            if not len(km):
+                act = np.zeros(0, np.int64)
+                break
+            # group rows of each kinking muon: its first row of this pass to its kink row (km is sorted, as it)
+            member = np.flatnonzero(upto & kinked[grp] & np.isin(it, km))
+            gk = np.searchsorted(km, it[member])
+            s_k = s_in[kr]
+            # lever arms to the kink point: support and air at the segment midpoint, straw material at its chord midpoint
+            h_seg = s_k[gk] - (prev[member] + 0.5 * seg[member])
+            h_str = s_k[gk] - h_mid_str[member]
+            xs_m = x_sup[member] + x_air[member]
+            xt_m = x_str[member]
+            X = np.bincount(gk, xrow[member], minlength=len(km))
+            S1 = np.bincount(gk, xs_m * h_seg + xt_m * h_str, minlength=len(km))
+            S2 = np.bincount(gk, xs_m * h_seg ** 2 + xt_m * h_str ** 2, minlength=len(km))
+            w1, w2 = S1 / np.maximum(X, 1e-30), S2 / np.maximum(X, 1e-30)
+            p_k = _p_of(tk_start[km] - lost[km] - cum[kr])
+            V = tr.highland_var_increment(p_k, xcum[km], xcum[km] + X)
+            a = np.sqrt(V)
+            b = np.sqrt(np.clip(V * w2 - (V * w1) ** 2 / np.maximum(V, 1e-30), 0, None))
+            z_t = rng.standard_normal((len(km), 2))
+            z_y = rng.standard_normal((len(km), 2))
+            dth = z_t * a[:, None]
+            dy = z_t * (V * w1 / np.maximum(a, 1e-30))[:, None] + z_y * b[:, None]
+            if tail:
+                chic2 = np.zeros(len(km))
+                thw = np.zeros(len(km))
+                pm = p_k[gk]
+                pr = np.maximum(prow[member], 0)
+                own = ~first[member]
+                parts = [(materials.BY_NAME.get(m, materials.ALUMINIUM), c[member]) for m, c in col.items()]
+                parts += [(gapm, lens["air"][member])]
+                parts += [(m, np.where(own, lens[k][pr], 0.0)) for m, k in thin if k != "air"]
+                for mat, ln in parts:
+                    x2 = np.bincount(gk, tr.chi_c2(mat, ln, pm, electrons=False), minlength=len(km))
+                    chic2 += x2
+                    thw += x2 * tr.theta_nuclear(mat, p_k)
+                thn = thw / np.maximum(chic2, 1e-300)
+                tt = tr.single_scatter_tail(rng, chic2, tr.tail_threshold(chic2, a, tail_k), thn)
+                st["tail_scatters"] += int((tt != 0).any(1).sum())
+                dth += tt
+                dy += tt * w1[:, None]
+            end = o[km] + d[km] * s_k[:, None]
+            pos, dn = _kink(end, d[km], dth, dy)
+            o[km] = pos
+            d[km] = dn
+            travelled[km] += s_k
+            lost[km] += cum[kr]
+            xcum[km] += X
+            st["kinks"] += len(km)
+            act = km
+        else:
+            st["capped"] += len(act)
+        self.last_stats = st
+        if not rows:
+            z3 = np.zeros((0, 3))
+            return {"it": np.zeros(0, np.int64), "js": np.zeros(0, np.int64), "pos0": z3, "pos1": z3, "dir": z3,
+                    "path": np.zeros(0), "lost": np.zeros(0)}
+        out = {k: np.concatenate([r[k] for r in rows]) for k in rows[0]}
+        order = np.lexsort((out["path"], out["it"]))
+        return {k: v[order] for k, v in out.items()}
+
+
+def _p_of(tk):
+    """|p| [MeV/c] of a muon with kinetic energy tk [MeV] (floored at 0.5 MeV)."""
+    tk = np.maximum(tk, 0.5)
+    return np.sqrt((tk + eloss.MMU) ** 2 - eloss.MMU ** 2)
+
+
+def _kink(pos, d, dth, dy):
+    """Displace pos by dy and turn d by dth in the two transverse planes of d (as transport._apply_msc, no plane)."""
+    ref = np.where(np.abs(d[:, [0]]) < 0.9, np.array([[1.0, 0, 0]]), np.array([[0, 0, 1.0]]))
+    u = np.cross(d, ref)
+    u /= np.linalg.norm(u, axis=1)[:, None]
+    v = np.cross(d, u)
+    dn = d + u * np.tan(dth[:, [0]]) + v * np.tan(dth[:, [1]])
+    dn /= np.linalg.norm(dn, axis=1)[:, None]
+    return pos + u * dy[:, [0]] + v * dy[:, [1]], dn
+
+
+def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN, msc_tail=False, tail_k=None):
     """Stage C transport of the primary muons to the plane above the tracker.
 
     Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]); tracks
@@ -146,10 +346,13 @@ def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARG
     L = np.zeros(len(mu))
     alive = np.ones(len(mu), bool)
     if near.any():
-        pw, xx0, ok, bxx0, bh, bp = tr.world_loss(rng, o[near], d[near], p0[near], world, edges, return_band_p=True)
+        res = tr.world_loss(rng, o[near], d[near], p0[near], world, edges, return_band_p=True, return_tail=msc_tail)
+        pw, xx0, ok, bxx0, bh, bp = res[:6]
+        chic2, thn = res[6:] if msc_tail else (None, None)
         p_msc = np.maximum(np.sqrt(p0[near] * np.maximum(pw, 1.0)), 1.0)   # geometric mean over the column
         on, dn, Ln = tr.msc_to_plane(rng, o[near], d[near], p_msc, y_pl, eloss.radiation_length_mm(materials.AIR),
-                                     xx0, bxx0, bh, band_p=bp if sliced_msc else None)
+                                     xx0, bxx0, bh, band_p=bp if sliced_msc else None,
+                                     band_chic2=chic2, band_thn=thn, tail_k=tail_k)
         o, d = o.copy(), d.copy()
         o[near], d[near], L[near], p[near] = on, dn, Ln, pw
         alive[np.flatnonzero(near)[~ok]] = False
@@ -296,14 +499,19 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
 
 
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
-               interior=None, near_margin=FOOTPRINT_MARGIN):
+               interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=False, tail_k=None):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
     offaxis: an OffAxisSampler to add the library's off-axis secondaries (needs the muon steps first).
-    interior: a TrackerInterior to lose energy in the tracker's support structure between straws (None = off)."""
+    interior: a TrackerInterior to lose energy in the tracker's support structure between straws (None = off).
+    interior_msc: with interior, also scatter in it segment by segment (TrackerInterior.transport); False = the muon
+    stays straight inside the tracker (loss only). msc_tail: add the single-scattering tail to the Gaussian core, in
+    the world column above the plane (stage C) and in the interior; tail_k: tail threshold in units of theta0 (None =
+    where the tail density crosses the Gaussian)."""
     if stage == "C":
-        mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin)
+        mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
+                                                   msc_tail=msc_tail, tail_k=tail_k)
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     else:
         mu = primary_muons(gen)
@@ -311,30 +519,49 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         o = mu[["x", "y", "z"]].to_numpy()
         d = mu[["px", "py", "pz"]].to_numpy() / p0[:, None]
         p_start, t_off, alive = p0.copy(), np.zeros(len(mu)), np.ones(len(mu), bool)
-    xs = crossings.straw_crossings(o, d, geom)
-    xs = xs[alive[xs[:, 0].astype(np.int64)]] if len(xs) else xs
-    it = xs[:, 0].astype(np.int64)
-    js = xs[:, 1].astype(np.int64)
-    s_in, s_out = xs[:, 2], xs[:, 3]
-    path = s_out - s_in
-    p = p_start[it]
-    if air_loss:
-        p = np.maximum(p - eloss.dedx_restricted(materials.AIR, p_start[it], 1e9) * s_in, 1.0)
-    if interior is not None and len(it):
-        lost, make_steps.interior_stats = interior.loss_to_straws(rng, o, d, p_start, it, s_in)
+    if interior is not None and interior_msc:
+        sel = np.flatnonzero(alive)
+        tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k)
+        make_steps.interior_stats = interior.last_stats
+        it = sel[tr_["it"]]
+        js = tr_["js"]
+        w0, w1, dirs = tr_["pos0"], tr_["pos1"], tr_["dir"]
+        s_in = tr_["path"]
+        path = np.linalg.norm(w1 - w0, axis=1)
+        lost = tr_["lost"]
+        p = p_start[it]
+        if air_loss:
+            p = np.maximum(p - eloss.dedx_restricted(materials.AIR, p_start[it], 1e9) * s_in, 1.0)
         tk = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU - lost
-        stopped = tk <= 0.5
         p = np.sqrt(np.clip((np.maximum(tk, 0.5) + eloss.MMU) ** 2 - eloss.MMU ** 2, 1.0, None))
-        if stopped.any():   # a muon ranging out in the support structure makes no further straw steps
-            keep = ~stopped
-            it, js, s_in, s_out, path, p = it[keep], js[keep], s_in[keep], s_out[keep], path[keep], p[keep]
+    else:
+        xs = crossings.straw_crossings(o, d, geom)
+        xs = xs[alive[xs[:, 0].astype(np.int64)]] if len(xs) else xs
+        it = xs[:, 0].astype(np.int64)
+        js = xs[:, 1].astype(np.int64)
+        s_in, s_out = xs[:, 2], xs[:, 3]
+        path = s_out - s_in
+        p = p_start[it]
+        if air_loss:
+            p = np.maximum(p - eloss.dedx_restricted(materials.AIR, p_start[it], 1e9) * s_in, 1.0)
+        if interior is not None and len(it):
+            lost, make_steps.interior_stats = interior.loss_to_straws(rng, o, d, p_start, it, s_in)
+            tk = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU - lost
+            stopped = tk <= 0.5
+            p = np.sqrt(np.clip((np.maximum(tk, 0.5) + eloss.MMU) ** 2 - eloss.MMU ** 2, 1.0, None))
+            if stopped.any():   # a muon ranging out in the support structure makes no further straw steps
+                keep = ~stopped
+                it, js, s_in, s_out, path, p = it[keep], js[keep], s_in[keep], s_out[keep], path[keep], p[keep]
+        w0 = o[it] + d[it] * s_in[:, None]
+        w1 = o[it] + d[it] * s_out[:, None]
+        dirs = d[it]
     eion = eloss.sample_loss(rng, STRAW_GAS, p, path, delta_cut_mev())
     e = np.sqrt(p ** 2 + eloss.MMU ** 2)
     bg = p / eloss.MMU
     ke = e - eloss.MMU
     t = mu.t.to_numpy()[it] + (s_in + t_off[it]) / ((p0[it] / np.sqrt(p0[it] ** 2 + eloss.MMU ** 2)) * C_MM_PER_NS)
-    pos0 = geometry.to_detector(o[it] + d[it] * s_in[:, None])
-    pos1 = geometry.to_detector(o[it] + d[it] * s_out[:, None])
+    pos0 = geometry.to_detector(w0)
+    pos1 = geometry.to_detector(w1)
     steps = pd.DataFrame({k: mu[k].to_numpy()[it] for k in KEY})
     steps["nsgs"] = np.bincount(it, minlength=len(mu))[it]
     steps["sid"] = geom.sid[js]
@@ -352,7 +579,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     for j, c in enumerate("xyz"):
         steps[f"{c}0"] = pos0[:, j]
         steps[f"{c}1"] = pos1[:, j]
-        steps[f"p{c}"] = d[it, j] * p
+        steps[f"p{c}"] = dirs[:, j] * p
     parts = pd.DataFrame({k: mu[k].to_numpy() for k in KEY})
     parts["key"] = 1
     parts["parent"] = -1

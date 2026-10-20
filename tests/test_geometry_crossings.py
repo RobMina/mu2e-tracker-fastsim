@@ -103,3 +103,105 @@ def test_interior_loss_accumulates_along_the_muon():
     # 10 mm Cu = 8.96 g/cm2: Bethe mean ~13 MeV, one Urban sample per wall sits around it (MPV lower)
     assert lost[0] == 0 and 2 < lost[1] < 15 and lost[2] > lost[1] and 10 < lost[2] < 50
     assert abs(stats["G4_Cu"] - 20.0) < 0.5
+
+
+def _plate_interior(thick=10.0):
+    """TrackerInterior stub: a copper shell (rmin 100, rmax 100 + thick) about the z axis."""
+    from mu2efastsim import world as Wd
+    from trkfastsim import steps as S
+    interior = S.TrackerInterior.__new__(S.TrackerInterior)
+    tube = [("G4_Cu", np.eye(3), np.array([0.0, 0.0, 0.0]), 100.0, 100.0 + thick, 1000.0, 0.0, 2 * np.pi)]
+    interior.shells = Wd.CoaxialShells(tube, axis_point=[0.0, 0.0, 0.0])
+    interior.nsub = 8
+    return interior
+
+
+def _layers(ys, h=5000.0, n=401, pitch=6.0):
+    """Straw layers along x at heights ys, spanning |z| <= pitch * n / 2 (one panel per layer)."""
+    zs = pitch * (np.arange(n) - n // 2)
+    mid = np.array([[0.0, y, z] for y in ys for z in zs])
+    m = len(mid)
+    up = np.repeat(np.arange(len(ys)), n)
+    return G.StrawGeometry(plane=np.zeros(m, int), panel=up, straw=np.tile(np.arange(n), len(ys)), mid=mid,
+                           dir=np.tile([1.0, 0, 0], (m, 1)), halflen=np.full(m, h), radius=R,
+                           panel_R=np.tile(np.eye(3), (len(ys), 1, 1)), panel_t=np.zeros((len(ys), 3)),
+                           plane_R=np.tile(np.eye(3), (len(ys), 1, 1)), plane_t=np.zeros((len(ys), 3)))
+
+
+def test_interior_transport_kinks_after_material_and_matches_highland():
+    from mu2efastsim import eloss as E, materials as M
+    interior = _plate_interior(10.0)
+    g = _layers([150.0, -150.0], pitch=4.0)   # overlapping straws: no gaps that would select small angles
+    n = 20_000
+    rng = np.random.default_rng(2)
+    o = np.tile([0.0, 200.0, 0.0], (n, 1))
+    d = np.tile([0.0, -1.0, 0.0], (n, 1))
+    p = np.full(n, 2000.0)
+    out = interior.transport(rng, o, d, p, g, tail=False, kink_xx0=1e9)   # support kinks only
+    first = out["pos0"][:, 1] > 0
+    assert np.allclose(out["dir"][first], [0, -1, 0]) and (out["lost"][first] == 0).all()
+    # each muon's first crossing below the walls
+    low = ~first & (np.r_[True, (out["pos0"][:-1, 1] > 0) | (out["it"][1:] != out["it"][:-1])])
+    assert low.sum() == n and (out["lost"][low] > 5).all()
+    # angle below both walls: Highland of 20 mm Cu (the incremental log term)
+    th = np.arctan2(out["dir"][low, 2], -out["dir"][low, 1])
+    th0 = E.highland_theta0(2000.0 - 15, 20.0 / E.radiation_length_mm(M.COPPER))
+    assert abs(np.std(th) / th0 - 1) < 0.05
+    # displacement in the lower layer: kinks at the straw entries, lever arms from the walls to y = -150
+    assert np.std(out["pos0"][low, 2]) > 0.5
+
+
+def test_interior_transport_without_material_is_a_straight_line():
+    interior = _plate_interior(10.0)
+    g = _layers([60.0, 30.0])              # both layers inside the shell's hole (r < 100)
+    rng = np.random.default_rng(3)
+    o = np.tile([0.0, 90.0, 0.3], (5, 1))
+    d = np.tile([0.0, -1.0, 0.0], (5, 1))
+    out = interior.transport(rng, o, d, np.full(5, 1500.0), g, tail=True, kink_xx0=1e9)
+    xs = X.straw_crossings(o, d, g)
+    assert len(out["it"]) == len(xs) and np.allclose(out["path"], xs[:, 2]) and (out["lost"] == 0).all()
+    assert interior.last_stats["kinks"] == 0
+
+
+def test_interior_transport_tail_adds_large_angles():
+    interior = _plate_interior(10.0)
+    g = _layers([150.0, -150.0])
+    n = 100_000
+    o = np.tile([0.0, 200.0, 0.0], (n, 1))
+    d = np.tile([0.0, -1.0, 0.0], (n, 1))
+    p = np.full(n, 2000.0)
+    a = interior.transport(np.random.default_rng(4), o, d, p, g, tail=False, kink_xx0=1e9)
+    b = interior.transport(np.random.default_rng(4), o, d, p, g, tail=True, kink_xx0=1e9)
+    ta = np.abs(np.arctan2(a["dir"][a["pos0"][:, 1] < 0, 2], -a["dir"][a["pos0"][:, 1] < 0, 1]))
+    tb = np.abs(np.arctan2(b["dir"][b["pos0"][:, 1] < 0, 2], -b["dir"][b["pos0"][:, 1] < 0, 1]))
+    s = np.median(ta) / 0.6745
+    assert abs(np.median(tb) / np.median(ta) - 1) < 0.03
+    assert (tb > 5 * s).sum() > 10 * max((ta > 5 * s).sum(), 1)
+
+
+def test_interior_transport_scatters_in_straws_and_air():
+    """No support material: the straws alone scatter (Highland of their summed x/X0); air in the gaps adds to it."""
+    from mu2efastsim import eloss as E, materials as M
+    from trkfastsim import steps as S
+    interior = _plate_interior(10.0)
+    ys = np.linspace(95.0, -95.0, 10)                 # ten layers inside the shell's hole (r < 100)
+    g = _layers(ys, pitch=4.0)
+    g.wall_rmax, g.metal_t = R + 0.015, 5e-5
+    n = 20_000
+    o = np.tile([0.0, 99.0, 0.0], (n, 1))
+    d = np.tile([0.0, -1.0, 0.0], (n, 1))
+    p = np.full(n, 300.0)
+    out = interior.transport(np.random.default_rng(6), o, d, p, g, tail=False)
+    assert interior.last_stats["kinks"] >= n and (out["lost"] == 0).all()     # column x/X0 ~ 1.4e-3: >= one kink each
+    lastrow = np.r_[out["it"][1:] != out["it"][:-1], True]
+    th = np.arctan2(out["dir"][lastrow, 2], -out["dir"][lastrow, 1])
+    # material up to the last kink: at most ~10 straws (gas + two walls), the last one behind the last kink
+    xmax = 10 * (5.0 / E.radiation_length_mm(S.STRAW_GAS) + 0.03 / E.radiation_length_mm(M.MYLAR))
+    th_max = E.highland_theta0(300.0, xmax)
+    assert 0.6 * th_max < np.std(th) < 1.05 * th_max
+    out_air = interior.transport(np.random.default_rng(6), o, d, p, g, tail=False, gap=M.AIR)
+    th_air = np.arctan2(out_air["dir"][lastrow, 2], -out_air["dir"][lastrow, 1])
+    assert np.std(th_air) > 1.05 * np.std(th)        # 190 mm air adds ~40 % to x/X0: ~+9 % in theta0
+    # straight with kink_xx0 huge (no support crossed): no kinks
+    interior.transport(np.random.default_rng(6), o[:100], d[:100], p[:100], g, kink_xx0=1e9)
+    assert interior.last_stats["kinks"] == 0

@@ -49,8 +49,9 @@ CLI: `python3 -m trkfastsim <subcommand> -h`.
 | `buildlib` | G4 secondary library from reference tables |
 | `elosscheck` | primary-muon eIon per straw: the Urban sampler on G4 kinematics, and the fast population against G4 |
 | `worldcheck` | world model event by event: \|p\| at the first straw vs generation, delivery and loss, fast vs G4 |
-| `v1compare` | T-V1: primary-muon StrawGasSteps fast vs G4 (rate per live time, straws per muon, path, eIon, first-straw state, first-to-last-straw deflection per \|p\|) with the T-V1 thresholds |
+| `v1compare` | T-V1: primary-muon StrawGasSteps fast vs G4 (rate per live time, straws per muon, path, eIon with the MPV from a Moyal fit, first-straw state, first-to-last-straw deflection per \|p\|) with the T-V1 thresholds |
 | `msccheck` | in-tracker scattering per consecutive step pair (p theta), straw-only vs support pairs, tail shares, fast vs G4 |
+| `stepcheck` | diagnose the T-V1 path and eIon checks: crossing-angle population, G4 half-vs-half noise floor, band bins |
 
 ## Reproducing the validation on a Mu2e GPVM
 
@@ -143,12 +144,17 @@ umbrella history, and run the script from that checkout.
 |---|---|---|---|
 | `base` | `c1SIs` | `--no-interior-msc --no-msc-tail`: support loss, straight tracks in the tracker | any; the script only rescores an existing `fast_c1SIs`, made with `steps ... --outdir $M2FS_DATA/trk_fastsim/fast_c1SIs --seed 1 --stage C --sliced-msc --no-interior-msc --no-msc-tail` |
 | `vac` / `vactail` | `c1SIsV` / `c1SIsVT` | straws and support scatter, no sense wire; without / with the nuclear-only tail | tracker `e6e16ed` |
-| `wire` / `wiretail` | `c1SIsX` / `c1SIsXT` | + sense wire; without / with the nuclear + electron tail | tracker `52a7522` and later (`wire` = `--no-msc-tail`) |
-| `default` | `c1SIsD` | no flags; identical to `wiretail` | tracker `94e53a8` and later |
+| `wire` / `wiretail` | `c1SIsX` / `c1SIsXT` | + sense wire; without / with the nuclear + electron tail | tracker `52a7522` to `94e53a8` (later code adds the kink fix below) |
+| `default` | `c1SIsD` | no flags: `wiretail` + the kink fix (a kink no longer cuts the next straw's chord short) | the commit after `bff9271` and later |
+| `rescore_<SUFFIX>` | `c1SIs<SUFFIX>` | reruns only the comparisons on an existing `fast_c1SIs<SUFFIX>` (`rescore_base` for `fast_c1SIs`) | any |
 
 The `msc`, `tail`, `wall` and `walltail` arms in the script are intermediate states of 2026-10-19 (support-only
 scattering; air in the gaps) that were never committed on their own; they are kept for the record and cannot be
 reproduced from the history.
+
+Expected result of `default` (2026-10-20, seed 1): every T-V1 threshold passes; rate per live time -1.2 % +- 1.9 %,
+straws per muon -0.7 %, path mean -0.44 %, eIon mean +0.7 %, eIon MPV +1.6 % +- 1.6 %; first-to-last-straw
+deflection medians within 0.1 mrad of G4 from 300 MeV/c to 5 GeV/c.
 
 Single comparisons can also be run by hand, e.g.
 
@@ -156,7 +162,12 @@ Single comparisons can also be run by hand, e.g.
 D=$M2FS_DATA/trk_fastsim
 python3 -m trkfastsim v1compare "$D/fast_c1SIsD/fasttrkC.*.root" --compare "$D/g4ref_v1_tables/sgsteps.*.root" --outdir $D/plots/v1compare_c1SIsD
 python3 -m trkfastsim msccheck  "$D/fast_c1SIsD/fasttrkC.*.root" --compare "$D/g4ref_v1_tables/sgsteps.*.root" --outdir $D/plots/msccheck_c1SIsD
+python3 -m trkfastsim stepcheck "$D/fast_c1SIsD/fasttrkC.*.root" --compare "$D/g4ref_v1_tables/sgsteps.*.root" --outdir $D/plots/stepcheck_c1SIsD
 ```
+
+`stepcheck` explains a path or eIon difference: path per crossing-angle, impact-parameter and |p| bin, the fast mean
+path reweighted to the G4 angle population, every T-V1 statistic for G4 against itself (alternating shards) as the
+noise floor, and the per-bin ratios behind the band checks.
 
 Quote the globs: the subcommands expand them.
 

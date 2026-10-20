@@ -224,3 +224,26 @@ def test_interior_transport_wire_hits_add_large_angles():
     a = np.abs(np.arctan2(out["dir"][last(out), 2], -out["dir"][last(out), 1]))
     b = np.abs(np.arctan2(ref["dir"][last(ref), 2], -ref["dir"][last(ref), 1]))
     assert np.quantile(a, 0.95) > 3 * np.quantile(b, 0.95)
+
+
+def test_interior_transport_does_not_truncate_chords_after_a_kink():
+    """A kink displaces the track at the next straw's entry; the restart must not begin inside that straw's gas."""
+    interior = _plate_interior(10.0)
+    g = _layers(np.linspace(95.0, -95.0, 12), n=41, pitch=5.3)
+    g.wall_rmax, g.metal_t = R + 0.015, 5e-5
+    n = 3000
+    rng = np.random.default_rng(12)
+    o = np.c_[rng.uniform(-50, 50, n), np.full(n, 99.0), rng.uniform(-30, 30, n)]
+    th, ph = rng.uniform(0, 0.6, n), rng.uniform(0, 2 * np.pi, n)
+    d = np.c_[np.sin(th) * np.cos(ph), -np.cos(th), np.sin(th) * np.sin(ph)]
+    out = interior.transport(np.random.default_rng(1), o, d, np.full(n, 300.0), g, tail=True)
+    assert interior.last_stats["kinks"] > n
+    L = np.linalg.norm(out["pos1"] - out["pos0"], axis=1)
+    js, u = out["js"], out["dir"]
+    a, w = g.dir[js], out["pos0"] - g.mid[js]
+    cx = np.cross(u, a)
+    b = np.abs(np.einsum("ij,ij->i", w, cx)) / np.maximum(np.linalg.norm(cx, axis=1), 1e-12)
+    ua = np.sqrt(1 - np.einsum("ij,ij->i", u, a) ** 2)
+    chord = 2 * np.sqrt(np.clip(R ** 2 - b ** 2, 0, None)) / ua
+    # each step is the full chord of its own straight line (a few clipped by the straw ends: none here)
+    assert np.mean(L < chord - 0.01) < 0.002 and abs(L.mean() / chord.mean() - 1) < 5e-4

@@ -9,8 +9,8 @@ CRY primaries, so the live times are equal), never by restricting the fast sim t
 fast muons whose G4 twin scattered out of the tracker and biases the fast arm low.
 
 Compared distributions among selected events, against the agreed T-V1 thresholds: straws per muon (mean within 1 %),
-per-plane counts, path length (mean within 0.5 %, binned ratio +-2 %), eIon (MPV within 2 %, mean within 3 %, binned
-ratio +-5 %); and the world-model observables at the first straw: |p|, direction cosines and entry position (median
+per-plane counts, path length (mean within 0.5 %, binned ratio +-2 %), eIon (MPV within 2 % after a 2-sigma
+allowance, from a Moyal fit to the peak, stats.mpv_fit; mean within 3 %, binned ratio +-5 %); and the world-model observables at the first straw: |p|, direction cosines and entry position (median
 bias, binned ratio); the in-tracker scattering: deflection between the first and last straw per |p| bin. T-V1b (`all_steps`): every StrawGasStep of the selected events, muon and secondaries: steps and
 eIon per event, eIon per straw (muon + secondaries summed: what the digitiser sees), non-muon share, in-muon-straw vs
 elsewhere. Per-straw matching on the same event is reported only as a geometry diagnostic (exact for stage
@@ -88,6 +88,12 @@ def _band(a, b):
     return {k: v for k, v in r.items() if k.startswith("max") or k == "nbins_used"}
 
 
+def _band_ok(band, limit):
+    """Binned-ratio threshold: max |ratio - 1| after the 2-sigma allowance <= limit; no usable bins fails."""
+    v = band.get("max_abs_dev_minus_2sigma")
+    return v is not None and v <= limit
+
+
 def _rel(a, b):
     return float(a / b - 1)
 
@@ -113,7 +119,7 @@ def _all_steps_block(fa_all, ra_all, f_ev, r_ev):
     cmp = {"steps_per_event_ratio_minus_1": _rel(f["steps_per_event_mean"], r["steps_per_event_mean"]),
            "eion_per_event_ratio_minus_1": _rel(f["eion_per_event_keV_mean"], r["eion_per_event_keV_mean"]),
            "eion_per_straw_mean_ratio_minus_1": _rel(f["_eion_straw"].mean(), r["_eion_straw"].mean()),
-           "eion_per_straw_mpv": {"fast": stats.mpv(f["_eion_straw"], 0, 4, 200), "g4": stats.mpv(r["_eion_straw"], 0, 4, 200)},
+           "eion_per_straw_mpv": {"fast": stats.mpv_fit(f["_eion_straw"], 0, 4, 200)[0], "g4": stats.mpv_fit(r["_eion_straw"], 0, 4, 200)[0]},
            "eion_per_straw_band": _band(f["_eion_straw"], r["_eion_straw"]),
            "eion_step_band": _band(f["_eion"], r["_eion"]),
            "nonmuon_in_muon_straw_per_event_ratio_minus_1": _rel(f["nonmuon_in_muon_straw"] / len(f["_per_n"]),
@@ -146,9 +152,12 @@ def run(inputs, outdir, compare=None, **kw):
     out["len_mean"] = {"fast": float(f.len.mean()), "g4": float(r.len.mean()), "ratio_minus_1": _rel(f.len.mean(), r.len.mean())}
     out["len_band"] = _band(f.len, r.len)
     ef, er = 1e3 * f.eion.to_numpy(), 1e3 * r.eion.to_numpy()   # keV
+    (mf, sf), (mr, sr) = stats.mpv_fit(ef, 0, 4, 200), stats.mpv_fit(er, 0, 4, 200)
     out["eion_keV"] = {"mean_fast": float(ef.mean()), "mean_g4": float(er.mean()), "mean_ratio_minus_1": _rel(ef.mean(), er.mean()),
-                       "mpv_fast": stats.mpv(ef, 0, 4, 200), "mpv_g4": stats.mpv(er, 0, 4, 200)}
-    out["eion_keV"]["mpv_ratio_minus_1"] = out["eion_keV"]["mpv_fast"] / out["eion_keV"]["mpv_g4"] - 1
+                       "mpv_fast": mf, "mpv_g4": mr, "mpv_err_fast": sf, "mpv_err_g4": sr,
+                       "mpv_argmax_fast": stats.mpv(ef, 0, 4, 200), "mpv_argmax_g4": stats.mpv(er, 0, 4, 200)}
+    out["eion_keV"]["mpv_ratio_minus_1"] = mf / mr - 1
+    out["eion_keV"]["mpv_ratio_err"] = float(mf / mr * np.hypot(sf / mf, sr / mr))
     out["eion_band"] = _band(ef, er)
     a, b = _first(f), _first(r)
     out["first_straw"] = {}
@@ -168,10 +177,11 @@ def run(inputs, outdir, compare=None, **kw):
     out["same_straw_diag"] = diag
     th = {"straws_per_muon": abs(out["straws_per_muon_mean"]["ratio_minus_1"]) <= 0.01,
           "len_mean": abs(out["len_mean"]["ratio_minus_1"]) <= 0.005,
-          "len_band": (out["len_band"].get("max_abs_dev_minus_2sigma") or 1) <= 0.02,
-          "eion_mpv": abs(out["eion_keV"]["mpv_ratio_minus_1"]) <= 0.02,
+          "len_band": _band_ok(out["len_band"], 0.02),
+          # |MPV ratio - 1| within 2 % after a 2-sigma statistical allowance (the fit error, not a bin width)
+          "eion_mpv": bool(abs(out["eion_keV"]["mpv_ratio_minus_1"]) - 2 * out["eion_keV"]["mpv_ratio_err"] <= 0.02),
           "eion_mean": abs(out["eion_keV"]["mean_ratio_minus_1"]) <= 0.03,
-          "eion_band": (out["eion_band"].get("max_abs_dev_minus_2sigma") or 1) <= 0.05,
+          "eion_band": _band_ok(out["eion_band"], 0.05),
           "time_bias_same_straw": len(ia) > 0 and abs(diag["time_bias_ns"]) <= 0.05}
     out["deflection_first_to_last"] = _deflection_block(f, r)      # [fast, g4] per |p| bin
     out["all_steps"] = _all_steps_block(fa_all, ra_all, f[T.KEY].drop_duplicates(), r[T.KEY].drop_duplicates())

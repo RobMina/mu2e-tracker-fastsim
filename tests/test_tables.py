@@ -27,3 +27,12 @@ def test_steps_split_between_particles_fail():
 def test_cuts_on_eion_and_momentum():
     s = pd.concat([_steps(11, 1), _steps(1, 1, eion=1e-7), _steps(1, 1, pz=40.0)])
     assert not T.trk_filter(s).pass_trk.any()
+
+
+def test_band_threshold_accepts_zero_deviation():
+    """A binned-ratio band of exactly 0 after the 2-sigma allowance passes; no usable bins fails."""
+    from trkfastsim.analyses.v1compare import _band_ok
+    assert _band_ok({"max_abs_dev_minus_2sigma": 0.0}, 0.05)
+    assert _band_ok({"max_abs_dev_minus_2sigma": 0.049}, 0.05)
+    assert not _band_ok({"max_abs_dev_minus_2sigma": 0.06}, 0.05)
+    assert not _band_ok({"max_abs_dev_minus_2sigma": None}, 0.05)

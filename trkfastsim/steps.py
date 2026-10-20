@@ -78,6 +78,7 @@ def load_world(gdml_path, geom):
 
 INTERIOR_SKIP = ("TrackerStraw", "TrackerWire")   # the straws themselves are handled by crossings/eIon
 KINK_XX0 = 1e-3      # x/X0 of thin material (straws, gaps) accumulated before the in-tracker transport kinks the track
+KINK_BACKOFF_MM = 0.05   # the in-tracker kink is applied this far before the kink straw's gas entry
 GAP_MATERIAL = None  # medium between straws and support inside the tracker: the GDML's DSVacuum (None = no material)
 
 
@@ -163,6 +164,7 @@ class TrackerInterior:
         lost = np.zeros(n)
         travelled = np.zeros(n)
         xcum = np.zeros(n)
+        restarted = np.zeros(n, bool)                # muon restarted before its kink straw (back-off segment counted)
         act = np.arange(n)
         rows = []
         done = np.zeros(0, np.int64)                 # muon * nstraw + straw of the recorded crossings
@@ -199,7 +201,8 @@ class TrackerInterior:
             start = np.flatnonzero(first)
             row_end = np.r_[start[1:], nr]
             prev = np.where(first, 0.0, np.r_[0.0, s_out[:-1]])
-            seg = np.clip(s_in - prev, 0.0, None)
+            # the back-off segment in front of a restarted muon's first straw was counted in the pass before
+            seg = np.where(first & restarted[it], 0.0, np.clip(s_in - prev, 0.0, None))
             # support structure in the segment before each straw
             col = self.shells.column(o[it] + d[it] * prev[:, None], d[it], seg, nsub=self.nsub)
             col = {m: c for m, c in col.items() if c.any()}
@@ -313,11 +316,17 @@ class TrackerInterior:
                 st["tail_scatters"] += int((tt != 0).any(1).sum())
                 dth += tt
                 dy += tt * w1[:, None]
-            end = o[km] + d[km] * s_k[:, None]
+            # kink at the end of the segment in front of the kink straw, KINK_BACKOFF_MM before its gas entry (but in
+            # the segment), so the displaced restart point stays outside that straw and its crossing is whole
+            back = np.minimum(KINK_BACKOFF_MM, 0.5 * seg[kr])
+            end = o[km] + d[km] * (s_k - back)[:, None]
             pos, dn = _kink(end, d[km], dth, dy)
+            # a displacement can still land the point inside a straw's gas: move it back out along the new direction
+            pos = _exit_gas_backwards(pos, dn, geom)
             o[km] = pos
             d[km] = dn
-            travelled[km] += s_k
+            restarted[km] = True
+            travelled[km] += s_k - back
             lost[km] += cum[kr]
             xcum[km] += X
             st["kinks"] += len(km)
@@ -338,6 +347,26 @@ def _p_of(tk):
     """|p| [MeV/c] of a muon with kinetic energy tk [MeV] (floored at 0.5 MeV)."""
     tk = np.maximum(tk, 0.5)
     return np.sqrt((tk + eloss.MMU) ** 2 - eloss.MMU ** 2)
+
+
+def _exit_gas_backwards(pos, d, geom):
+    """Points inside a straw's gas are moved back along -d to just outside it (its entry on the line through pos)."""
+    js = crossings.point_straw(pos, geom)
+    inside = np.flatnonzero(js >= 0)
+    if not len(inside):
+        return pos
+    j = js[inside]
+    a, u = geom.dir[j], d[inside]
+    w = pos[inside] - geom.mid[j]
+    uu = u - np.einsum("ij,ij->i", u, a)[:, None] * a
+    ww = w - np.einsum("ij,ij->i", w, a)[:, None] * a
+    A = np.einsum("ij,ij->i", uu, uu)
+    B = 2 * np.einsum("ij,ij->i", uu, ww)
+    C = np.einsum("ij,ij->i", ww, ww) - geom.radius ** 2      # < 0: inside
+    t = (-B - np.sqrt(np.clip(B * B - 4 * A * C, 0, None))) / (2 * np.maximum(A, 1e-15))   # entry (t <= 0)
+    out = pos.copy()
+    out[inside] = pos[inside] + u * (np.minimum(t, 0.0) - 1e-4)[:, None]
+    return out
 
 
 def _kink(pos, d, dth, dy):

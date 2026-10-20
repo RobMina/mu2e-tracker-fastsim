@@ -6,7 +6,8 @@
 # scattering in support, straws and air, outputs of 2026-10-19 21:40: air was dropped after), walltail (wall + tail);
 # vac / vactail (support and straws, vacuum gaps, nuclear-only tail: outputs of 2026-10-19 22:00, before the wire);
 # wire (vac + the sense wire, no tail), wiretail (wire + nuclear and electron single-scattering tail);
-# default (no flags: the current defaults, = wiretail since the tail went on by default on 2026-10-20). Outputs under $M2FS_DATA/trk_fastsim; one line per arm in stagec_msc_ab.log.
+# default (no flags: the current defaults); rescore_<SUFFIX> (rescore_base, rescore_X, ...): rerun the comparisons on an
+# existing fast_c1SIs<SUFFIX> directory without regenerating it. Outputs under $M2FS_DATA/trk_fastsim; one line per arm in stagec_msc_ab.log.
 set -u
 D=$M2FS_DATA/trk_fastsim
 G20="$CRVFS_DATA/g4ref_v1_tables/gen.001400_*.root"
@@ -23,11 +24,13 @@ for arm in "$@"; do
     wire) O=$D/fast_c1SIsX; flags="--no-msc-tail" ;;
     wiretail) O=$D/fast_c1SIsXT; flags="--msc-tail" ;;
     default) O=$D/fast_c1SIsD; flags="" ;;
+    rescore_*) O=$D/fast_c1SIs${arm#rescore_}; [ "${arm#rescore_}" = base ] && O=$D/fast_c1SIs; flags="" ;;
     *) echo "unknown arm $arm"; exit 2 ;;
   esac
   tag=$(basename $O | sed 's/^fast_//')
   mkdir -p $O
-  if [ "$arm" != base ]; then
+  case $arm in base|rescore_*) regen=0 ;; *) regen=1 ;; esac
+  if [ $regen = 1 ]; then
     rm -f $O/*.root
     /usr/bin/time -f "%e" -o $O/time.log python3 -m trkfastsim steps $G20 --outdir $O --seed 1 --stage C --sliced-msc \
       $flags > $O/steps.log 2>&1 || { echo "$arm steps failed rc=$?"; tail -20 $O/steps.log; exit 1; }

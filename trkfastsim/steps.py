@@ -589,6 +589,9 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         o = mu[["x", "y", "z"]].to_numpy()
         d = mu[["px", "py", "pz"]].to_numpy() / p0[:, None]
         p_start, t_off, alive = p0.copy(), np.zeros(len(mu)), np.ones(len(mu), bool)
+    if stage == "C":   # muon state at the plane, for fate diagnostics (analyses/fatecheck.py)
+        make_steps.last_plane = {"key": mu[KEY].to_numpy(), "alive": alive.copy(), "p_plane": p_start.copy(),
+                                 "o": o.copy(), "d": d.copy()}
     if interior is not None and stage == "C":
         # the interior shells reach above the plane (support rings to r ~ 820 mm about the axis): start the interior
         # transport where they begin, so their top part is crossed (the world column stops at the plane)

@@ -6,8 +6,8 @@ plots/<cmd>); --emit X.json / --merge for batchable ones.
 import argparse
 import sys
 
-from .analyses import (buildlib, elosscheck, msccheck, refcheck, stepcheck, steps, tubecheck, v0check, v1compare,
-                       worldcheck)
+from .analyses import (buildlib, elosscheck, fatecheck, msccheck, refcheck, stepcheck, steps, tubecheck, v0check,
+                       v1compare, worldcheck)
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -18,6 +18,7 @@ ANALYSES = {
     "worldcheck": (worldcheck.run, "world model event by event: |p| at the first straw vs generation, delivery and loss, fast vs G4"),
     "msccheck":  (msccheck.run,  "in-tracker scattering per consecutive step pair (p theta, straw-only vs support pairs), fast vs G4"),
     "stepcheck": (stepcheck.run, "diagnose the T-V1 path and eIon checks: crossing-angle population, G4 half-vs-half noise floor, band bins"),
+    "fatecheck": (fatecheck.run, "fate of the muons the fast sim does not deliver (stopped above / missed / few steps), paired with G4"),
     "tubecheck": (tubecheck.run, "tube/polycone material above the tracker the fast world omits, along G4-delivered lines (needs worldcheck output)"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
 }
@@ -33,7 +34,7 @@ def build_parser():
                             formatter_class=argparse.RawDescriptionHelpFormatter)
         sp.add_argument("inputs", nargs="+", help="input files (globs allowed, quote them)")
         sp.add_argument("--outdir", default=None, help="output dir (default plots/<cmd>)")
-        if name in ("v0check", "steps", "worldcheck", "msccheck", "stepcheck", "tubecheck"):
+        if name in ("v0check", "steps", "worldcheck", "msccheck", "stepcheck", "tubecheck", "fatecheck"):
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
@@ -57,13 +58,15 @@ def build_parser():
                                  "(default on; --no-msc-tail for the Gaussian core only)")
             sp.add_argument("--tail-k", type=float, default=None,
                             help="tail threshold in units of theta0 (default: where tail and Gaussian cross)")
+        if name == "fatecheck":
+            sp.add_argument("--seed", type=int, default=1, help="base seed, as steps (file i uses (seed, i))")
         if name == "elosscheck":
             sp.add_argument("--fast", nargs="+", default=None, metavar="ROOT", help="fast-sim tables for the population check")
             sp.add_argument("--seed", type=int, default=1)
             sp.add_argument("--splits", default="1,2,4", help="sub-step counts to test, comma-separated")
         if name == "buildlib":
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
-        if name in ("v1compare", "worldcheck", "msccheck", "stepcheck"):
+        if name in ("v1compare", "worldcheck", "msccheck", "stepcheck", "fatecheck"):
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")

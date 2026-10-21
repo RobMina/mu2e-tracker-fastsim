@@ -42,6 +42,9 @@ def vr1(inputs, outdir, conditions, settings):
     if same:
         for c in TIMECOLS:
             res[f"sh_{c}_identical"] = float(np.mean(sh[c] == rs[c]))
+            dd = sh[c].astype(np.float64) - rs[c].astype(np.float64)
+            res[f"sh_{c}_diff_ns"] = {"median": float(np.median(dd)), "max_abs": float(np.abs(dd).max()),
+                                      "max_abs_ulp": float((np.abs(dd) / np.spacing(np.abs(rs[c]).astype(np.float32))).max())}
         rel = np.abs(sh["edep"] / np.where(rs["edep"] == 0, 1, rs["edep"]) - 1)
         res["sh_energy_within_0p5pct"] = float(np.mean(rel <= 0.005))
         res["sh_flags_agree"] = float(np.mean(sh["flag"] == rs["flag"]))
@@ -54,7 +57,18 @@ def vr1(inputs, outdir, conditions, settings):
     lists = lists and np.array_equal(rp["ind"], ph["ind"].astype(rp["ind"].dtype))  # ind is per-event in stock
     res["ph_lists_identical_global"] = bool(lists)
     if len(rp["ev"]) == len(ph["ev"]):
+        res["ph_ncombo_identical"] = float(np.mean(rp["ncombo"] == ph["ncombo"]))
+        res["ph_sid_identical"] = float(np.mean(rp["sid"] == ph["sid"]))
+        if len(rp["ind"]) == len(ph["ind"]):
+            bad = rp["ind"] != ph["ind"].astype(rp["ind"].dtype)
+            res["ph_ind_identical"] = float(1 - bad.mean())
+            cev = np.repeat(rp["ev"], rp["ncombo"])                            # event of each constituent
+            res["ph_events_with_ind_mismatch"] = int(len(np.unique(cev[bad])))
+            res["n_events"] = int(len(np.unique(rp["ev"])))
+    if len(rp["ev"]) == len(ph["ev"]):
         res["ph_time_identical"] = float(np.mean(ph["time"] == rp["time"]))
+        dd = ph["time"].astype(np.float64) - rp["time"].astype(np.float64)
+        res["ph_time_diff_ns"] = {"median": float(np.median(dd)), "max_abs": float(np.abs(dd).max())}
         res["ph_flags_agree"] = float(np.mean(ph["flag"] == rp["flag"]))
     with open(os.path.join(outdir, "vr1.json"), "w") as f:
         json.dump(res, f, indent=1)

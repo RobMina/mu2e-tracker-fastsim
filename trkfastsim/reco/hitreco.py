@@ -145,7 +145,7 @@ def straw_hits(d, cond, settings="mc"):
     ntb, wtb, neb, web = cond["tot_bins"]
     tbin = np.minimum(int(ntb) - 1, (tot_sel / wtb).astype(np.int64))
     ebin = np.minimum(int(neb) - 1, (energy / web).astype(np.int64))
-    dtime = cond["totdtime"][tbin * int(neb) + ebin] - 0.1
+    dtime = cond["totdtime"][tbin * int(neb) + ebin]                     # probed TOTdriftTime already includes its -0.1 ns
     tres = cond["totderror"][tbin * int(neb) + ebin]
     t_early = np.where(eend == 1, t_hv, t_cal).astype(np.float64)
     time = F32(t_early - ptime - dtime)

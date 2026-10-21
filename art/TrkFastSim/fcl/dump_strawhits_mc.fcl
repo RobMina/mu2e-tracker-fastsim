@@ -6,7 +6,7 @@ services.DbService.purpose : Sim_best
 services.DbService.version : v1_5
 services.DbService.verbose : 0
 services.TFileService.fileName : "strawhits_ref_mc.root"
-physics.analyzers.trkdump : { module_type : StrawHitTableDumper }
+physics.analyzers.trkdump : { module_type : StrawHitTableDumper  ProtonBunchTimeTag : @local::physics.producers.makeSH.ProtonBunchTimeTag }  # same PBT as makeSH (EWMProducer in MC)
 physics.RecoPath : [ PBTFSD, makeSH, makePH ]
 physics.trigger_paths : [ RecoPath ]
 physics.DumpPath : [ trkdump ]

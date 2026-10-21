@@ -1,6 +1,8 @@
 """worldcheck -- the world model event by event: muon |p| at the first straw against |p| at generation, fast vs G4.
 
-Both arms ran the same CRY primaries, so events are paired by (run, subrun, event). Per event: generated muon |p| and
+Both arms ran the same CRY primaries, so events are paired by (run, subrun, event); the denominator is every generated
+event (the fast tables' gen tree; the G4 tables hold only PrimaryFilter-accepted events, a superset of the tracker-term
+passes, so an event missing there did not pass in G4). Per event: generated muon |p| and
 direction (gen tree, identical in both arms), the GDML material column along the generated straight line down to the
 plane above the tracker (concrete/overburden g/cm2, total x/X0), and, where the muon passes the PrimaryFilter tracker
 term (>= 12 good steps; every such event is in the G4 tables), |p| at its first straw.
@@ -21,7 +23,7 @@ import pandas as pd
 from mu2efastsim import materials, plots
 from mu2efastsim import world as world_mod
 from mu2efastsim.tables import primary_muons
-from .. import geometry, steps as st, tables as T
+from .. import crossings, geometry, steps as st, tables as T
 
 P_EDGES = np.array([0.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0, 5000.0, 10000.0, 1e9])   # MeV/c, generated
 COL_EDGES = np.array([0.0, 50.0, 150.0, 300.0, 450.0, 600.0, 1e9])                               # g/cm2 above the plane
@@ -37,6 +39,22 @@ def _arm(paths):
     first = s.sort_values("t").groupby(T.KEY, sort=False).first().reset_index()
     first["p_first"] = np.sqrt(first.px ** 2 + first.py ** 2 + first.pz ** 2)
     return first[T.KEY + ["p_first"]]
+
+
+MISS_EDGES = np.array([0.0, 1e-6, 300.0, 1000.0, 1500.0, 3000.0, 1e9])   # mm from the footprint at the plane
+
+
+def _miss_distance(o, d, geom, y_plane):
+    """Distance [mm] in x-z of the straight line's crossing of y = y_plane from the straws' footprint (0 inside);
+    upward tracks get 1e9."""
+    lo, hi = crossings.panel_boxes(geom)
+    lo, hi = lo.min(0), hi.max(0)
+    down = d[:, 1] < 0
+    L = np.where(down, (o[:, 1] - y_plane) / -np.where(down, d[:, 1], -1.0), 0.0)
+    x, z = o[:, 0] + d[:, 0] * L, o[:, 2] + d[:, 2] * L
+    dx = np.maximum(np.maximum(lo[0] - x, x - hi[0]), 0.0)
+    dz = np.maximum(np.maximum(lo[2] - z, z - hi[2]), 0.0)
+    return np.where(down, np.hypot(dx, dz), 1e9)
 
 
 def _column(gen_mu, world, y_plane):
@@ -78,23 +96,38 @@ def run(inputs, outdir, compare=None, gdml=None, **kw):
     world = st.load_world(gdml, geom)
     y_pl = st.plane_y(geom)
     fast_paths, g4_paths = T.expand(inputs), T.expand(compare)
+    # denominator: every generated event (the fast tables carry the whole gen stream; the G4 tables only the events
+    # the PrimaryFilter accepted, a superset of the tracker-term passes, so an event missing there did not pass)
     gen = primary_muons(T.read_many(fast_paths, "gen")).reset_index(drop=True)
     gen_g4 = primary_muons(T.read_many(g4_paths, "gen"))[T.KEY]
-    gen = gen.merge(gen_g4, on=T.KEY)     # common generated events (identical primaries in both arms)
+    n_g4_not_in_fast = int(len(gen_g4.merge(gen[T.KEY], on=T.KEY, how="left", indicator=True).query("_merge == 'left_only'")))
     gen["p_gen"] = np.sqrt(gen.px ** 2 + gen.py ** 2 + gen.pz ** 2)
     o = gen[["x", "y", "z"]].to_numpy()
     d = gen[["px", "py", "pz"]].to_numpy() / gen.p_gen.to_numpy()[:, None]
     near = st.near_tracker(o, d, geom, y_pl).astype(bool)
+    gen["miss_mm"] = _miss_distance(o, d, geom, y_pl)
     f, r = _arm(fast_paths), _arm(g4_paths)
     ev = gen[near].reset_index(drop=True)
     ev = ev.merge(f, on=T.KEY, how="left").merge(r.rename(columns={"p_first": "p_first_g4"}), on=T.KEY, how="left")
     gcm2, xx0 = _column(ev, world, y_pl)
     ev["gcm2"], ev["xx0"] = gcm2, xx0
     pf, pg = ev.p_first.notna().to_numpy(), ev.p_first_g4.notna().to_numpy()
-    out = {"generated_common": int(len(gen)), "near_tracker": int(near.sum()),
+    out = {"generated_common": int(len(gen)), "g4_accepted_not_in_fast_gen": n_g4_not_in_fast,
+           "near_tracker": int(near.sum()),
            "pass": {"fast": int(pf.sum()), "g4": int(pg.sum()), "both": int((pf & pg).sum()),
                     "fast_only": int((pf & ~pg).sum()), "g4_only": int((~pf & pg).sum())},
-           "pass_outside_near_g4": int(r.merge(gen[~near][T.KEY], on=T.KEY).shape[0])}
+           "pass_outside_near_g4": int(r.merge(gen[~near][T.KEY], on=T.KEY).shape[0]),
+           "pass_outside_near_fast": int(f.merge(gen[~near][T.KEY], on=T.KEY).shape[0])}
+    # tracker-term passes by the distance of the generated straight line from the straws' x-z footprint at the
+    # plane (0 = aimed at the tracker): muons G4 delivers from far outside were deflected into the acceptance
+    allf = gen.merge(f[T.KEY].assign(_f=1), on=T.KEY, how="left").merge(r[T.KEY].assign(_g=1), on=T.KEY, how="left")
+    mb = np.clip(np.digitize(allf.miss_mm, MISS_EDGES) - 1, 0, len(MISS_EDGES) - 2)
+    out["pass_by_miss_mm"] = [{"miss_mm": [float(MISS_EDGES[k]), float(MISS_EDGES[k + 1])], "generated": int((mb == k).sum()),
+                               "pass_fast": int(((mb == k) & allf._f.notna()).sum()),
+                               "pass_g4": int(((mb == k) & allf._g.notna()).sum()),
+                               "p_gen_median_g4_pass": float(allf.p_gen[(mb == k) & allf._g.notna()].median())
+                               if ((mb == k) & allf._g.notna()).any() else None}
+                              for k in range(len(MISS_EDGES) - 1)]
     pb = np.clip(np.digitize(ev.p_gen, P_EDGES) - 1, 0, len(P_EDGES) - 2)
     cb = np.clip(np.digitize(ev.gcm2, COL_EDGES) - 1, 0, len(COL_EDGES) - 2)
     nb_p, nb_c = len(P_EDGES) - 1, len(COL_EDGES) - 1
@@ -139,6 +172,12 @@ def run(inputs, outdir, compare=None, gdml=None, **kw):
 def _print(out):
     print(f"generated (common) {out['generated_common']:,}   heading for the tracker {out['near_tracker']:,}   "
           f"tracker term: {out['pass']}   G4 passes outside the 'near' cut: {out['pass_outside_near_g4']}")
+    print(f"G4-accepted events missing from the fast gen tree: {out['g4_accepted_not_in_fast_gen']}   "
+          f"passes outside the 'near' cut: G4 {out['pass_outside_near_g4']}, fast {out['pass_outside_near_fast']}")
+    print("passes by distance of the generated line from the straw footprint at the plane [mm]:")
+    for r in out["pass_by_miss_mm"]:
+        print(f"  {r['miss_mm'][0]:7.0f}-{min(r['miss_mm'][1], 1e6):7.0f}  gen {r['generated']:8d}  fast {r['pass_fast']:5d}"
+              f"  g4 {r['pass_g4']:5d}  (G4 passes: median p_gen {r['p_gen_median_g4_pass']})")
     print("delivery P(pass), fast/G4 by generated |p| [MeV/c]:")
     for r in out["delivery_by_pgen"]:
         print(f"  {r['p_gen'][0]:7.0f}-{min(r['p_gen'][1], 1e6):7.0f}  gen {r['generated']:7d}  fast {r['pass_fast']:5d}  g4 {r['pass_g4']:5d}"

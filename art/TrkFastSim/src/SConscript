@@ -15,7 +15,7 @@ helper.make_plugins([
     'mu2e_TrackerGeom',
     'mu2e_ProditionsService',
     'mu2e_DbService',
-    'mu2e_Mu2eInterfaces',
+    'mu2e_DbTables',
     'art_Framework_Core',
     'art_Framework_Principal',
     'art_Framework_Services_Registry',

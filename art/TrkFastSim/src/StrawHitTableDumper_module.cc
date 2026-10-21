@@ -1,5 +1,6 @@
 // Dump StrawDigis, stock makeSH/makePH ComboHits and the StrawResponse constants to flat TTrees (T-VR1 reference).
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "TTree.h"
@@ -162,7 +163,7 @@ void StrawHitTableDumper::fillCH(ComboHitCollection const& col, bool panel) {
     c.ncombo.push_back(ch.nCombo());
     c.eend.push_back(ch.earlyEnd().end());
     for (size_t i = 0; i < ch.nCombo(); ++i) c.ind.push_back(ch.index(i));
-    c.flag.push_back(ch.flag().hash());
+    c.flag.push_back(uint32_t(std::stoul(ch.flag().hex(), nullptr, 16)));  // BitMap exposes its word only as hex()
     c.time.push_back(ch.correctedTime());
     c.et0.push_back(ch.endTime(StrawEnd::cal));
     c.et1.push_back(ch.endTime(StrawEnd::hv));

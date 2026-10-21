@@ -1,0 +1,14 @@
+# T-VR1 reference (MC): stock PBTFSD + makeSH + makePH on a kkts_extrap_v04 dig file (MDC2025au) -> StrawHitTableDumper.
+# Same hit-reco config as reco_kkts_extrap_nofilter_v04.fcl (recoMC/Extracted -> NoField + NoPileup + OffSpillTiming epilogs).
+#include "Production/JobConfig/recoMC/Extracted.fcl"
+services.GeometryService.inputFile : "Offline/Mu2eG4/geom/geom_common_extracted_v04.txt"
+services.DbService.purpose : Sim_best
+services.DbService.version : v1_5
+services.DbService.verbose : 0
+services.TFileService.fileName : "strawhits_ref_mc.root"
+physics.analyzers.trkdump : { module_type : StrawHitTableDumper }
+physics.RecoPath : [ PBTFSD, makeSH, makePH ]
+physics.trigger_paths : [ RecoPath ]
+physics.DumpPath : [ trkdump ]
+physics.end_paths : [ DumpPath ]
+outputs : {}

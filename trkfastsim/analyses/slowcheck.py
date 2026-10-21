@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 from mu2efastsim import eloss, plots
-from mu2efastsim.tables import KEY
+from mu2efastsim.tables import KEY, primary_muons
 from .. import geometry, tables as T
 
 P_EDGES = np.array([0.0, 300.0, 500.0, 750.0, 1000.0, 1500.0, 3000.0, 1e9])
@@ -55,6 +55,9 @@ def _muons(paths):
     m = pd.DataFrame({"n": g.size(), "p_first": g.p.first(), "p_last": g.p.last(), "uy": (g.py.first() / g.p.first()).abs(),
                       "x": g.X.first(), "z": g.Z.first(), "y_first": g.Y.first(), "y_last": g.Y.last()}).reset_index()
     m = m.merge(ga.reset_index(), on=KEY, how="left").merge(geo, on=KEY, how="left")
+    g0 = primary_muons(T.read_many(paths, "gen"))
+    g0["p_gen"] = np.sqrt(g0.px ** 2 + g0.py ** 2 + g0.pz ** 2)
+    m = m.merge(g0[KEY + ["p_gen"]], on=KEY, how="left")
     if "ee" in pm.columns:
         end = pm.groupby(KEY).first().reset_index()
         end["stopped"] = (end.ee - eloss.MMU) < 1.0
@@ -74,6 +77,27 @@ def run(inputs, outdir, compare=None, **kw):
     f, r = _muons(fp), _muons(rp)
     y_bottom = min(f.y_last.min(), r.y_last.min())
     out = {"livetime_s": [lt_f, lt_r], "muons_any_step": [int(len(f)), int(len(r))], "by_p_first": []}
+    # selected muons (>= 12 good steps) per bin of GENERATED |p| and of |p| at the first straw, same bins: a deficit
+    # that is flat in p_gen but concentrated at low p_first means the arms sort the same muons differently (energy at
+    # arrival), not that one arm loses muons
+    sf, sr = f[f.n >= 12], r[r.n >= 12]
+    out["selected_by_p_gen"], out["selected_by_p_first"] = [], []
+    for key, col in (("selected_by_p_gen", "p_gen"), ("selected_by_p_first", "p_first")):
+        ha, _ = np.histogram(sf[col].dropna(), P_EDGES)
+        hb, _ = np.histogram(sr[col].dropna(), P_EDGES)
+        for k in range(len(P_EDGES) - 1):
+            rr = (ha[k] / lt_f) / max(hb[k] / lt_r, 1e-30)
+            out[key].append({"p": [float(P_EDGES[k]), float(min(P_EDGES[k + 1], 1e6))], "n": [int(ha[k]), int(hb[k])],
+                             "ratio_minus_1": float(rr - 1), "err": float(rr * np.sqrt(1 / max(ha[k], 1) + 1 / max(hb[k], 1)))})
+    # energy lost from generation to the first straw, per p_gen bin (median), selected muons
+    out["loss_gen_to_first_by_p_gen"] = []
+    bfg = np.clip(np.digitize(sf.p_gen, P_EDGES) - 1, 0, len(P_EDGES) - 2)
+    brg = np.clip(np.digitize(sr.p_gen, P_EDGES) - 1, 0, len(P_EDGES) - 2)
+    for k in range(len(P_EDGES) - 1):
+        a, b = sf[bfg == k], sr[brg == k]
+        if len(a) >= 20 and len(b) >= 20:
+            out["loss_gen_to_first_by_p_gen"].append({"p": [float(P_EDGES[k]), float(min(P_EDGES[k + 1], 1e6))],
+                                                      "loss_q": [_q(a.p_gen - a.p_first), _q(b.p_gen - b.p_first)]})
     bf = np.clip(np.digitize(f.p_first, P_EDGES) - 1, 0, len(P_EDGES) - 2)
     br = np.clip(np.digitize(r.p_first, P_EDGES) - 1, 0, len(P_EDGES) - 2)
     for k in range(len(P_EDGES) - 1):
@@ -170,6 +194,14 @@ def run(inputs, outdir, compare=None, **kw):
     for x in out["by_p_first"]:
         print(f"  {x['p'][0]:5.0f}-{x['p'][1]:6.0f}  " + "  ".join(
             f"{y['planes'][0]}-{y['planes'][1]}: {y['ratio_minus_1']:+.2f}+-{y['err']:.2f}" for y in x["pass_rate_by_planes"]))
+    print("selected muons (>= 12 good steps), rate fast/G4 - 1 per bin of GENERATED |p| and of |p| at the first straw:")
+    for a, b in zip(out["selected_by_p_gen"], out["selected_by_p_first"]):
+        print(f"  {a['p'][0]:5.0f}-{a['p'][1]:6.0f}  p_gen: {a['ratio_minus_1']:+.3f}+-{a['err']:.3f} ({a['n'][0]}/{a['n'][1]})"
+              f"   p_first: {b['ratio_minus_1']:+.3f}+-{b['err']:.3f} ({b['n'][0]}/{b['n'][1]})")
+    print("energy lost generation -> first straw, selected muons, per p_gen bin, q25/q50/q75 fast vs G4 [MeV]:")
+    for x in out["loss_gen_to_first_by_p_gen"]:
+        a, b = x["loss_q"]
+        print(f"  {x['p'][0]:5.0f}-{x['p'][1]:6.0f}  fast {a[1]:7.1f}/{a[2]:7.1f}/{a[3]:7.1f}   G4 {b[1]:7.1f}/{b[2]:7.1f}/{b[3]:7.1f}")
     print("counts n fast/g4 (any, few, pass) per bin:", [(int(x['p'][0]), x['rate_any']['n'], x['rate_few_1_11']['n'],
                                                           x['rate_pass_ge12']['n']) for x in out["by_p_first"]])
     plots.write_json(outdir, "slowcheck.json", out)

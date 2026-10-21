@@ -57,14 +57,21 @@ def plane_y(geom):
 
 
 def near_tracker(o, d, geom, y_plane, margin=FOOTPRINT_MARGIN):
-    """Downward tracks whose straight line crosses y = y_plane within `margin` of the straws' x-z footprint."""
+    """Downward tracks whose straight line comes within `margin` of the straws' x-z footprint anywhere between the
+    plane y = y_plane and the bottom of the straw stack (a shallow muon can pass the plane outside the footprint and
+    still cross the stack lower down)."""
     lo, hi = crossings.panel_boxes(geom)
     lo, hi = lo.min(0), hi.max(0)
     down = d[:, 1] < 0
-    L = np.where(down, (o[:, 1] - y_plane) / -np.where(down, d[:, 1], -1.0), 0.0)
-    x = o[:, 0] + d[:, 0] * L
-    z = o[:, 2] + d[:, 2] * L
-    return down & (x > lo[0] - margin) & (x < hi[0] + margin) & (z > lo[2] - margin) & (z < hi[2] + margin)
+    dy = -np.where(down, d[:, 1], -1.0)
+    xs, zs = [], []
+    for y in (y_plane, lo[1]):
+        L = np.where(down, (o[:, 1] - y) / dy, 0.0)
+        xs.append(o[:, 0] + d[:, 0] * L)
+        zs.append(o[:, 2] + d[:, 2] * L)
+    x0, x1 = np.minimum(*xs), np.maximum(*xs)
+    z0, z1 = np.minimum(*zs), np.maximum(*zs)
+    return down & (x1 > lo[0] - margin) & (x0 < hi[0] + margin) & (z1 > lo[2] - margin) & (z0 < hi[2] + margin)
 
 
 def load_world(gdml_path, geom):
@@ -402,8 +409,10 @@ def _kink(pos, d, dth, dy):
 def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN, msc_tail=True, tail_k=None):
     """Stage C transport of the primary muons to the plane above the tracker.
 
-    Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]); tracks
-    not near the tracker keep their generated state (they cannot reach a straw).
+    Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]). Tracks
+    not near the tracker (straight line outside the footprint margin at the plane, or upward) are not transported and
+    are returned with alive = False: their generated state has crossed no material, so a straw they happen to cross
+    below the plane would be reached with no energy loss and no scattering.
     """
     mu = primary_muons(gen)
     p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
@@ -414,7 +423,7 @@ def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARG
     near = near_tracker(o, d, geom, y_pl, margin=near_margin)
     p = p0.copy()
     L = np.zeros(len(mu))
-    alive = np.ones(len(mu), bool)
+    alive = near.copy()
     if near.any():
         res = tr.world_loss(rng, o[near], d[near], p0[near], world, edges, return_band_p=True, return_tail=msc_tail)
         pw, xx0, ok, bxx0, bh, bp = res[:6]

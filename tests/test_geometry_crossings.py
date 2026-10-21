@@ -247,3 +247,33 @@ def test_interior_transport_does_not_truncate_chords_after_a_kink():
     chord = 2 * np.sqrt(np.clip(R ** 2 - b ** 2, 0, None)) / ua
     # each step is the full chord of its own straight line (a few clipped by the straw ends: none here)
     assert np.mean(L < chord - 0.01) < 0.002 and abs(L.mean() / chord.mean() - 1) < 5e-4
+
+
+def test_to_plane_marks_muons_outside_the_margin_not_alive(monkeypatch):
+    """Muons whose line misses the footprint margin are not transported and must not reach a straw untouched."""
+    import pandas as pd
+    from trkfastsim import steps as S
+    g = _layers([0.0], n=11, pitch=6.0)
+    monkeypatch.setattr(S, "plane_y", lambda geom: 100.0)
+    monkeypatch.setattr(S.tr, "world_loss", lambda rng, o, d, p, w, e, **k: (
+        p, np.zeros(len(p)), np.ones(len(p), bool), np.zeros((len(p), 1)), np.zeros((len(p), 1)), p[:, None]))
+    monkeypatch.setattr(S.tr, "msc_to_plane", lambda rng, o, d, p, y, *a, **k: (
+        o + d * ((o[:, 1] - y) / -d[:, 1])[:, None], d, (o[:, 1] - y) / -d[:, 1]))
+    # muon 0 straight down onto the straws; muon 1 far outside (z = 5 m at the plane: the straws span |z| <= 33 mm and
+    # 10 m in x); muon 2 upward
+    gen = pd.DataFrame({"run": 1, "subrun": 1, "event": [1, 2, 3], "pdg": 13,
+                        "x": [0.0, 0.0, 0.0], "y": [1000.0, 1000.0, 1000.0], "z": [0.0, 5000.0, 0.0],
+                        "px": [0.0, 0.0, 0.0], "py": [-1000.0, -1000.0, 1000.0], "pz": [0.0, 0.0, 0.0], "t": 0.0})
+    _, o, d, p, L, alive = S.to_plane(gen, g, np.random.default_rng(1), world=None, near_margin=100.0, msc_tail=False)
+    assert alive.tolist() == [True, False, False]
+
+
+def test_near_tracker_accepts_shallow_lines_that_cross_the_stack_below_the_plane():
+    from trkfastsim import steps as S
+    g = _layers([0.0, -300.0], n=11, pitch=6.0)        # stack y -300..0, |z| <= 33 mm
+    # shallow muon: at the plane y = 100 it is at z = 1000 (outside a 100 mm margin), at y = -300 it is at z = 0
+    d = np.array([[0.0, -0.3713907, -0.9284767]])        # dz/dy = 2.5
+    o = np.array([[0.0, 100.0, 1000.0]]) - d * 1000.0
+    assert S.near_tracker(o, d, g, 100.0, margin=100.0).tolist() == [True]
+    o2 = np.array([[0.0, 100.0, 3000.0]]) - d * 1000.0    # crosses y = -300 at z = 2000: never near
+    assert S.near_tracker(o2, d, g, 100.0, margin=100.0).tolist() == [False]

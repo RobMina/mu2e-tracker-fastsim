@@ -6,7 +6,8 @@
 # scattering in support, straws and air, outputs of 2026-10-19 21:40: air was dropped after), walltail (wall + tail);
 # vac / vactail (support and straws, vacuum gaps, nuclear-only tail: outputs of 2026-10-19 22:00, before the wire);
 # wire (vac + the sense wire, no tail), wiretail (wire + nuclear and electron single-scattering tail);
-# default (no flags: the current defaults); rescore_<SUFFIX> (rescore_base, rescore_X, ...): rerun the comparisons on an
+# default (no flags: the current defaults, written to fast_c1SIsD); matfix (same, to fast_c1SIsF: the defaults after the
+# core material fixes of 2026-10-21, CONCRETE_MARS iron and the GDML tracker alloys); rescore_<SUFFIX> (rescore_base, rescore_X, ...): rerun the comparisons on an
 # existing fast_c1SIs<SUFFIX> directory without regenerating it. Outputs under $M2FS_DATA/trk_fastsim; one line per arm in stagec_msc_ab.log.
 set -u
 D=$M2FS_DATA/trk_fastsim
@@ -24,6 +25,7 @@ for arm in "$@"; do
     wire) O=$D/fast_c1SIsX; flags="--no-msc-tail" ;;
     wiretail) O=$D/fast_c1SIsXT; flags="--msc-tail" ;;
     default) O=$D/fast_c1SIsD; flags="" ;;
+    matfix) O=$D/fast_c1SIsF; flags="" ;;
     rescore_*) O=$D/fast_c1SIs${arm#rescore_}; [ "${arm#rescore_}" = base ] && O=$D/fast_c1SIs; flags="" ;;
     *) echo "unknown arm $arm"; exit 2 ;;
   esac

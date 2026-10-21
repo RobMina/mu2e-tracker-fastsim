@@ -343,6 +343,25 @@ class TrackerInterior:
         return {k: v[order] for k, v in out.items()}
 
 
+def _back_to_interior_top(o, d, t_off, alive, interior, geom):
+    """Move downward origins on the plane back up along their direction to the top of the interior shells.
+
+    The world column above the plane (world_loss) contains no tubes, and the interior shells (TrackerInterior) start
+    below the top of the support rings, so between the plane and that top nothing is double counted. Air over that
+    stretch (~130 mm) is negligible. Returns (origin, path offset), the offset reduced by the added stretch so the
+    times stay those of the straight path."""
+    top = max([g["rmax"] for g in interior.shells.groups] + [0.0]) + interior.shells.c[1]
+    y_pl = plane_y(geom)
+    if top <= y_pl:
+        return o, t_off
+    o, t_off = o.copy(), t_off.copy()
+    m = alive & (d[:, 1] < 0) & (np.abs(o[:, 1] - y_pl) < 1e-3)
+    back = (top - y_pl) / -d[m, 1]
+    o[m] = o[m] - d[m] * back[:, None]
+    t_off[m] -= back
+    return o, t_off
+
+
 def _p_of(tk):
     """|p| [MeV/c] of a muon with kinetic energy tk [MeV] (floored at 0.5 MeV)."""
     tk = np.maximum(tk, 0.5)
@@ -570,6 +589,10 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         o = mu[["x", "y", "z"]].to_numpy()
         d = mu[["px", "py", "pz"]].to_numpy() / p0[:, None]
         p_start, t_off, alive = p0.copy(), np.zeros(len(mu)), np.ones(len(mu), bool)
+    if interior is not None and stage == "C":
+        # the interior shells reach above the plane (support rings to r ~ 820 mm about the axis): start the interior
+        # transport where they begin, so their top part is crossed (the world column stops at the plane)
+        o, t_off = _back_to_interior_top(o, d, t_off, alive, interior, geom)
     if interior is not None and interior_msc:
         sel = np.flatnonzero(alive)
         tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k)

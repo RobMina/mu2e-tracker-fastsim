@@ -6,7 +6,8 @@ plots/<cmd>); --emit X.json / --merge for batchable ones.
 import argparse
 import sys
 
-from .analyses import buildlib, elosscheck, msccheck, refcheck, stepcheck, steps, v0check, v1compare, worldcheck
+from .analyses import (buildlib, elosscheck, msccheck, refcheck, stepcheck, steps, tubecheck, v0check, v1compare,
+                       worldcheck)
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -17,6 +18,7 @@ ANALYSES = {
     "worldcheck": (worldcheck.run, "world model event by event: |p| at the first straw vs generation, delivery and loss, fast vs G4"),
     "msccheck":  (msccheck.run,  "in-tracker scattering per consecutive step pair (p theta, straw-only vs support pairs), fast vs G4"),
     "stepcheck": (stepcheck.run, "diagnose the T-V1 path and eIon checks: crossing-angle population, G4 half-vs-half noise floor, band bins"),
+    "tubecheck": (tubecheck.run, "tube/polycone material above the tracker the fast world omits, along G4-delivered lines (needs worldcheck output)"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
 }
 BATCHABLE = {"refcheck"}
@@ -31,7 +33,7 @@ def build_parser():
                             formatter_class=argparse.RawDescriptionHelpFormatter)
         sp.add_argument("inputs", nargs="+", help="input files (globs allowed, quote them)")
         sp.add_argument("--outdir", default=None, help="output dir (default plots/<cmd>)")
-        if name in ("v0check", "steps", "worldcheck", "msccheck", "stepcheck"):
+        if name in ("v0check", "steps", "worldcheck", "msccheck", "stepcheck", "tubecheck"):
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")

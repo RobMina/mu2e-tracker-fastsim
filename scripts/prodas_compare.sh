@@ -11,6 +11,7 @@
 # same-straw diagnostic in v1compare) are not meaningful here; rates are per second of live time.
 set -u
 D=$M2FS_DATA/trk_fastsim
+T=${FAST_TAG:-as_v1}    # fast run tag: fast_$T, plots/*_$T (FAST_TAG=as_v2 tracker/scripts/prodas_compare.sh steps cmp)
 AS="$D/prod_as20/sgsteps.*.root"
 REF="$D/g4ref_v1_tables/sgsteps.*.root"
 for step in "$@"; do
@@ -39,15 +40,15 @@ print(f"gen_as_v1: {len(fs)} files, subruns {min(sub)}-{max(sub)} ({len(set(sub)
 PY
       ;;
     steps)
-      O=$D/fast_as_v1; mkdir -p $O; rm -f $O/*.root
+      O=$D/fast_$T; mkdir -p $O; rm -f $O/*.root
       /usr/bin/time -f "%e" -o $O/time.log python3 -m trkfastsim steps "$D/gen_as_v1/gen.*.root" --outdir $O --seed 1 \
         --stage C --sliced-msc > $O/steps.log 2>&1 || { echo "steps failed"; tail -20 $O/steps.log; exit 1; }
       echo "steps done wall $(cat $O/time.log) s, $(ls $O/fasttrkC.*.root | wc -l) files" ;;
     cmp)
-      O=$D/fast_as_v1
-      python3 -m trkfastsim v1compare "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/v1compare_as_v1 > $O/v1.log 2>&1
-      python3 -m trkfastsim msccheck "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/msccheck_as_v1 > $O/msc.log 2>&1
-      python3 -m trkfastsim stepcheck "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/stepcheck_as_v1 > $O/step.log 2>&1
+      O=$D/fast_$T
+      python3 -m trkfastsim v1compare "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/v1compare_$T > $O/v1.log 2>&1
+      python3 -m trkfastsim msccheck "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/msccheck_$T > $O/msc.log 2>&1
+      python3 -m trkfastsim stepcheck "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/stepcheck_$T > $O/step.log 2>&1
       echo "cmp done rc=$?" ;;
     *) echo "unknown step $step"; exit 2 ;;
   esac

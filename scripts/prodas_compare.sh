@@ -12,6 +12,7 @@
 set -u
 D=$M2FS_DATA/trk_fastsim
 T=${FAST_TAG:-as_v1}    # fast run tag: fast_$T, plots/*_$T (FAST_TAG=as_v2 tracker/scripts/prodas_compare.sh steps cmp)
+# STEPS_FLAGS: extra flags for the steps step (e.g. STEPS_FLAGS="--kink-xx0 2e-4")
 AS="$D/prod_as20/sgsteps.*.root"
 REF="$D/g4ref_v1_tables/sgsteps.*.root"
 for step in "$@"; do
@@ -42,13 +43,14 @@ PY
     steps)
       O=$D/fast_$T; mkdir -p $O; rm -f $O/*.root
       /usr/bin/time -f "%e" -o $O/time.log python3 -m trkfastsim steps "$D/gen_as_v1/gen.*.root" --outdir $O --seed 1 \
-        --stage C --sliced-msc > $O/steps.log 2>&1 || { echo "steps failed"; tail -20 $O/steps.log; exit 1; }
+        --stage C --sliced-msc ${STEPS_FLAGS:-} > $O/steps.log 2>&1 || { echo "steps failed"; tail -20 $O/steps.log; exit 1; }
       echo "steps done wall $(cat $O/time.log) s, $(ls $O/fasttrkC.*.root | wc -l) files" ;;
     cmp)
       O=$D/fast_$T
       python3 -m trkfastsim v1compare "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/v1compare_$T > $O/v1.log 2>&1
       python3 -m trkfastsim msccheck "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/msccheck_$T > $O/msc.log 2>&1
       python3 -m trkfastsim stepcheck "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/stepcheck_$T > $O/step.log 2>&1
+      python3 -m trkfastsim slowcheck "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/slowcheck_$T > $O/slow.log 2>&1
       echo "cmp done rc=$?" ;;
     *) echo "unknown step $step"; exit 2 ;;
   esac

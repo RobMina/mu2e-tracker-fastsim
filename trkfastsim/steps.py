@@ -569,7 +569,8 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
 
 
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
-               interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None):
+               interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
+               kink_xx0=KINK_XX0):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
@@ -578,7 +579,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     interior_msc: with interior, also scatter in it segment by segment (TrackerInterior.transport); False = the muon
     stays straight inside the tracker (loss only). msc_tail (default on): the single-scattering tail on the Gaussian core, in
     the world column above the plane (stage C) and in the interior; tail_k: tail threshold in units of theta0 (None =
-    where the tail density crosses the Gaussian)."""
+    where the tail density crosses the Gaussian); kink_xx0: x/X0 of straw material between in-tracker kinks."""
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
                                                    msc_tail=msc_tail, tail_k=tail_k)
@@ -598,7 +599,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         o, t_off = _back_to_interior_top(o, d, t_off, alive, interior, geom)
     if interior is not None and interior_msc:
         sel = np.flatnonzero(alive)
-        tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k)
+        tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0)
         make_steps.interior_stats = interior.last_stats
         it = sel[tr_["it"]]
         js = tr_["js"]

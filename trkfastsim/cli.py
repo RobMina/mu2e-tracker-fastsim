@@ -59,6 +59,8 @@ def build_parser():
                                  "(default on; --no-msc-tail for the Gaussian core only)")
             sp.add_argument("--tail-k", type=float, default=None,
                             help="tail threshold in units of theta0 (default: where tail and Gaussian cross)")
+            sp.add_argument("--kink-xx0", type=float, default=1e-3,
+                            help="stage C: x/X0 of straw material between in-tracker kinks (default 1e-3)")
         if name == "fatecheck":
             sp.add_argument("--seed", type=int, default=1, help="base seed, as steps (file i uses (seed, i))")
         if name == "elosscheck":

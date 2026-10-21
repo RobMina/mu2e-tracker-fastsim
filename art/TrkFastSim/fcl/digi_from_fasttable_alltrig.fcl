@@ -1,0 +1,3 @@
+# As digi_from_fasttable.fcl but writes every event (no trigger selection): for V2-style per-generated-event comparisons.
+#include "TrkFastSim/fcl/digi_from_fasttable.fcl"
+outputs.Output.SelectEvents : [ ]

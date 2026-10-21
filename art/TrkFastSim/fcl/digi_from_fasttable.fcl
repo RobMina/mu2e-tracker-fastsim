@@ -1,0 +1,35 @@
+# Path A, tracker + CRV: fast-sim step tables -> compressDetStepMCs products -> stock extracted v04 digitisation -> dig art file.
+# Source: the gen stream of the reference (every generated event, CRY GenParticles + CosmicLivetime/GenEventCount pass through).
+# StrawGasStepsFromTable writes SimParticles (one tree), StrawGasSteps, CrvSteps, MCTrajectories, SurfaceSteps, empty VD/calo steps.
+# It is labelled compressDetStepMCs so every stock digi/reco/ntuple input tag (Digitize, compressDigiMCs, FindMCPrimary) is unchanged.
+# Usage: mu2e -c TrkFastSim/fcl/digi_from_fasttable.fcl -s gen....art -o dig.fast.art  (tables set by run_patha.sh or overrides below)
+#include "Production/JobConfig/digitize/Extracted.fcl"
+
+physics.producers.compressDetStepMCs : {
+  module_type : StrawGasStepsFromTable
+  trkTableFile : "fasttrk.root"
+  crvTableFile : ""
+  genParticles : "cosmicTimeOffset"
+  trkKeyOffset : 0
+  primaryKey : 1
+  makeTrajectories : true
+}
+# the G4 job made FindMCPrimary in the Primary stage; here it runs on the fast SimParticles
+physics.producers.FindMCPrimary : {
+  @table::CommonMC.FindMCPrimary
+  SimParticles : "compressDetStepMCs"
+}
+physics.DigitizePath : [ compressDetStepMCs, FindMCPrimary, @sequence::physics.DigitizePath ]
+# CrvSteps now come from this process, not the G4 one
+physics.producers.CrvPhotons.crvStepModuleLabels : [ "compressDetStepMCs" ]
+physics.producers.CrvPhotons.crvStepProcessNames : [ "" ]
+# keep the gen-stream subrun products (CosmicLivetime, GenEventCount) and the cosmic GenParticles
+outputs.Output.outputCommands : [ @sequence::outputs.Output.outputCommands, "keep mu2e::CosmicLivetime_*_*_*", "keep mu2e::GenEventCount_*_*_*",
+                                  "keep mu2e::GenParticles_cosmicTimeOffset_*_*" ]
+outputs.Output.fileName : "dig.owner.CosmicCRYExtractedFast.v0.sequencer.art"
+
+services.GeometryService.inputFile : "Offline/Mu2eG4/geom/geom_common_extracted_v04.txt"
+services.DbService.purpose : Sim_best
+services.DbService.version : v1_5
+services.DbService.verbose : 0
+#include "Offline/CRVReco/fcl/epilog_extracted_v04.fcl"

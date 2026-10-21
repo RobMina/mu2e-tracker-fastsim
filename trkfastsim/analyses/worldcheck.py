@@ -13,7 +13,11 @@ Reported:
   2. energy loss on events passing in both arms: loss = p_gen - p_first, fast against G4, per generated-|p| and
      column bin (median and mean, and the paired median difference);
   3. the unpaired events (pass in one arm only): their generated |p| and column, to locate what one arm delivers and
-     the other does not.
+     the other does not;
+  4. transverse state at the first straw per generated-|p| x column cell (each arm on its own passes, and paired):
+     lateral offset of the first-straw entry from the generated straight line at the same height, deflection angle
+     from the generated direction, and the per-plane offset-angle correlation (rho = sqrt(3)/2 for one uniform slab
+     ending at the plane), to test how the world scattering is spread along the column.
 """
 import os
 
@@ -38,7 +42,67 @@ def _arm(paths):
     s = s.merge(f[f.pass_trk].reset_index()[T.KEY], on=T.KEY)
     first = s.sort_values("t").groupby(T.KEY, sort=False).first().reset_index()
     first["p_first"] = np.sqrt(first.px ** 2 + first.py ** 2 + first.pz ** 2)
-    return first[T.KEY + ["p_first"]]
+    pos = geometry.to_mu2e(first[["x0", "y0", "z0"]].to_numpy())   # step positions are detector frame, gen is Mu2e
+    first["x_first"], first["y_first"], first["z_first"] = pos[:, 0], pos[:, 1], pos[:, 2]
+    for c in ("px", "py", "pz"):
+        first["u" + c[1]] = first[c] / first.p_first
+    return first[T.KEY + ["p_first", "x_first", "y_first", "z_first", "ux", "uy", "uz"]]
+
+
+TP_EDGES = np.array([0.0, 500.0, 750.0, 1000.0, 1500.0, 3000.0, 1e9])   # MeV/c, generated (as survivalcheck)
+TC_EDGES = np.array([0.0, 50.0, 150.0, 300.0, 450.0, 1e9])               # g/cm2 (as survivalcheck)
+
+
+def _transverse(ev, sfx):
+    """Per event: lateral offset [mm] of the first-straw entry from the generated line at the same height, its two
+    transverse components, the deflection components [rad] in the same basis, the space angle and the path length."""
+    o = ev[["x", "y", "z"]].to_numpy()
+    d0 = ev[["px", "py", "pz"]].to_numpy() / ev.p_gen.to_numpy()[:, None]
+    xf = ev[[f"x_first{sfx}", f"y_first{sfx}", f"z_first{sfx}"]].to_numpy()
+    uf = ev[[f"ux{sfx}", f"uy{sfx}", f"uz{sfx}"]].to_numpy()
+    L = (o[:, 1] - xf[:, 1]) / -d0[:, 1]
+    dl = xf - (o + d0 * L[:, None])
+    dl -= (dl * d0).sum(1)[:, None] * d0
+    ref = np.where(np.abs(d0[:, [0]]) < 0.9, np.array([[1.0, 0, 0]]), np.array([[0, 0, 1.0]]))
+    u = np.cross(d0, ref)
+    u /= np.linalg.norm(u, axis=1)[:, None]
+    v = np.cross(d0, u)
+    cth = np.clip((uf * d0).sum(1), -1, 1)
+    return {"r": np.linalg.norm(dl, axis=1), "yu": (dl * u).sum(1), "yv": (dl * v).sum(1),
+            "tu": (uf * u).sum(1) / cth, "tv": (uf * v).sum(1) / cth, "theta": np.arccos(cth), "L": L}
+
+
+def _tstats(t, m):
+    if m.sum() < 20:
+        return None
+    y = np.r_[t["yu"][m], t["yv"][m]]
+    a = np.r_[t["tu"][m], t["tv"][m]]
+    q = lambda x: np.quantile(x, [0.5, 0.9, 0.99]).round(2).tolist()
+    return {"n": int(m.sum()), "r_mm_q": q(t["r"][m]), "theta_mrad_q": q(1e3 * t["theta"][m]),
+            "rho": float(np.corrcoef(y, a)[0, 1]),
+            "y_over_thetaL_rms": float(np.sqrt(np.mean(y ** 2)) / max(np.sqrt(np.mean((a * np.r_[t["L"][m], t["L"][m]]) ** 2)), 1e-9)),
+            "L_median_mm": float(np.median(t["L"][m]))}
+
+
+def _transverse_table(ev, pf, pg):
+    """Transverse first-straw statistics per generated-|p| x column cell: fast on its passes, G4 on its passes, and
+    both arms on the events passing in both (paired)."""
+    tf = _transverse(ev[pf].reset_index(drop=True), "")
+    tg = _transverse(ev[pg].reset_index(drop=True), "_g4")
+    both = ev[pf & pg].reset_index(drop=True)
+    tbf, tbg = _transverse(both, ""), _transverse(both, "_g4")
+    rows = []
+    for i in range(len(TP_EDGES) - 1):
+        for j in range(len(TC_EDGES) - 1):
+            cell = lambda x: ((x.p_gen >= TP_EDGES[i]) & (x.p_gen < TP_EDGES[i + 1]) & (x.gcm2 >= TC_EDGES[j])
+                              & (x.gcm2 < TC_EDGES[j + 1])).to_numpy()
+            r = {"p_gen": [float(TP_EDGES[i]), float(min(TP_EDGES[i + 1], 1e6))],
+                 "gcm2": [float(TC_EDGES[j]), float(min(TC_EDGES[j + 1], 1e5))],
+                 "fast": _tstats(tf, cell(ev[pf])), "g4": _tstats(tg, cell(ev[pg])),
+                 "paired_fast": _tstats(tbf, cell(both)), "paired_g4": _tstats(tbg, cell(both))}
+            if r["g4"] is not None:
+                rows.append(r)
+    return rows
 
 
 MISS_EDGES = np.array([0.0, 1e-6, 300.0, 1000.0, 1500.0, 3000.0, 1e9])   # mm from the footprint at the plane
@@ -108,7 +172,8 @@ def run(inputs, outdir, compare=None, gdml=None, **kw):
     gen["miss_mm"] = _miss_distance(o, d, geom, y_pl)
     f, r = _arm(fast_paths), _arm(g4_paths)
     ev = gen[near].reset_index(drop=True)
-    ev = ev.merge(f, on=T.KEY, how="left").merge(r.rename(columns={"p_first": "p_first_g4"}), on=T.KEY, how="left")
+    ev = ev.merge(f, on=T.KEY, how="left").merge(r.rename(columns={c: c + "_g4" for c in r.columns if c not in T.KEY}),
+                                                 on=T.KEY, how="left")
     gcm2, xx0 = _column(ev, world, y_pl)
     ev["gcm2"], ev["xx0"] = gcm2, xx0
     pf, pg = ev.p_first.notna().to_numpy(), ev.p_first_g4.notna().to_numpy()
@@ -164,6 +229,7 @@ def run(inputs, outdir, compare=None, gdml=None, **kw):
             out[f"{lab}_profile"] = {"n": int(len(x)), "p_gen_q": np.quantile(x.p_gen, [0.1, 0.5, 0.9]).round(0).tolist(),
                                      "gcm2_q": np.quantile(x.gcm2, [0.1, 0.5, 0.9]).round(1).tolist(),
                                      "share_p_gen_below_1GeV": float(np.mean(x.p_gen < 1000))}
+    out["transverse_first_straw"] = _transverse_table(ev, pf, pg)
     _print(out)
     plots.write_json(outdir, "worldcheck.json", out)
     ev.to_csv(os.path.join(outdir, "worldcheck_events.csv"), index=False)
@@ -195,3 +261,13 @@ def _print(out):
     for lab in ("both", "fast_only", "g4_only"):
         if f"{lab}_profile" in out:
             print(f"  {lab:9s} {out[f'{lab}_profile']}")
+    print("transverse state at the first straw (offset from the generated line r [mm] q50/q90/q99, angle [mrad] "
+          "q50/q90/q99, rho(offset, angle), rms y/(theta L)); each arm on its passes, then paired:")
+    for r in out.get("transverse_first_straw", []):
+        for lab in ("fast", "g4", "paired_fast", "paired_g4"):
+            x = r[lab]
+            if x is None:
+                continue
+            print(f"  p {r['p_gen'][0]:5.0f}-{r['p_gen'][1]:7.0f} col {r['gcm2'][0]:4.0f}-{r['gcm2'][1]:6.0f} {lab:11s} n {x['n']:5d}"
+                  f"  r {x['r_mm_q']}  th {x['theta_mrad_q']}  rho {x['rho']:.3f}  y/thL {x['y_over_thetaL_rms']:.3f}"
+                  f"  L {x['L_median_mm']:.0f}")

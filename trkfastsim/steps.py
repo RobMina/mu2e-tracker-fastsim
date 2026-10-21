@@ -406,13 +406,15 @@ def _kink(pos, d, dth, dy):
     return pos + u * dy[:, [0]] + v * dy[:, [1]], dn
 
 
-def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN, msc_tail=True, tail_k=None):
+def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN, msc_tail=True, tail_k=None,
+             band_spread=False):
     """Stage C transport of the primary muons to the plane above the tracker.
 
     Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]). Tracks
     not near the tracker (straight line outside the footprint margin at the plane, or upward) are not transported and
     are returned with alive = False: their generated state has crossed no material, so a straw they happen to cross
-    below the plane would be reached with no energy loss and no scattering.
+    below the plane would be reached with no energy loss and no scattering. band_spread: spread each height band's
+    scattering uniformly along its path (transport.msc_to_plane band_len) instead of at the band centre.
     """
     mu = primary_muons(gen)
     p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
@@ -425,13 +427,15 @@ def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARG
     L = np.zeros(len(mu))
     alive = near.copy()
     if near.any():
-        res = tr.world_loss(rng, o[near], d[near], p0[near], world, edges, return_band_p=True, return_tail=msc_tail)
+        res = tr.world_loss(rng, o[near], d[near], p0[near], world, edges, return_band_p=True, return_tail=msc_tail,
+                           return_band_len=band_spread)
         pw, xx0, ok, bxx0, bh, bp = res[:6]
-        chic2, thn = res[6:] if msc_tail else (None, None)
+        chic2, thn = res[6:8] if msc_tail else (None, None)
+        blen = res[-1] if band_spread else None
         p_msc = np.maximum(np.sqrt(p0[near] * np.maximum(pw, 1.0)), 1.0)   # geometric mean over the column
         on, dn, Ln = tr.msc_to_plane(rng, o[near], d[near], p_msc, y_pl, eloss.radiation_length_mm(materials.AIR),
                                      xx0, bxx0, bh, band_p=bp if sliced_msc else None,
-                                     band_chic2=chic2, band_thn=thn, tail_k=tail_k)
+                                     band_chic2=chic2, band_thn=thn, tail_k=tail_k, band_len=blen)
         o, d = o.copy(), d.copy()
         o[near], d[near], L[near], p[near] = on, dn, Ln, pw
         alive[np.flatnonzero(near)[~ok]] = False
@@ -579,7 +583,7 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
 
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
-               kink_xx0=KINK_XX0):
+               kink_xx0=KINK_XX0, band_spread=False):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
@@ -591,7 +595,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     where the tail density crosses the Gaussian); kink_xx0: x/X0 of straw material between in-tracker kinks."""
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
-                                                   msc_tail=msc_tail, tail_k=tail_k)
+                                                   msc_tail=msc_tail, tail_k=tail_k, band_spread=band_spread)
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     else:
         mu = primary_muons(gen)

@@ -5,7 +5,8 @@
 #   g4g4   G4 against G4: prod_as20 (Musing MDC2025as) vs g4ref_v1 (MDC2025ay) with v1compare, msccheck, stepcheck,
 #          to see whether the two Musings differ on the shared distributions before using as20 as the reference
 #   steps  fast StrawGasSteps (current defaults, seed 1) on the gen-only primaries gen_as_v1 (grid/: submit_gen_only.sh, then dump_gen_only.sh)
-#   cmp    fast_as_v1 against prod_as20 with v1compare, msccheck, stepcheck
+#   cmp    fast_as_v1 against prod_as20 with v1compare, msccheck, stepcheck, slowcheck
+#   surv   fast_as_v1 against prod_as20 with survivalcheck
 # Inputs under $M2FS_DATA/trk_fastsim: prod_as20/sgsteps.*.root (20 production dts, 500 k generated, 155.8 s),
 # gen_as_v1/gen.*.root (20 x 500 k generated, ~156 s). Comparisons that need the same primaries (worldcheck, the
 # same-straw diagnostic in v1compare) are not meaningful here; rates are per second of live time.
@@ -52,6 +53,11 @@ PY
       python3 -m trkfastsim stepcheck "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/stepcheck_$T > $O/step.log 2>&1
       python3 -m trkfastsim slowcheck "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/slowcheck_$T > $O/slow.log 2>&1
       echo "cmp done rc=$?" ;;
+    surv)
+      # selected rate by generated |p| x world column and by energy margin (survivalcheck), fast_$T against prod_as20
+      O=$D/fast_$T
+      python3 -m trkfastsim survivalcheck "$O/fasttrkC.*.root" --compare "$AS" --outdir $D/plots/survivalcheck_$T > $O/surv.log 2>&1
+      echo "surv done rc=$?" ;;
     *) echo "unknown step $step"; exit 2 ;;
   esac
 done

@@ -62,6 +62,8 @@ def build_parser():
                             help="tail threshold in units of theta0 (default: where tail and Gaussian cross)")
             sp.add_argument("--kink-xx0", type=float, default=1e-3,
                             help="stage C: x/X0 of straw material between in-tracker kinks (default 1e-3)")
+            sp.add_argument("--band-spread", action="store_true",
+                            help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
         if name == "fatecheck":
             sp.add_argument("--seed", type=int, default=1, help="base seed, as steps (file i uses (seed, i))")
         if name == "elosscheck":
@@ -79,6 +81,8 @@ def build_parser():
 
 
 def main(argv=None):
+    a = sys.argv[1:] if argv is None else argv  # reco-<cmd> -> trkfastsim.reco.cli
+    if a and a[0].startswith("reco-"): from .reco import cli as rc; return rc.main([a[0][5:]] + a[1:])
     args = build_parser().parse_args(argv)
     kw = vars(args)
     cmd = kw.pop("cmd")

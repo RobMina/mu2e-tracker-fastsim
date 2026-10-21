@@ -11,7 +11,8 @@ fast muons whose G4 twin scattered out of the tracker and biases the fast arm lo
 Compared distributions among selected events, against the agreed T-V1 thresholds: straws per muon (mean within 1 %),
 per-plane counts, path length (mean within 0.5 %, binned ratio +-2 %), eIon (MPV within 2 % after a 2-sigma
 allowance, from a Moyal fit to the peak, stats.mpv_fit; mean within 3 %, binned ratio +-5 %); and the world-model observables at the first straw: |p|, direction cosines and entry position (median
-bias, binned ratio); the in-tracker scattering: deflection between the first and last straw per |p| bin. T-V1b (`all_steps`): every StrawGasStep of the selected events, muon and secondaries: steps and
+bias, binned ratio); the in-tracker scattering: deflection between the first and last straw per |p| bin; the rate per
+second of live time per bin of |p| at the first straw (selected muons, Poisson errors). T-V1b (`all_steps`): every StrawGasStep of the selected events, muon and secondaries: steps and
 eIon per event, eIon per straw (muon + secondaries summed: what the digitiser sees), non-muon share, in-muon-straw vs
 elsewhere. Per-straw matching on the same event is reported only as a geometry diagnostic (exact for stage
 A paths; with independent multiple scattering in both arms its position spread measures the scattering, not a bias).
@@ -61,6 +62,26 @@ def _deflection(s):
     pa, pb = np.linalg.norm(a[:, :3], axis=1), np.linalg.norm(b[:, :3], axis=1)
     c = np.clip(np.einsum("ij,ij->i", a[:, :3], b[:, :3]) / np.maximum(pa * pb, 1e-12), -1, 1)
     return 1e3 * np.arccos(c), pa, a[:, 3] - b[:, 3]
+
+
+RATE_P_EDGES = np.array([0.0, 300.0, 500.0, 750.0, 1000.0, 1500.0, 2000.0, 3000.0, 5000.0, 10000.0, 1e9])   # MeV/c
+
+
+def _rate_by_p(a, b, lt_a, lt_b):
+    """Selected muons per second of live time by |p| at the first straw, arm a against arm b, with Poisson errors:
+    rows (lo, hi, n_a, n_b, rate_a, rate_b, ratio - 1, error of the ratio)."""
+    ha, _ = np.histogram(a, RATE_P_EDGES)
+    hb, _ = np.histogram(b, RATE_P_EDGES)
+    rows = []
+    for k in range(len(RATE_P_EDGES) - 1):
+        na, nb = int(ha[k]), int(hb[k])
+        if nb == 0:
+            continue
+        r = (na / lt_a) / (nb / lt_b)
+        rows.append({"p": [float(RATE_P_EDGES[k]), float(min(RATE_P_EDGES[k + 1], 1e6))], "n": [na, nb],
+                     "rate_per_s": [na / lt_a, nb / lt_b], "ratio_minus_1": float(r - 1),
+                     "ratio_err": float(r * np.sqrt(1 / max(na, 1) + 1 / nb))})
+    return rows
 
 
 def _deflection_block(f, r):
@@ -184,6 +205,7 @@ def run(inputs, outdir, compare=None, **kw):
           "eion_band": _band_ok(out["eion_band"], 0.05),
           "time_bias_same_straw": len(ia) > 0 and abs(diag["time_bias_ns"]) <= 0.05}
     out["deflection_first_to_last"] = _deflection_block(f, r)      # [fast, g4] per |p| bin
+    out["rate_by_p_first"] = _rate_by_p(a["p"], b["p"], lt_f, lt_r)   # [fast, g4]: muons per live-time second
     out["all_steps"] = _all_steps_block(fa_all, ra_all, f[T.KEY].drop_duplicates(), r[T.KEY].drop_duplicates())
     out["thresholds_pass"] = th
     for k, v in out.items():

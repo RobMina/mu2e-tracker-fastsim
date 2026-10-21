@@ -20,6 +20,10 @@ for tag in sys.argv[2:]:
     for pb, x in v.get("deflection_first_to_last", {}).items():
         print(f"     |p| {pb:>11s} n {x['n']}  med {[round(a, 2) for a in x['median_mrad']]}  q90 {[round(a, 2) for a in x['q90_mrad']]}"
               f"  q99 {[round(a, 1) for a in x['q99_mrad']]}  >10x med {[round(a, 4) for a in x['share_above_10x_g4_median']]}")
+    if v.get("rate_by_p_first"):
+        print("   rate per live time by |p| at the first straw [fast/g4 - 1 +- err (n fast/g4)]:")
+        print("     " + "  ".join(f"{int(x['p'][0])}-{int(x['p'][1])}: {x['ratio_minus_1']:+.3f}+-{x['ratio_err']:.3f} ({x['n'][0]}/{x['n'][1]})"
+                                  for x in v["rate_by_p_first"]))
     w = D / f"plots/worldcheck_{tag}/worldcheck.json"
     if w.exists():
         wj = json.loads(w.read_text())

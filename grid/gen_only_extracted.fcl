@@ -1,0 +1,20 @@
+# CRY primaries only (no Geant4 transport): the stock ExtractedCRY generator and cosmic time offset, every generated event kept
+# with its GenParticles, CosmicLivetime and GenEventCount. Same products as the g4ref_v1 gen stream, so the
+# StrawGasStepTableDumper gen-only fcl turns it into gen tables for `trkfastsim steps`.
+#include "Production/JobConfig/cosmic/ExtractedCRY.fcl"
+
+source.firstRun : 1400
+
+physics.PrimaryPath : [ @sequence::Common.generateSequence, cosmicTimeOffset ]
+# The CRY generator reads the WorldG4 geometry, which only the Geant4 module registers (at beginRun). Keep g4run in
+# the schedule behind a filter that never passes, so Geant4 initialises once and transports no event.
+physics.filters.neverPass : { module_type : Prescaler prescaleFactor : 2000000000 prescaleOffset : 1999999999 }
+physics.G4InitPath : [ neverPass, g4run ]
+physics.trigger_paths : [ PrimaryPath, G4InitPath ]
+outputs.PrimaryOutput.fileName : "gen.owner.desc.version.sequencer.art"
+outputs.PrimaryOutput.SelectEvents : [ PrimaryPath ]
+outputs.PrimaryOutput.outputCommands : [ "drop *_*_*_*",
+                                         "keep mu2e::GenParticles_*_*_*",
+                                         "keep mu2e::CosmicLivetime_*_*_*",
+                                         "keep mu2e::GenEventCount_*_*_*" ]
+physics.EndPath : [ @sequence::Primary.EndSequence, PrimaryOutput ]

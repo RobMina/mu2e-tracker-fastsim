@@ -35,3 +35,6 @@ cd $TRKFS_CODE/art && source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh &&
 mu2e -c TrkFastSim/fcl/dump_sgsteps.fcl -s dts....art -T sgsteps.root
 $TRKFS_CODE/art/dump_ref.sh files.txt /exp/mu2e/data/users/$USER/trk_fastsim/tables
 ```
+
+The grid campaign of CRY primaries without Geant4 (gen tables for fast runs of a chosen live time) is in `../grid/`
+(`grid/README.md`); its dump step uses `dump_sgsteps_gen.fcl` from this area.

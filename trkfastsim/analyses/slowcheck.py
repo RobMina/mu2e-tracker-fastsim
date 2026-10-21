@@ -99,6 +99,10 @@ def run(inputs, outdir, compare=None, **kw):
                                       "err": float(np.sqrt(1 / max(ha[j], 1) + 1 / max(hb[j], 1)))}
                                      for j in range(len(N_EDGES) - 1)]
         row["pass_n_all_q"] = [_q(sa.n_all), _q(sb.n_all)]
+        row["pass_p_last_q"] = [_q(sa.p_last), _q(sb.p_last)]
+        row["pass_dp_track_q"] = [_q(sa.p_first - sa.p_last), _q(sb.p_first - sb.p_last)]
+        row["pass_share_p_last_below_100"] = [float(np.mean(sa.p_last < 100)), float(np.mean(sb.p_last < 100))]
+        row["pass_dy_track_q"] = [_q(sa.y_first - sa.y_last), _q(sb.y_first - sb.y_last)]
         row["pass_nongood_share"] = [float((sa.n_all - sa.n).sum() / max(sa.n_all.sum(), 1)),
                                      float((sb.n_all - sb.n).sum() / max(sb.n_all.sum(), 1))]
         row["pass_low_eion_share"] = [float(sa.n_low_eion.sum() / max(sa.n_all.sum(), 1)),
@@ -128,6 +132,13 @@ def run(inputs, outdir, compare=None, **kw):
               f" (eIon {x['pass_low_eion_share'][0]:.4f}/{x['pass_low_eion_share'][1]:.4f},"
               f" |p| {x['pass_low_p_share'][0]:.4f}/{x['pass_low_p_share'][1]:.4f})"
               f"  all-steps q50 {x['pass_n_all_q'][0][2]:.0f}/{x['pass_n_all_q'][1][2]:.0f}")
+    print("selected muons: |p| at the last good straw, loss first->last straw, vertical extent of the track [mm]:")
+    for x in out["by_p_first"]:
+        pl, dp, dy = x["pass_p_last_q"], x["pass_dp_track_q"], x["pass_dy_track_q"]
+        print(f"  {x['p'][0]:5.0f}-{x['p'][1]:6.0f}  p_last q10/50 f {pl[0][0]:.0f}/{pl[0][2]:.0f} g {pl[1][0]:.0f}/{pl[1][2]:.0f}"
+              f"  dp q50/q90 f {dp[0][2]:.1f}/{dp[0][4]:.1f} g {dp[1][2]:.1f}/{dp[1][4]:.1f} MeV"
+              f"  p_last<100 f {x['pass_share_p_last_below_100'][0]:.3f} g {x['pass_share_p_last_below_100'][1]:.3f}"
+              f"  dy q50/q90 f {dy[0][2]:.0f}/{dy[0][4]:.0f} g {dy[1][2]:.0f}/{dy[1][4]:.0f}")
     print("counts n fast/g4 (any, few, pass) per bin:", [(int(x['p'][0]), x['rate_any']['n'], x['rate_few_1_11']['n'],
                                                           x['rate_pass_ge12']['n']) for x in out["by_p_first"]])
     plots.write_json(outdir, "slowcheck.json", out)

@@ -41,13 +41,20 @@ def _muons(paths):
     ga = s.groupby(KEY).agg(n_all=("good", "size"), n_low_eion=("eion", lambda e: int((e <= T.FILTER_MIN_STEP_EION).sum())),
                             n_low_p=("p", lambda x: int((x <= T.FILTER_MIN_MOM).sum())))
     s = s[s.good].sort_values(KEY + ["t"])
+    # straws per plane: good steps per (muon, plane), and per (muon, plane, panel); planes and panels crossed per muon
+    pp = s.groupby(KEY + ["plane"]).size()
+    pn = s.groupby(KEY + ["plane", "panel"]).size()
+    geo = pd.DataFrame({"n_planes": pp.groupby(KEY).size(), "per_plane_mean": pp.groupby(KEY).mean(),
+                        "per_plane_max": pp.groupby(KEY).max(), "n_panels": pn.groupby(KEY).size(),
+                        "per_panel_mean": pn.groupby(KEY).mean(),
+                        "share_planes_ge3": (pp >= 3).groupby(KEY).mean()}).reset_index()
     s["p"] = np.sqrt(s.px ** 2 + s.py ** 2 + s.pz ** 2)
     pos = geometry.to_mu2e(s[["x0", "y0", "z0"]].to_numpy())
     s["X"], s["Y"], s["Z"] = pos[:, 0], pos[:, 1], pos[:, 2]
     g = s.groupby(KEY, sort=False)
     m = pd.DataFrame({"n": g.size(), "p_first": g.p.first(), "p_last": g.p.last(), "uy": (g.py.first() / g.p.first()).abs(),
                       "x": g.X.first(), "z": g.Z.first(), "y_first": g.Y.first(), "y_last": g.Y.last()}).reset_index()
-    m = m.merge(ga.reset_index(), on=KEY, how="left")
+    m = m.merge(ga.reset_index(), on=KEY, how="left").merge(geo, on=KEY, how="left")
     if "ee" in pm.columns:
         end = pm.groupby(KEY).first().reset_index()
         end["stopped"] = (end.ee - eloss.MMU) < 1.0
@@ -103,6 +110,16 @@ def run(inputs, outdir, compare=None, **kw):
         row["pass_dp_track_q"] = [_q(sa.p_first - sa.p_last), _q(sb.p_first - sb.p_last)]
         row["pass_share_p_last_below_100"] = [float(np.mean(sa.p_last < 100)), float(np.mean(sb.p_last < 100))]
         row["pass_dy_track_q"] = [_q(sa.y_first - sa.y_last), _q(sb.y_first - sb.y_last)]
+        for c in ("n_planes", "n_panels", "per_plane_mean", "per_plane_max", "per_panel_mean", "share_planes_ge3"):
+            row[f"pass_{c}"] = {"mean": [float(sa[c].mean()), float(sb[c].mean())], "q": [_q(sa[c]), _q(sb[c])]}
+        # selected rate by number of planes crossed (is the deficit in muons crossing many planes?)
+        pe = np.array([1, 6, 9, 12, 15, 18, 100])
+        ha, _ = np.histogram(sa.n_planes, pe)
+        hb, _ = np.histogram(sb.n_planes, pe)
+        row["pass_rate_by_planes"] = [{"planes": [int(pe[j]), int(pe[j + 1]) - 1], "count": [int(ha[j]), int(hb[j])],
+                                       "ratio_minus_1": float((ha[j] / lt_f) / max(hb[j] / lt_r, 1e-30) - 1),
+                                       "err": float(np.sqrt(1 / max(ha[j], 1) + 1 / max(hb[j], 1)))}
+                                      for j in range(len(pe) - 1)]
         row["pass_nongood_share"] = [float((sa.n_all - sa.n).sum() / max(sa.n_all.sum(), 1)),
                                      float((sb.n_all - sb.n).sum() / max(sb.n_all.sum(), 1))]
         row["pass_low_eion_share"] = [float(sa.n_low_eion.sum() / max(sa.n_all.sum(), 1)),
@@ -139,6 +156,20 @@ def run(inputs, outdir, compare=None, **kw):
               f"  dp q50/q90 f {dp[0][2]:.1f}/{dp[0][4]:.1f} g {dp[1][2]:.1f}/{dp[1][4]:.1f} MeV"
               f"  p_last<100 f {x['pass_share_p_last_below_100'][0]:.3f} g {x['pass_share_p_last_below_100'][1]:.3f}"
               f"  dy q50/q90 f {dy[0][2]:.0f}/{dy[0][4]:.0f} g {dy[1][2]:.0f}/{dy[1][4]:.0f}")
+    print("selected muons: planes and panels crossed, good straws per plane / per panel (means fast/G4), "
+          "share of crossed planes with >= 3 straws:")
+    for x in out["by_p_first"]:
+        g = lambda c: x[f"pass_{c}"]["mean"]
+        print(f"  {x['p'][0]:5.0f}-{x['p'][1]:6.0f}  planes {g('n_planes')[0]:5.2f}/{g('n_planes')[1]:5.2f}"
+              f"  panels {g('n_panels')[0]:5.2f}/{g('n_panels')[1]:5.2f}"
+              f"  per plane {g('per_plane_mean')[0]:.3f}/{g('per_plane_mean')[1]:.3f}"
+              f"  per panel {g('per_panel_mean')[0]:.3f}/{g('per_panel_mean')[1]:.3f}"
+              f"  max/plane {g('per_plane_max')[0]:.2f}/{g('per_plane_max')[1]:.2f}"
+              f"  planes>=3 {g('share_planes_ge3')[0]:.3f}/{g('share_planes_ge3')[1]:.3f}")
+    print("selected rate fast/G4 - 1 by planes crossed:")
+    for x in out["by_p_first"]:
+        print(f"  {x['p'][0]:5.0f}-{x['p'][1]:6.0f}  " + "  ".join(
+            f"{y['planes'][0]}-{y['planes'][1]}: {y['ratio_minus_1']:+.2f}+-{y['err']:.2f}" for y in x["pass_rate_by_planes"]))
     print("counts n fast/g4 (any, few, pass) per bin:", [(int(x['p'][0]), x['rate_any']['n'], x['rate_few_1_11']['n'],
                                                           x['rate_pass_ge12']['n']) for x in out["by_p_first"]])
     plots.write_json(outdir, "slowcheck.json", out)

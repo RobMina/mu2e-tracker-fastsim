@@ -14,12 +14,39 @@ physics.producers.compressDetStepMCs : {
   primaryKey : 1
   makeTrajectories : true
 }
+# the production PrimaryFilter (primary/prolog.fcl + ExtractedCRY CRV term) on the fast steps: the gen stream holds every generated event
+physics.filters.PrimaryFilter : {
+  module_type : DetectorStepFilter
+  StrawGasSteps : [ "compressDetStepMCs" ]
+  CaloShowerSteps : [ "compressDetStepMCs" ]
+  CrvSteps : [ "compressDetStepMCs" ]
+  MinimumTrkStepEnergy : 1.0e-6
+  MinimumCaloStepEnergy : 0.0
+  MinimumCrvStepEnergy : 0.1
+  MinimumCrvSteps : 1
+  MinimumPartMom : 50.0
+  MaximumPartMom : 1.0e6
+  MinimumCaloPartMom : 0.0
+  MaximumCaloPartMom : 1.0e6
+  KeepPDG : [ ]
+  MinimumTrkSteps : 12
+  MinimumSumCaloStepE : 45.0
+  MinimumSumCaloE : 45.0
+}
 # the G4 job made FindMCPrimary in the Primary stage; here it runs on the fast SimParticles
 physics.producers.FindMCPrimary : {
   @table::CommonMC.FindMCPrimary
   SimParticles : "compressDetStepMCs"
+  PrimaryGenIds : [ "CosmicCRY" ]  # the stock list names mu2eFlatPhoton, which GenId in v13_39_00 does not know
 }
-physics.DigitizePath : [ compressDetStepMCs, FindMCPrimary, @sequence::physics.DigitizePath ]
+physics.DigitizePath : [ compressDetStepMCs, PrimaryFilter, FindMCPrimary, @sequence::physics.DigitizePath ]
+# every trigger path of the extracted menu runs makeSD itself, so the step producer must lead each of them too (MDC2025ay menu)
+physics.TriggerableLHPath : [ compressDetStepMCs, PrimaryFilter, FindMCPrimary, @sequence::physics.TriggerableLHPath ]
+physics.TriggerableCaloPath : [ compressDetStepMCs, PrimaryFilter, FindMCPrimary, @sequence::physics.TriggerableCaloPath ]
+physics.calo_cosmic : [ compressDetStepMCs, PrimaryFilter, FindMCPrimary, @sequence::physics.calo_cosmic ]
+physics.cst_TimeCluster : [ compressDetStepMCs, PrimaryFilter, FindMCPrimary, @sequence::physics.cst_TimeCluster ]
+physics.minBias_SDCount : [ compressDetStepMCs, PrimaryFilter, FindMCPrimary, @sequence::physics.minBias_SDCount ]
+physics.minBias_CDCount : [ compressDetStepMCs, PrimaryFilter, FindMCPrimary, @sequence::physics.minBias_CDCount ]
 # CrvSteps now come from this process, not the G4 one
 physics.producers.CrvPhotons.crvStepModuleLabels : [ "compressDetStepMCs" ]
 physics.producers.CrvPhotons.crvStepProcessNames : [ "" ]

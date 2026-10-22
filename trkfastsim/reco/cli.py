@@ -1,6 +1,8 @@
 """Tracker fast reco commands: `python3 -m trkfastsim reco-<cmd> REF.root [...]`
 
   conditions  StrawHitTableDumper conditions tree -> text (JSON) conditions file for the hit reco
+  vr3         T-VR3 (statistical): full fast chain from digis (hit reco, combo-free SimpleTimeCluster + LineFinder,
+              F2 JAX fit with its own hit states) vs stock KKLine on the same events: yield, hits, chi2, parameters
   vr2         T-VR2 (F2): batched Gauss-Newton line fit on the stock seed, hit list and drift states vs stock KKLine
   vr1b        T-VR1b: SimpleTimeCluster + LineFinder ports vs the stock clusters and seeds (dump_tracks_* tables)
   vr1         T-VR1: dumped StrawDigis -> numpy makeSH + makePH vs the stock hits in the same tables
@@ -312,6 +314,77 @@ def vr2(inputs, outdir, conditions, settings, niter=8, max_tracks=None, use_tot=
     print(json.dumps(res, indent=1))
 
 
+def vr3(inputs, outdir, conditions, settings, niter=4):
+    """Fast chain on the same digis as the stock DumpTracks reference; distributions compared, not track by track."""
+    import time
+    from . import linefind, linefit, linefit_jax
+    os.makedirs(outdir, exist_ok=True)
+    cond = hitreco.load_conditions(conditions)
+    d = hitreco.read_digis(inputs)
+    tt = {}
+    t0 = time.perf_counter(); sh = hitreco.straw_hits(d, cond, settings); tt["hits_s"] = time.perf_counter() - t0
+    t0 = time.perf_counter(); tc = linefind.time_clusters(sh); tt["clusters_s"] = time.perf_counter() - t0
+    t0 = time.perf_counter(); sd = linefind.line_seeds(sh, tc, cond); tt["seeds_s"] = time.perf_counter() - t0
+    drift = _drift_table(inputs[0])
+    # fit every seed with all its hits as candidates; states decided by the fit
+    ns = sd["n"]
+    trk = np.repeat(np.arange(len(ns)), ns)
+    H = linefit.build_hits(trk, sd["member"], np.zeros(len(trk)), np.ones(len(trk), bool), sh, cond, len(ns))
+    x0 = linefit.seed_params(sd["a0"], sd["b0"], sd["a1"], sd["b1"], sd["t0"])
+    t0 = time.perf_counter()
+    f = linefit_jax.fit_own_states(x0, H, drift, niter=niter)
+    tt["fit_first_s"] = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    f = linefit_jax.fit_own_states(x0, H, drift, niter=niter)
+    tt["fit_warm_s"] = time.perf_counter() - t0
+    kl = linefit.to_kinematic_line(f["x"])
+    nact = f["active"].sum(1)
+    good = (nact >= 5) & np.isfinite(f["chi2"]) & (f["ndof"] >= 1)          # KKFIT MinNStrawHits 5, MinNDOF 1
+    # stock reference
+    cols = ["kl_d0", "kl_phi0", "kl_z0", "kl_theta", "kl_t0", "kl_chi2", "kl_ndof", "kl_nactive", "kl_status"]
+    r = {k: [] for k in cols + ["ev"]}
+    off = 0
+    for p in inputs:
+        a = uproot.open(p)["trkdump/events"].arrays(cols)
+        r["ev"].append(np.repeat(np.arange(len(a)) + off, ak.to_numpy(ak.num(a.kl_d0))))
+        for c in cols:
+            r[c].append(ak.to_numpy(ak.flatten(a[c])))
+        off += len(a)
+    r = {k: np.concatenate(v) for k, v in r.items()}
+    ne = int(d["evkey"].shape[0])
+    res = {"n_events": ne, "timing_cpu_or_device": tt, "jax_backend": __import__("jax").default_backend(),
+           "stock_fits": int(len(r["kl_d0"])), "fast_fits": int(good.sum()),
+           "stock_events_with_fit": int(len(np.unique(r["ev"]))), "fast_events_with_fit": int(len(np.unique(sd["ev"][good])))}
+    res["yield_ratio_fast_over_stock"] = res["fast_fits"] / max(res["stock_fits"], 1)
+    def qs(a): return [float(x) for x in np.quantile(a, [.05, .16, .5, .84, .95])]
+    comp = {}
+    stock_chi = r["kl_chi2"] / np.maximum(r["kl_ndof"], 1)
+    fast_chi = f["chi2"][good] / np.maximum(f["ndof"][good], 1)
+    comp["nactive"] = {"stock": qs(r["kl_nactive"]), "fast": qs(nact[good])}
+    comp["chi2ndf"] = {"stock": qs(stock_chi), "fast": qs(fast_chi)}
+    for k in ("d0", "phi0", "z0", "theta", "t0"):
+        comp[k] = {"stock": qs(r["kl_" + k]), "fast": qs(kl[k][good])}
+    res["quantiles_5_16_50_84_95"] = comp
+    # matched events (one stock fit and one fast fit): per-track differences, for orientation only
+    evs, evf = r["ev"], sd["ev"][good]
+    us, cs = np.unique(evs, return_counts=True)
+    uf, cf = np.unique(evf, return_counts=True)
+    both = np.intersect1d(us[cs == 1], uf[cf == 1])
+    si = np.searchsorted(evs, both)
+    fi = np.flatnonzero(good)[np.searchsorted(evf, both)]
+    diff = {}
+    for k in ("d0", "phi0", "z0", "theta", "t0"):
+        dv = kl[k][fi] - r["kl_" + k][si]
+        if k == "phi0":
+            dv = (dv + np.pi) % (2 * np.pi) - np.pi
+        diff[k] = qs(dv)
+    res["matched_events"] = int(len(both))
+    res["matched_diff_quantiles"] = diff
+    with open(os.path.join(outdir, "vr3.json"), "w") as fo:
+        json.dump(res, fo, indent=1)
+    print(json.dumps(res, indent=1))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="trkfastsim reco", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -342,7 +415,15 @@ def main(argv=None):
     f2.add_argument("--no-long", action="store_true", help="drop the longitudinal (time-division) residual")
     f2.add_argument("--drift-dt", action="store_true", help="let drift radii constrain t0 (KKSHFlag DriftDt; stock: off)")
     f2.add_argument("--jax", action="store_true", help="fit with the JAX twin (exact Jacobian, vmapped); timing is warm")
+    v3 = sub.add_parser("vr3")
+    v3.add_argument("inputs", nargs="+")
+    v3.add_argument("--conditions", required=True)
+    v3.add_argument("--settings", default="mc", choices=["mc", "data"])
+    v3.add_argument("--niter", type=int, default=4)
+    v3.add_argument("--outdir", default="plots/reco-vr3")
     a = p.parse_args(argv)
+    if a.cmd == "vr3":
+        return vr3(a.inputs, a.outdir, a.conditions, a.settings, a.niter)
     if a.cmd == "vr2":
         return vr2(a.inputs, a.outdir, a.conditions, a.settings, a.niter, a.max_tracks, not a.no_tot, not a.no_long, a.drift_dt, a.jax)
     if a.cmd == "conditions":

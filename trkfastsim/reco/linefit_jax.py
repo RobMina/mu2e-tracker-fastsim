@@ -113,3 +113,59 @@ def fit(x0, H, drift, niter=8, drift_dt=False, use_tot=True, use_long=True, n_pa
         outs.append([np.asarray(a)[:n] for a in o])
     x, cov, chi2, ndof, doca, dT = (np.concatenate([o[i] for o in outs]) for i in range(6))
     return {"x": x, "cov": cov, "chi2": chi2, "ndof": ndof, "doca": doca[:, :N], "dT": dT[:, :N]}
+
+
+def _states_one(x, h, d, maxdoca, nullsig, cons):
+    """Hit states from the current line (a CADSHU-like rule standing in for the drift ANN): active if |DOCA| < maxdoca;
+    left/right from the DOCA sign where |DOCA| > nullsig x drift error and the drift radius agrees with |DOCA| within
+    cons x drift error, else null."""
+    _, dT, rd_live, doca = _resid_one(x, h, d, None, True)
+    sd = jnp.interp(dT, d["dt"], d["sderr"])
+    act = h["valid"] & (jnp.abs(doca) < maxdoca)
+    drift = (jnp.abs(doca) > nullsig * sd) & (jnp.abs(jnp.abs(doca) - rd_live) < cons * sd)
+    lr = jnp.where(drift, jnp.sign(doca), 0.0)
+    return act, lr
+
+
+@functools.partial(jax.jit, static_argnames=("niter", "use_tot", "use_long", "schedule"))
+def _fit_own_states(x0, h, d, niter, use_tot, use_long, schedule):
+    """Alternate state updates and fixed-iteration fits; schedule = ((maxdoca, nullsig), ...) per pass."""
+    def one(x0_, h_):
+        x = x0_
+        hh = dict(h_)
+        for maxdoca, nullsig, cons in schedule:
+            act, lr = _states_one(x, hh, d, maxdoca, nullsig, cons)
+            hh["active"], hh["lr"] = act, lr
+            x = _fit_one(x, hh, d, niter, False, use_tot, use_long)[0]
+        out = _fit_one(x, hh, d, niter, False, use_tot, use_long)
+        return out + (hh["active"], hh["lr"])
+    return jax.vmap(one)(x0, h)
+
+
+SCHEDULE = ((20.0, 1.0, 3.0), (10.0, 1.0, 3.0), (5.0, 1.0, 3.0), (5.0, 1.0, 3.0))   # (maxdoca, nullsig, cons) per pass
+
+
+def fit_own_states(x0, H, drift, niter=4, use_tot=True, use_long=True, schedule=SCHEDULE, n_pad=None, chunk=32768):
+    """Fit with hit states decided by the fast reco itself (starting from all hits of the seed); returns linefit keys +
+    active, lr."""
+    N = H["active"].shape[1]
+    n_pad = n_pad or max(16, 1 << int(np.ceil(np.log2(max(N, 1)))))
+    Hp = _pad_hits(H, n_pad)
+    Hp["valid"] = np.pad(np.asarray(H["sh"]) >= 0, [(0, 0), (0, n_pad - N)])
+    d = {k: jnp.asarray(np.asarray(drift[k], np.float64)) for k in DRIFT_KEYS}
+    outs = []
+    T = x0.shape[0]
+    for t0 in range(0, T, chunk):
+        n = min(chunk, T - t0)
+        cpad = chunk if T > chunk else n
+        sl = slice(t0, t0 + n)
+        hx = {k: np.concatenate([v[sl], np.repeat(v[sl][-1:], cpad - n, 0)]) if cpad > n else v[sl] for k, v in Hp.items()}
+        xx = np.concatenate([x0[sl], np.repeat(x0[sl][-1:], cpad - n, 0)]) if cpad > n else x0[sl]
+        o = _fit_own_states(jnp.asarray(xx), {k: jnp.asarray(v) for k, v in hx.items()}, d, niter=niter,
+                            use_tot=use_tot, use_long=use_long, schedule=tuple(schedule))
+        outs.append([np.asarray(a)[:n] for a in o])
+    keys = ("x", "cov", "chi2", "ndof", "doca", "dT", "active", "lr")
+    res = {k: np.concatenate([o[i] for o in outs]) for i, k in enumerate(keys)}
+    for k in ("doca", "dT", "active", "lr"):
+        res[k] = res[k][:, :N]
+    return res

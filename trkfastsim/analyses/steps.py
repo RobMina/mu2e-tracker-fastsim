@@ -19,7 +19,7 @@ import os
 import numpy as np
 
 from mu2efastsim import tables as core_tables
-from .. import geometry, library as lib_mod, steps as st, tables
+from .. import geometry, library as lib_mod, steps as st, surfaces, tables
 
 GDML_NAME = "crv_fastsim/geometry/mu2e_extracted_v04.gdml"   # under $M2FS_DATA (crv/geometry/README.md)
 
@@ -33,7 +33,7 @@ def default_gdml():
 
 def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, tag="",
         sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True, kink_xx0=st.KINK_XX0,
-        tail_k=None, band_spread=False, **kw):
+        tail_k=None, band_spread=False, no_surfsteps=False, **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom) if stage == "C" else None
@@ -58,7 +58,8 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
         if offaxis is not None:
             print(f"#   off-axis: {getattr(st.make_steps, 'offaxis_stats', {})}", flush=True)
         name = f"fasttrk{stage}{'L' if lib else ''}{tag}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")
+        surf = surfaces.surface_steps(sgs) if not no_surfsteps else None
         core_tables.write(os.path.join(outdir, name), {"sgsteps": sgs, "particles": parts, "gen": gen,
-                                                        "subruns": sub}, as_ttree=True)
+                                                        "subruns": sub, "surfsteps": surf}, as_ttree=True)
         print(f"# {f}: {len(parts):,} primary muons, {sgs[tables.KEY].drop_duplicates().shape[0]:,} with straw "
               f"crossings, {len(sgs):,} steps", flush=True)

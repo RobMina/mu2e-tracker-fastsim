@@ -171,6 +171,23 @@ noise floor, and the per-bin ratios behind the band checks.
 
 Quote the globs: the subcommands expand them.
 
+### 5. Tracker surface crossings (surfsteps)
+
+`steps` also writes the tree `dump/surfsteps` (switch off with `--no-surfsteps`): the primary muon's crossings of the
+tracker virtual detectors, sids 0-4 (TT_Front, TT_Mid + TT_MidInner, TT_Back, TT_Inner, TT_Outer; surfaces from the v04
+GDML, `trkfastsim/surfaces.py`), in the columns of `StrawGasStepTableDumper`'s surfsteps tree, so path A
+(`StrawGasStepsFromTable`) fills the SurfaceStepCollection that EventNtuple's `trksegsmc` reads. It is computed from the
+muon's own StrawGasSteps (no random numbers: `sgsteps` is bit-identical with and without it). Check against G4:
+
+```bash
+python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v1_tables/gen.001400_*.root" --outdir $D/fast_c1SIsDss --seed 1 --stage C --sliced-msc
+python3 -m trkfastsim surfcheck "$D/fast_c1SIsDss/fasttrkC.*.root" --compare "$D/g4ref_v1_tables/sgsteps.*.root" --outdir $D/plots/surfcheck_c1SIsDss
+```
+
+Expected (2026-10-21): crossings per selected event within 1 % of G4 on every sid; positions on the surfaces; |p|, angle,
+position and time bands 0-3.5 % after the 2-sigma allowance. 52-72 % of G4 surfsteps come from particles other than the
+primary muon (delta rays crossing the VDs): the fast sim does not write those.
+
 ## License
 
 Apache-2.0 (`LICENSE`, `NOTICE`).

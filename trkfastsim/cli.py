@@ -7,7 +7,7 @@ import argparse
 import sys
 
 from .analyses import (buildlib, elosscheck, fatecheck, msccheck, refcheck, slowcheck, stepcheck, steps,
-                       survivalcheck, tubecheck, v0check, v1compare, worldcheck)
+                       surfcheck, survivalcheck, tubecheck, v0check, v1compare, worldcheck)
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -22,6 +22,7 @@ ANALYSES = {
     "slowcheck": (slowcheck.run, "slow muons in the tracker per |p| bin: rates by good-step count, entry state, in-tracker loss, fast vs G4"),
     "survivalcheck": (survivalcheck.run, "selected-muon rate by generated |p|, world column and energy margin, fast vs G4 (unpaired)"),
     "tubecheck": (tubecheck.run, "tube/polycone material above the tracker the fast world omits, along G4-delivered lines (needs worldcheck output)"),
+    "surfcheck": (surfcheck.run, "tracker VD crossings (SurfaceSteps, sids 0-4) of the primary muon, fast vs G4 per sid (unpaired, per live time)"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
 }
 BATCHABLE = {"refcheck"}
@@ -62,6 +63,8 @@ def build_parser():
                             help="tail threshold in units of theta0 (default: where tail and Gaussian cross)")
             sp.add_argument("--kink-xx0", type=float, default=1e-3,
                             help="stage C: x/X0 of straw material between in-tracker kinks (default 1e-3)")
+            sp.add_argument("--no-surfsteps", action="store_true",
+                            help="do not write the surfsteps tree (tracker VD crossings of the primary muon)")
             sp.add_argument("--band-spread", action="store_true",
                             help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
         if name == "fatecheck":
@@ -72,7 +75,7 @@ def build_parser():
             sp.add_argument("--splits", default="1,2,4", help="sub-step counts to test, comma-separated")
         if name == "buildlib":
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
-        if name in ("v1compare", "worldcheck", "msccheck", "stepcheck", "fatecheck", "slowcheck", "survivalcheck"):
+        if name in ("v1compare", "worldcheck", "msccheck", "stepcheck", "fatecheck", "slowcheck", "survivalcheck", "surfcheck"):
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")

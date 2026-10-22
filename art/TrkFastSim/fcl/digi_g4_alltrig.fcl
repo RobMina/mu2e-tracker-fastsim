@@ -1,0 +1,11 @@
+# T-V2/T-V3 G4 arm: stock extracted v04 digitisation of a G4 dts (PrimaryFilter-accepted events), every event written.
+# Same output selection, geometry and conditions as digi_from_fasttable_alltrig.fcl, so both arms differ only in the steps.
+#include "Production/JobConfig/digitize/Extracted.fcl"
+outputs.Output.SelectEvents : [ "DigitizePath" ]
+outputs.Output.outputCommands : [ @sequence::outputs.Output.outputCommands, "keep mu2e::CosmicLivetime_*_*_*", "keep mu2e::GenEventCount_*_*_*" ]
+outputs.Output.fileName : "dig.owner.CosmicCRYExtractedG4.v0.sequencer.art"
+services.GeometryService.inputFile : "Offline/Mu2eG4/geom/geom_common_extracted_v04.txt"
+services.DbService.purpose : Sim_best
+services.DbService.version : v1_5
+services.DbService.verbose : 0
+#include "Offline/CRVReco/fcl/epilog_extracted_v04.fcl"

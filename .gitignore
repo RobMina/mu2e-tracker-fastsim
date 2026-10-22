@@ -17,3 +17,5 @@ site.env
 art/build/
 art/backing
 *.dblite
+# EventNtuple clone in the muse area (art/setup_area.sh pins the tag)
+art/EventNtuple/

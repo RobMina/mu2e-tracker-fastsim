@@ -20,7 +20,12 @@ read -r INPUT TABLE <<< "$(sed -n "$((K + 1))p" ./list.txt)"
 [ -n "$INPUT" ] || { echo "ERROR: no line $((K + 1))"; exit 2; }
 SEQ=$(basename "$INPUT" .art | awk -F. '{print $NF}')
 NTS="nts.ram2aq.tv2${ARM}.v0.${SEQ}.root"
-if ifdh ls "$OUTDIR/$NTS" >/dev/null 2>&1; then echo "SKIP: $OUTDIR/$NTS exists"; exit 0; fi
+HIT="strawhits.ram2aq.tv2${ARM}.v0.${SEQ}.root"
+HAVE_NTS=0; ifdh ls "$OUTDIR/$NTS" >/dev/null 2>&1 && HAVE_NTS=1
+HAVE_HIT=0; ifdh ls "$OUTDIR/hits/$HIT" >/dev/null 2>&1 && HAVE_HIT=1
+# DUMP=1: also write the StrawHitTableDumper table (digis + stock hits) from the reco job; a shard whose ntuple exists reruns
+# digi + reco for the table only (the digitisation is deterministic per input and seed, so the ntuple is not remade)
+if [ "$HAVE_NTS" = 1 ] && { [ "${DUMP:-0}" != 1 ] || [ "$HAVE_HIT" = 1 ]; }; then echo "SKIP: $OUTDIR/$NTS exists"; exit 0; fi
 
 ifdh cp "$CODE_TARBALL" ./Code.tar.bz2 && tar xjf ./Code.tar.bz2 && rm -f ./Code.tar.bz2 || { echo "ERROR: code"; exit 2; }
 source ./Code/setup.sh || { echo "ERROR: Code/setup.sh"; exit 2; }
@@ -47,15 +52,27 @@ else
 fi
 /usr/bin/time -v mu2e -c fcl/digi.fcl -s ./input.art -o "$DIG" -n "$NEVTS" > digi.log 2>&1 || { tail -40 digi.log; echo "DIGI FAILED"; exit 3; }
 T1=$(date +%s)
-mu2e -c fcl/reco_kkts_extrap_nofilter_v04.fcl -s "$DIG" --output "$MCS" > reco.log 2>&1 || { tail -40 reco.log; echo "RECO FAILED"; exit 3; }
+RECO=fcl/reco_kkts_extrap_nofilter_v04.fcl
+if [ "${DUMP:-0}" = 1 ]; then
+  printf '#include "reco_kkts_extrap_nofilter_v04.fcl"\nphysics.analyzers.trkdump : { module_type : StrawHitTableDumper  ProtonBunchTimeTag : @local::physics.producers.makeSH.ProtonBunchTimeTag }\nphysics.EndPath : [ @sequence::physics.EndPath, trkdump ]\nservices.TFileService.fileName : "%s"\n' "$HIT" > fcl/reco_dump.fcl
+  RECO=fcl/reco_dump.fcl
+fi
+mu2e -c $RECO -s "$DIG" --output "$MCS" > reco.log 2>&1 || { tail -40 reco.log; echo "RECO FAILED"; exit 3; }
 T2=$(date +%s)
-mu2e -c fcl/ntuple_kkts_extrap_v04.fcl -s "$MCS" -T "$NTS" > ntuple.log 2>&1 || { tail -40 ntuple.log; echo "NTUPLE FAILED"; exit 4; }
+if [ "$HAVE_NTS" = 0 ]; then
+  mu2e -c fcl/ntuple_kkts_extrap_v04.fcl -s "$MCS" -T "$NTS" > ntuple.log 2>&1 || { tail -40 ntuple.log; echo "NTUPLE FAILED"; exit 4; }
+else
+  echo "ntuple exists, not remade" > ntuple.log
+fi
 T3=$(date +%s)
 grep -h "TrigReport Events total" digi.log reco.log ntuple.log
 grep -E "Maximum resident" digi.log
 echo "times digi $((T1 - T0)) s, reco $((T2 - T1)) s, ntuple $((T3 - T2)) s"
 
 ifdh mkdir_p "$OUTDIR/logs"
-ifdh cp "$NTS" "$OUTDIR/$NTS" || { echo "COPY FAILED"; exit 5; }
+[ "$HAVE_NTS" = 0 ] && { ifdh cp "$NTS" "$OUTDIR/$NTS" || { echo "COPY FAILED"; exit 5; }; }
+if [ "${DUMP:-0}" = 1 ]; then
+  ifdh mkdir_p "$OUTDIR/hits"; ifdh cp "$HIT" "$OUTDIR/hits/$HIT" || { echo "COPY hits FAILED"; exit 5; }
+fi
 tar czf "logs.${SEQ}.tgz" digi.log reco.log ntuple.log && ifdh cp "logs.${SEQ}.tgz" "$OUTDIR/logs/logs.${SEQ}.tgz"
-echo "=== grid_tv2: done -> $OUTDIR/$NTS"
+echo "=== grid_tv2: done -> $OUTDIR/$NTS ${DUMP:+(hits $OUTDIR/hits/$HIT)}"

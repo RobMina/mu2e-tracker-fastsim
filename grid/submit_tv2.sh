@@ -4,6 +4,7 @@
 #   fast: LIST lines "<gen art on pnfs> <fast table on pnfs>"; g4: LIST lines "<dts art>" (prod_as20 dts_list.txt).
 # Stages the list, the reco/ntuple fcls (mu2e_track_crv_mcresponse/fcl) and digi_g4_alltrig.fcl to $TRKFS_PNFS/<tag>/,
 # and the tarball once to $TRKFS_PNFS/Code_tv2.tar.bz2 (build it with muse tarball on mu2ebuild02; never here).
+# DUMP=1: also write StrawHitTableDumper tables to <tag>/hits (shards with an ntuple rerun digi + reco only).
 # fast arm: TABLES_DIR=<dir of fasttrkC.*.root> stages the tables to <tag>/tables on pnfs (skipped if present).
 # Prereq on the submit host: setupmu2e-art.sh, muse setup ops, valid token, site.env. Run from a data-area dir.
 set -euo pipefail
@@ -52,6 +53,6 @@ jobsub_submit -N "$N" -G mu2e --role=Analysis --expected-lifetime=4h \
   --resource-provides=usage_model=DEDICATED,OPPORTUNISTIC \
   --lines='+FERMIHTC_AutoRelease=True' --memory=4000MB --disk=10000MB \
   --need-storage-modify="$OUTDIR_TOKEN" \
-  -e ARM="$ARM" -e LIST_PNFS="$LIST_PNFS" -e FCL_PNFS="$FCL_PNFS" -e CODE_TARBALL="$PNFS_TARBALL" -e NEVTS="$NEVTS" \
+  -e ARM="$ARM" -e LIST_PNFS="$LIST_PNFS" -e FCL_PNFS="$FCL_PNFS" -e CODE_TARBALL="$PNFS_TARBALL" -e NEVTS="$NEVTS" -e DUMP="${DUMP:-0}" \
   "file://$WRAPPER" "$OUTDIR"
 echo "Monitor: jobsub_q -G mu2e --user $USER"

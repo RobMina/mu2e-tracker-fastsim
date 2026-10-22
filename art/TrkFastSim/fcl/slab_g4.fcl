@@ -1,0 +1,39 @@
+# Slab test (tracker fastsim, slow-muon scattering): mu- at normal incidence through one G4_CONCRETE box in vacuum,
+# ShieldingM, Offline's g4study ConstructEnvBox geometry; the muon's SimParticle end state is dumped with
+# StrawGasStepTableDumper (dump/particles, dump/gen). run_slab.sh sets the slab thickness and |p| per point.
+#include "Offline/fcl/minimalMessageService.fcl"
+#include "Offline/fcl/standardProducers.fcl"
+#include "Offline/fcl/standardServices.fcl"
+
+process_name : slab
+source : { module_type : EmptyEvent  maxEvents : 1000 }
+services : {
+  @table::Services.SimAndReco
+  TFileService : { fileName : "slab.root" }
+  GeometryService : { @table::Services.SimAndReco.GeometryService
+    inputFile : "TrkFastSim/fcl/slab_geom.txt"
+    simulatedDetector : { tool_type : "ConstructEnvBox" }
+  }
+}
+physics : {
+  producers : {
+    generate : { module_type : EventGenerator  inputfile : "TrkFastSim/fcl/slab_gun.txt"  allowReplacement : true  messageOnReplacement : false }
+    g4run : @local::g4run
+  }
+  analyzers : {
+    dump : { module_type : StrawGasStepTableDumper  simParticles : "g4run"  genParticles : "generate"  primaryParticle : "none"
+             livetime : "none"  writeTrajectories : false }
+  }
+  p1 : [ generate, g4run ]
+  e1 : [ dump ]
+  trigger_paths : [ p1 ]
+  end_paths : [ e1 ]
+}
+physics.producers.g4run.physics.physicsListName : "ShieldingM"
+physics.producers.g4run.SDConfig : { enableSD : [ ]  TimeVD : { times : [ ] } }
+physics.producers.g4run.Mu2eG4StackingOnlyCut : { type : primary }   # keep only the muon (secondaries never tracked: the muon transport is unchanged)
+physics.producers.g4run.Mu2eG4SteppingOnlyCut : {}
+physics.producers.g4run.Mu2eG4CommonCut : {}
+physics.producers.g4run.TrajectoryControl.produce : false
+services.SeedService.baseSeed : 20261022
+services.SeedService.maxUniqueEngines : 20

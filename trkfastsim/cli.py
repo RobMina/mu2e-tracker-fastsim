@@ -6,8 +6,8 @@ plots/<cmd>); --emit X.json / --merge for batchable ones.
 import argparse
 import sys
 
-from .analyses import (buildlib, elosscheck, fatecheck, msccheck, refcheck, slowcheck, stepcheck, steps,
-                       surfcheck, survivalcheck, tubecheck, tv2compare, v0check, v1compare, worldcheck)
+from .analyses import (buildlib, elosscheck, fatecheck, msccheck, refcheck, secdiag, slowcheck, stepcheck, steps,
+                       slabcheck, surfcheck, survivalcheck, tubecheck, tv2compare, v0check, v1compare, worldcheck)
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -22,8 +22,10 @@ ANALYSES = {
     "slowcheck": (slowcheck.run, "slow muons in the tracker per |p| bin: rates by good-step count, entry state, in-tracker loss, fast vs G4"),
     "survivalcheck": (survivalcheck.run, "selected-muon rate by generated |p|, world column and energy margin, fast vs G4 (unpaired)"),
     "tubecheck": (tubecheck.run, "tube/polycone material above the tracker the fast world omits, along G4-delivered lines (needs worldcheck output)"),
+    "slabcheck": (slabcheck.run, "stage C world transport on one concrete slab vs Geant4 (art/run_slab.sh): survival, exit |p|, angle, lateral"),
     "surfcheck": (surfcheck.run, "tracker VD crossings (SurfaceSteps, sids 0-4) of the primary muon, fast vs G4 per sid (unpaired, per live time)"),
     "tv2compare": (tv2compare.run, "T-V2/T-V3: stock digi+reco+EventNtuple on fast vs G4 steps (yield, hits, chi2, residuals at TT_Outer; digis with --hits)"),
+    "secdiag": (secdiag.run, "why fewer non-muon track hits: secondary steps by place, shared-straw timing, track hits by straw content, fast vs G4"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
 }
 BATCHABLE = {"refcheck"}
@@ -78,7 +80,11 @@ def build_parser():
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
         if name in ("v1compare", "worldcheck", "msccheck", "stepcheck", "fatecheck", "slowcheck", "survivalcheck", "surfcheck"):
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
-        if name == "tv2compare":
+        if name == "slabcheck":
+            sp.add_argument("--nbands", type=int, default=4, help="height bands the slab is split into (as stage C)")
+            sp.add_argument("--nmu", type=int, default=100000, help="fast muons per point")
+            sp.add_argument("--seed", type=int, default=1)
+        if name in ("tv2compare", "secdiag"):
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4-arm EventNtuples")
             sp.add_argument("--steps", nargs="+", required=True, metavar="ROOT", help="fast step tables of the fast arm")
             sp.add_argument("--steps-ref", nargs="+", required=True, metavar="ROOT", help="G4 sgsteps tables of the G4 arm")

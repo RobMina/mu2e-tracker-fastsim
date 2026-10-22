@@ -162,9 +162,12 @@ void StrawGasStepTableDumper::analyze(const art::Event& event) {
   }
   if (!conf_.writeSteps()) return;
 
-  auto sh = event.getValidHandle<StrawGasStepCollection>(conf_.strawGasSteps());
-  nsgs_ = sh->size();
-  for (auto const& s : *sh) {
+  art::Handle<StrawGasStepCollection> sh;
+  event.getByLabel(conf_.strawGasSteps(), sh);   // absent in jobs without the tracker (g4study slab test)
+  static const StrawGasStepCollection noSteps;
+  auto const& sgs = sh.isValid() ? *sh : noSteps;
+  nsgs_ = sgs.size();
+  for (auto const& s : sgs) {
     sid_ = s.strawId().asUint16();
     plane_ = s.strawId().plane();
     panel_ = s.strawId().panel();

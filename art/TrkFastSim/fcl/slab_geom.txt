@@ -1,5 +1,5 @@
-// Slab test geometry (tracker fastsim): one CONCRETE_MARS box in vacuum, from Offline Mu2eG4/g4study/g4study_Box_geom.txt.
-// The box half thickness along z and the world size are overridden per point by run_slab.sh (mm).
+// Slab test geometry (tracker fastsim): one NIST box in vacuum, from Offline Mu2eG4/g4study/g4study_Box_geom.txt.
+// The box half thickness along z (mm) and its material (box.wallMaterialName, NIST only) are overridden per point by run_slab.sh.
 //
 // Original author K.L. Genser
 //

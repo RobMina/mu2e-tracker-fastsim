@@ -71,6 +71,8 @@ def build_parser():
                             help="stage C: x/X0 of straw material between in-tracker kinks (default 1e-3)")
             sp.add_argument("--no-surfsteps", action="store_true",
                             help="do not write the surfsteps tree (tracker VD crossings of the primary muon)")
+            sp.add_argument("--interior-msc-cal", action=argparse.BooleanOptionalAction, default=False,
+                            help="stage C: G4-slab width calibration of the support-structure scattering (steps.INTERIOR_MSC_CAL)")
             sp.add_argument("--band-spread", action="store_true",
                             help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
         if name == "geomcheck":
@@ -97,6 +99,11 @@ def build_parser():
             sp.add_argument("--nbands", type=int, default=4, help="height bands the slab is split into (as stage C)")
             sp.add_argument("--nmu", type=int, default=100000, help="fast muons per point")
             sp.add_argument("--seed", type=int, default=1)
+            sp.add_argument("--model", default="world", choices=["world", "interior"],
+                            help="fast arm: stage C world transport (default) or the tracker-interior kink (TrackerInterior)")
+            sp.add_argument("--material", default=None, help="interior: NIST slab material (default: input's directory name)")
+            sp.add_argument("--cal", default=None, metavar="JSON", help="interior: calibration to test (default: built-in)")
+            sp.add_argument("--fit", action="store_true", help="interior: fit the per-material width correction")
         if name in ("tv2compare", "secdiag"):
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4-arm EventNtuples")
             sp.add_argument("--steps", nargs="+", required=True, metavar="ROOT", help="fast step tables of the fast arm")

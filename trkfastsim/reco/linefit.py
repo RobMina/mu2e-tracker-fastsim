@@ -21,7 +21,7 @@ def _interp(grid, vals, x):
     return np.interp(x, grid, vals)
 
 
-def residuals(x, H, drift):
+def residuals(x, H, drift, rdrift_fixed=None):
     """Signed drift residuals r [T, N] and their Jacobian J [T, N, 5] for parameters x [T, 5]; H holds per-hit arrays."""
     a0, b0, a1, b1, t0 = (x[:, i:i + 1] for i in range(5))
     p0 = np.stack([a0, np.zeros_like(a0), b0], -1)                    # [T, 1, 3]
@@ -47,7 +47,7 @@ def residuals(x, H, drift):
     ttrk = t0 + st / v
     twire = H["tmeas"] - (H["hlen"] - H["esign"] * sw) / H["vsig"]
     dT = twire - ttrk
-    rdrift = _interp(drift["dt"], drift["rdrift"], dT)
+    rdrift = _interp(drift["dt"], drift["rdrift"], dT) if rdrift_fixed is None else rdrift_fixed
     vdrift = _interp(drift["dt"], drift["dvel"], dT)
     rd_ = np.where(H["lr"] != 0, H["lr"] * rdrift - doca, -doca)    # drift: lr*rDrift - DOCA; null: DOCA vs the wire
     rt_ = dT - H["totdt"]                                             # TOT drift-time constraint (KKSHFlag tot)
@@ -58,8 +58,8 @@ def residuals(x, H, drift):
     return r, doca, dT, rdrift, vdrift, J
 
 
-def _model(x, H, drift):
-    r, doca, dT, rd, vd, _ = residuals(x, H, drift)
+def _model(x, H, drift, rdrift_fixed=None):
+    r, doca, dT, rd, vd, _ = residuals(x, H, drift, rdrift_fixed)
     return r, doca, dT, rd
 
 
@@ -75,34 +75,68 @@ def _weights(H, drift, dT, use_tot=True, use_long=True):
     return np.where(H["active"][..., None], w, 0.0)
 
 
-def fit(x0, H, drift, niter=8, eps=(1e-3, 1e-3, 1e-6, 1e-6, 1e-3), use_tot=True, use_long=True):
+def _sref_zaxis(x):
+    """Track length (from the (a0, 0, b0) point) of the POCA to the z axis, where KinematicLine parameters live."""
+    a0, b0, a1, b1, _ = x.T
+    p = np.stack([a0, np.zeros_like(a0), b0], 1)
+    d = np.stack([a1, -np.ones_like(a1), b1], 1)
+    u = d / np.linalg.norm(d, axis=1, keepdims=True)
+    uz = u[:, 2]
+    return (p[:, 2] * uz - np.sum(p * u, 1)) / np.maximum(1.0 - uz * uz, 1e-12)
+
+
+def _normal(J, r, wgt, H, x, theta0sq):
+    """A = J^T W J, g = J^T W r. With theta0sq, the drift block uses the full covariance diag(1/w) + scattering."""
+    if theta0sq is None:
+        JW = J * wgt[..., None]
+        return np.einsum("tnki,tnkj->tij", JW, J), np.einsum("tnki,tnk->ti", JW, r), np.sum(wgt * r * r, (-1, -2))
+    act = wgt[..., 0] > 0
+    V = scatter_cov(x, H, theta0sq, _sref_zaxis(x))
+    V = V * (act[:, :, None] & act[:, None, :])
+    dv = np.where(act, 1.0 / np.where(act, wgt[..., 0], 1.0), 1.0)
+    V = V + dv[:, :, None] * np.eye(V.shape[1])[None]
+    Vi = np.linalg.inv(V) * (act[:, :, None] & act[:, None, :])
+    Jd, rd = J[:, :, 0, :], r[:, :, 0]
+    A = np.einsum("tni,tnm,tmj->tij", Jd, Vi, Jd)
+    g = np.einsum("tni,tnm,tm->ti", Jd, Vi, rd)
+    chi2 = np.einsum("tn,tnm,tm->t", rd, Vi, rd)
+    JW = J[:, :, 1:, :] * wgt[:, :, 1:, None]
+    A = A + np.einsum("tnki,tnkj->tij", JW, J[:, :, 1:, :])
+    g = g + np.einsum("tnki,tnk->ti", JW, r[:, :, 1:])
+    chi2 = chi2 + np.sum(wgt[:, :, 1:] * r[:, :, 1:] ** 2, (-1, -2))
+    return A, g, chi2
+
+
+def fit(x0, H, drift, niter=8, eps=(1e-3, 1e-3, 1e-6, 1e-6, 1e-3), use_tot=True, use_long=True, drift_dt=False,
+        theta0sq=None):
+    """drift_dt False (stock CHDRIFTEXT: no DriftDt flag, dDdT = 0): the drift radius is evaluated at the current
+    reference each iteration but held fixed in the Jacobian, so t0 enters only through the TOT residual."""
     """Gauss-Newton with a numerical Jacobian; weights 1/sigma^2 from driftInfo's signed drift error (masked hits 0)."""
     x = x0.copy()
     eps = np.asarray(eps)
     for _ in range(niter):
-        r, _, dT, _ = _model(x, H, drift)
+        r, _, dT, rd = _model(x, H, drift)
         wgt = _weights(H, drift, dT, use_tot, use_long)
+        rf = None if drift_dt else rd
         J = np.empty(r.shape + (5,))
         for k in range(5):
             dx = np.zeros(5); dx[k] = eps[k]
-            rp = _model(x + dx, H, drift)[0]
-            rm = _model(x - dx, H, drift)[0]
+            rp = _model(x + dx, H, drift, rf)[0]
+            rm = _model(x - dx, H, drift, rf)[0]
             J[..., k] = (rp - rm) / (2 * eps[k])
-        JW = J * wgt[..., None]
-        A = np.einsum("tnki,tnkj->tij", JW, J)
-        g = np.einsum("tnki,tnk->ti", JW, r)
+        A, g, _ = _normal(J, r, wgt, H, x, theta0sq)
         A += np.eye(5)[None] * 1e-12
         step = np.linalg.solve(A, -g[..., None])[..., 0]
         x = x + step
     r, doca, dT, rd = _model(x, H, drift)
     wgt = _weights(H, drift, dT, use_tot, use_long)
+    rf = None if drift_dt else rd
     J = np.empty(r.shape + (5,))
     for k in range(5):
         dx = np.zeros(5); dx[k] = eps[k]
-        J[..., k] = (_model(x + dx, H, drift)[0] - _model(x - dx, H, drift)[0]) / (2 * eps[k])
-    A = np.einsum("tnki,tnkj->tij", J * wgt[..., None], J) + np.eye(5)[None] * 1e-12
-    cov = np.linalg.inv(A)
-    chi2 = np.sum(wgt * r * r, (-1, -2))
+        J[..., k] = (_model(x + dx, H, drift, rf)[0] - _model(x - dx, H, drift, rf)[0]) / (2 * eps[k])
+    A, _, chi2 = _normal(J, r, wgt, H, x, theta0sq)
+    cov = np.linalg.inv(A + np.eye(5)[None] * 1e-12)
     nres = (wgt > 0).sum((-1, -2))
     return {"x": x, "cov": cov, "chi2": chi2, "ndof": nres - 5, "r": r, "doca": doca, "dT": dT, "rdrift": rd}
 
@@ -175,3 +209,47 @@ def from_kinematic_line(d0, phi0, z0, theta, t0):
     d = u / (-u[:, 1:2])
     beta = MOM / np.hypot(MOM, MMU)
     return np.stack([p[:, 0], p[:, 2], d[:, 0], d[:, 2], t0 + s / (beta * C)], 1)
+
+
+def scatter_cov(x, H, theta0sq, sref=None):
+    """Correlated drift-residual covariance from multiple scattering at the straw crossings (global-fit equivalent of
+    KinKal's per-crossing process noise): a kink of variance theta0sq[t, j] (per projected plane) at crossing j moves
+    the track at a later hit i by (s_i - s_j) in both transverse directions; projected on hit i's DOCA direction.
+    theta0sq [T, M] per crossing, crossings given by their track length H["xs"] [T, M]; returns [T, N, N]."""
+    a0, b0, a1, b1, _t0 = (x[:, i:i + 1] for i in range(5))
+    d = np.stack([a1, -np.ones_like(a1), b1], -1)
+    u = (d / np.linalg.norm(d, axis=-1, keepdims=True))[:, 0]          # [T, 3]
+    p0 = np.stack([a0, np.zeros_like(a0), b0], -1)[:, 0]
+    m, w = H["mid"], H["wdir"]
+    c = np.sum(u[:, None] * w, -1)
+    s2 = np.maximum(1.0 - c * c, 1e-12)
+    dl = p0[:, None] - m
+    du, dw = np.sum(dl * u[:, None], -1), np.sum(dl * w, -1)
+    st = (dw * c - du) / s2                                            # hit track length [T, N]
+    nrm = np.cross(u[:, None], w)
+    nrm = nrm / np.linalg.norm(nrm, axis=-1, keepdims=True)            # DOCA direction per hit [T, N, 3]
+    # two transverse unit vectors per track
+    e1 = np.cross(u, np.array([0.0, 0.0, 1.0])[None])
+    e1 = e1 / np.maximum(np.linalg.norm(e1, axis=-1, keepdims=True), 1e-12)
+    e2 = np.cross(u, e1)
+    n1, n2 = np.sum(nrm * e1[:, None], -1), np.sum(nrm * e2[:, None], -1)  # [T, N]
+    # lever arms relative to the reference point sref (the fitted line is the trajectory there): a kink at s_j moves
+    # hit i by |s_i - s_j| if the kink lies between the reference and the hit
+    xs = H["xs"]                                                       # [T, M]
+    sr = np.zeros(st.shape[0]) if sref is None else sref
+    si, sj, r_ = st[:, :, None], xs[:, None, :], sr[:, None, None]
+    between = ((sj > r_) & (sj < si)) | ((sj < r_) & (sj > si))
+    lever = np.where(between, np.abs(si - sj), 0.0)                    # [T, N, M]
+    wgt = lever * np.sqrt(theta0sq)[:, None, :]                        # [T, N, M]
+    D = np.einsum("tim,tjm->tij", wgt, wgt)                            # [T, N, N] (per transverse direction)
+    return D * (n1[:, :, None] * n1[:, None, :] + n2[:, :, None] * n2[:, None, :])
+
+
+def straw_theta0sq(H, xs, radlen, active, mom=MOM):
+    """Per-crossing projected scattering variance from the fit's straw crossings: Highland on each crossing's X0
+    fraction (KinKal uses Lynch-Dahl on the summed materials; Highland is the F2 approximation). xs, radlen, active are
+    padded [T, M]; returns theta0sq [T, M] (0 for inactive or padded crossings)."""
+    beta = mom / np.hypot(mom, MMU)
+    x = np.maximum(radlen, 1e-12)
+    th0 = 13.6 / (beta * mom) * np.sqrt(x) * (1.0 + 0.038 * np.log(x))
+    return np.where(active & (radlen > 0), np.maximum(th0, 0.0) ** 2, 0.0)

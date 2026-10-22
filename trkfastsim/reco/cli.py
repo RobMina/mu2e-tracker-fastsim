@@ -203,7 +203,7 @@ def _drift_table(path):
     return {"dt": c["dtgrid"][0], "rdrift": c["rdrift"][0], "dvel": c["dvel"][0], "sderr": c["sderr"][0], "uderr": c["uderr"][0]}
 
 
-def vr2(inputs, outdir, conditions, settings, niter=8, max_tracks=None, use_tot=True, use_long=True):
+def vr2(inputs, outdir, conditions, settings, niter=8, max_tracks=None, use_tot=True, use_long=True, drift_dt=False):
     """F2 on stock inputs: stock LineFinder seed, the stock fit's hit list, active flags and left/right states; compares
     the fitted KinematicLine parameters with stock KKLine per track, in units of the stock errors."""
     import time
@@ -267,10 +267,10 @@ def vr2(inputs, outdir, conditions, settings, niter=8, max_tracks=None, use_tot=
           "dT_diff_q50_mean_q99_ns": [float(np.median(dt_)), float(np.mean(dt_)), float(np.quantile(np.abs(dt_), .99))]}
     x0 = linefit.seed_params(*(A[k][:ntrk] for k in ("sd_a0", "sd_b0", "sd_a1", "sd_b1", "sd_t0")))
     t0c = time.perf_counter()
-    f = linefit.fit(x0, H, drift, niter=niter, use_tot=use_tot, use_long=use_long)
+    f = linefit.fit(x0, H, drift, niter=niter, use_tot=use_tot, use_long=use_long, drift_dt=drift_dt)
     wall = time.perf_counter() - t0c
     kl = linefit.to_kinematic_line(f["x"])
-    res = {"model_check_at_stock_params": mc, "n_tracks": int(ntrk), "niter": niter, "use_tot": use_tot, "use_long": use_long, "fit_wall_s": wall, "tracks_per_s": ntrk / wall,
+    res = {"model_check_at_stock_params": mc, "n_tracks": int(ntrk), "niter": niter, "use_tot": use_tot, "use_long": use_long, "drift_dt": drift_dt, "fit_wall_s": wall, "tracks_per_s": ntrk / wall,
            "active_hits_q50": float(np.median(H["active"].sum(1)))}
     ok = np.isfinite(f["chi2"])
     res["fit_finite_frac"] = float(ok.mean())
@@ -283,6 +283,15 @@ def vr2(inputs, outdir, conditions, settings, niter=8, max_tracks=None, use_tot=
         m = ok & np.isfinite(pull)
         res[f"{k}_dsigma"] = {"q50": float(np.median(pull[m])), "q16_84": [float(np.quantile(pull[m], .16)), float(np.quantile(pull[m], .84))],
                               "frac_within_0p1": float(np.mean(np.abs(pull[m]) < 0.1)), "frac_within_1": float(np.mean(np.abs(pull[m]) < 1.0))}
+    J = np.zeros((ntrk, 5, 5))
+    eps = np.array([1e-3, 1e-3, 1e-6, 1e-6, 1e-3])
+    klv = lambda xx: np.stack([linefit.to_kinematic_line(xx)[k] for k in ("d0", "phi0", "z0", "theta", "t0")], 1)
+    for k in range(5):
+        dx = np.zeros(5); dx[k] = eps[k]
+        J[:, :, k] = (klv(f["x"] + dx) - klv(f["x"] - dx)) / (2 * eps[k])
+    C = np.einsum("tij,tjk,tlk->til", J, f["cov"], J)
+    for i, k in enumerate(("d0", "phi0", "z0", "theta", "t0")):
+        res[f"{k}_err_ratio_q50"] = float(np.median(np.sqrt(C[:, i, i]) / A["kl_" + k + "err"][:ntrk]))
     rc = A["kl_chi2"][:ntrk] / np.maximum(A["kl_ndof"][:ntrk], 1)
     fc = f["chi2"] / np.maximum(f["ndof"], 1)
     res["chi2ndf_stock_q50"], res["chi2ndf_fast_q50"] = float(np.median(rc)), float(np.median(fc[ok]))
@@ -319,9 +328,10 @@ def main(argv=None):
     f2.add_argument("--outdir", default="plots/reco-vr2")
     f2.add_argument("--no-tot", action="store_true", help="drop the TOT drift-time residual")
     f2.add_argument("--no-long", action="store_true", help="drop the longitudinal (time-division) residual")
+    f2.add_argument("--drift-dt", action="store_true", help="let drift radii constrain t0 (KKSHFlag DriftDt; stock: off)")
     a = p.parse_args(argv)
     if a.cmd == "vr2":
-        return vr2(a.inputs, a.outdir, a.conditions, a.settings, a.niter, a.max_tracks, not a.no_tot, not a.no_long)
+        return vr2(a.inputs, a.outdir, a.conditions, a.settings, a.niter, a.max_tracks, not a.no_tot, not a.no_long, a.drift_dt)
     if a.cmd == "conditions":
         hitreco.extract_conditions(a.ref, a.out)
     elif a.cmd == "vr1b":

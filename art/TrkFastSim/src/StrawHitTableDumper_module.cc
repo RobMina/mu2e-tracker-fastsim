@@ -1,4 +1,5 @@
 // Dump StrawDigis, stock makeSH/makePH ComboHits and the StrawResponse constants to flat TTrees (T-VR1 reference).
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -15,6 +16,10 @@
 #include "Offline/DataProducts/inc/StrawId.hh"
 #include "Offline/ProditionsService/inc/ProditionsHandle.hh"
 #include "Offline/RecoDataProducts/inc/ComboHit.hh"
+#include "Offline/RecoDataProducts/inc/CosmicTrackSeed.hh"
+#include "Offline/RecoDataProducts/inc/KalSeed.hh"
+#include "Offline/RecoDataProducts/inc/TimeCluster.hh"
+#include "Offline/DataProducts/inc/StrawIdMask.hh"
 #include "Offline/RecoDataProducts/inc/ProtonBunchTime.hh"
 #include "Offline/RecoDataProducts/inc/StrawDigi.hh"
 #include "Offline/TrackerConditions/inc/StrawElectronics.hh"
@@ -34,6 +39,10 @@ class StrawHitTableDumper : public art::EDAnalyzer {
     fhicl::Atom<art::InputTag> ph{Name("PanelHitTag"), Comment("panel ComboHits"), "makePH"};
     fhicl::Atom<art::InputTag> pbt{Name("ProtonBunchTimeTag"), Comment("PBT used by makeSH"), "PBTFSD"};
     fhicl::Atom<art::InputTag> ewm{Name("EventWindowMarkerTag"), Comment("EWM"), "EWMProducer"};
+    fhicl::Atom<bool> dumpTracks{Name("DumpTracks"), Comment("also dump time clusters, line seeds, KalSeed fits"), false};
+    fhicl::Atom<art::InputTag> tc{Name("TimeClusterTag"), Comment("time clusters"), "SimpleTimeCluster"};
+    fhicl::Atom<art::InputTag> seed{Name("CosmicTrackSeedTag"), Comment("line seeds"), "LineFinder"};
+    fhicl::Atom<art::InputTag> kal{Name("KalSeedTag"), Comment("line fits"), "KKLine"};
   };
   using Parameters = art::EDAnalyzer::Table<Config>;
   explicit StrawHitTableDumper(Parameters const& c);
@@ -43,7 +52,24 @@ class StrawHitTableDumper : public art::EDAnalyzer {
  private:
   void dumpConditions(art::Event const& e);
   void fillCH(ComboHitCollection const& col, bool panel);
-  art::InputTag sdTag_, shTag_, phTag_, pbtTag_, ewmTag_;
+  void fillTracks(art::Event const& e);
+  art::InputTag sdTag_, shTag_, phTag_, pbtTag_, ewmTag_, tcTag_, seedTag_, kalTag_;
+  bool dumpTracks_;
+  // time clusters: hit counts, t0, flat makeSH indices
+  std::vector<int> tcn_, tcind_;
+  std::vector<float> tct0_, tct0err_;
+  // line seeds: time-cluster index, status word, t0 and the line (x = A0 + A1 y, z = B0 + B1 y), flat makeSH indices
+  std::vector<int> sdtc_, sdn_, sdind_;
+  std::vector<unsigned> sdstat_;
+  std::vector<double> sdt0_, sda0_, sdb0_, sda1_, sdb1_;
+  // KalSeed fits: status, chi2, ndof, consistency, t0, KinematicLine at the segment nearest t0, hit counts
+  std::vector<unsigned> klstat_;
+  std::vector<int> klndof_, klnhit_, klnact_;
+  std::vector<float> klchi2_, klcon_, klt0_, klt0err_;
+  std::vector<double> klpar_[6], klerr_[6];
+  // KalSeed hits: track index, makeSH index, strawId, ambiguity, active, fit DOCA, drift radius, fit dt
+  std::vector<int> khtrk_, khind_, khsid_, khamb_, khact_;
+  std::vector<float> khdoca_, khrdrift_, khdt_;
   ProditionsHandle<StrawResponse> srep_h_;
   ProditionsHandle<StrawElectronics> sele_h_;
   ProditionsHandle<TrackerStatus> tstat_h_;
@@ -70,7 +96,8 @@ class StrawHitTableDumper : public art::EDAnalyzer {
 };
 
 StrawHitTableDumper::StrawHitTableDumper(Parameters const& c)
-    : art::EDAnalyzer{c}, sdTag_(c().sd()), shTag_(c().sh()), phTag_(c().ph()), pbtTag_(c().pbt()), ewmTag_(c().ewm()) {}
+    : art::EDAnalyzer{c}, sdTag_(c().sd()), shTag_(c().sh()), phTag_(c().ph()), pbtTag_(c().pbt()), ewmTag_(c().ewm()),
+      tcTag_(c().tc()), seedTag_(c().seed()), kalTag_(c().kal()), dumpTracks_(c().dumpTracks()) {}
 
 void StrawHitTableDumper::beginJob() {
   art::ServiceHandle<art::TFileService> tfs;
@@ -95,6 +122,28 @@ void StrawHitTableDumper::beginJob() {
              {"uvar", &ch->uvar}, {"vvar", &ch->vvar}, {"timevar", &ch->timevar}, {"qual", &ch->qual},
              {"x", &ch->x}, {"y", &ch->y}, {"z", &ch->z}})
       ev_->Branch((pre + n).c_str(), v);
+  }
+  if (dumpTracks_) {
+    for (auto [n, v] : std::vector<std::pair<const char*, std::vector<int>*>>{
+             {"tc_n", &tcn_}, {"tc_ind", &tcind_}, {"sd_tc", &sdtc_}, {"sd_n", &sdn_}, {"sd_ind", &sdind_},
+             {"kl_ndof", &klndof_}, {"kl_nhit", &klnhit_}, {"kl_nactive", &klnact_}, {"kh_trk", &khtrk_},
+             {"kh_ind", &khind_}, {"kh_sid", &khsid_}, {"kh_ambig", &khamb_}, {"kh_active", &khact_}})
+      ev_->Branch(n, v);
+    ev_->Branch("sd_status", &sdstat_);
+    ev_->Branch("kl_status", &klstat_);
+    for (auto [n, v] : std::vector<std::pair<const char*, std::vector<float>*>>{
+             {"tc_t0", &tct0_}, {"tc_t0err", &tct0err_}, {"kl_chi2", &klchi2_}, {"kl_fitcon", &klcon_},
+             {"kl_t0", &klt0_}, {"kl_t0err", &klt0err_}, {"kh_doca", &khdoca_}, {"kh_rdrift", &khrdrift_},
+             {"kh_dt", &khdt_}})
+      ev_->Branch(n, v);
+    for (auto [n, v] : std::vector<std::pair<const char*, std::vector<double>*>>{
+             {"sd_t0", &sdt0_}, {"sd_a0", &sda0_}, {"sd_b0", &sdb0_}, {"sd_a1", &sda1_}, {"sd_b1", &sdb1_}})
+      ev_->Branch(n, v);
+    const char* pn[6] = {"d0", "phi0", "z0", "theta", "t0", "mom"};  // KinKal::KinematicLine::ParamIndex order
+    for (int i = 0; i < 6; ++i) {
+      ev_->Branch((std::string("kl_") + pn[i]).c_str(), &klpar_[i]);
+      ev_->Branch((std::string("kl_") + pn[i] + "err").c_str(), &klerr_[i]);
+    }
   }
   cond_ = tfs->make<TTree>("conditions", "StrawResponse/StrawElectronics/geometry used by makeSH (first event)");
   for (auto [n, v] : std::vector<std::pair<const char*, std::vector<int>*>>{
@@ -181,6 +230,53 @@ void StrawHitTableDumper::fillCH(ComboHitCollection const& col, bool panel) {
   }
 }
 
+void StrawHitTableDumper::fillTracks(art::Event const& e) {
+  for (auto* v : {&tcn_, &tcind_, &sdtc_, &sdn_, &sdind_, &klndof_, &klnhit_, &klnact_, &khtrk_, &khind_, &khsid_,
+                  &khamb_, &khact_}) v->clear();
+  for (auto* v : {&sdstat_, &klstat_}) v->clear();
+  for (auto* v : {&tct0_, &tct0err_, &klchi2_, &klcon_, &klt0_, &klt0err_, &khdoca_, &khrdrift_, &khdt_}) v->clear();
+  for (auto* v : {&sdt0_, &sda0_, &sdb0_, &sda1_, &sdb1_}) v->clear();
+  for (int i = 0; i < 6; ++i) { klpar_[i].clear(); klerr_[i].clear(); }
+  auto const& tcH = e.getValidHandle<TimeClusterCollection>(tcTag_);
+  for (auto const& tc : *tcH) {
+    tcn_.push_back(tc.nhits());
+    for (auto i : tc.hits()) tcind_.push_back(i);
+    tct0_.push_back(tc.t0().t0()); tct0err_.push_back(tc.t0().t0Err());
+  }
+  for (auto const& sd : *e.getValidHandle<CosmicTrackSeedCollection>(seedTag_)) {
+    sdtc_.push_back(sd.timeCluster().isNonnull() ? int(sd.timeCluster().key()) : -1);
+    sdstat_.push_back(uint32_t(std::stoul(sd.status().hex(), nullptr, 16)));
+    auto const& fp = sd.track().FitParams;
+    sdt0_.push_back(fp.T0); sda0_.push_back(fp.A0); sdb0_.push_back(fp.B0); sda1_.push_back(fp.A1); sdb1_.push_back(fp.B1);
+    std::vector<StrawHitIndex> idx;
+    if (!sd.hits().empty()) sd.hits().fillStrawHitIndices(idx, StrawIdMask::uniquestraw);
+    sdn_.push_back(idx.size());
+    sdind_.insert(sdind_.end(), idx.begin(), idx.end());
+  }
+  int itrk = 0;
+  for (auto const& ks : *e.getValidHandle<KalSeedCollection>(kalTag_)) {
+    klstat_.push_back(uint32_t(std::stoul(ks.status().hex(), nullptr, 16)));
+    klchi2_.push_back(ks.chisquared()); klndof_.push_back(ks.nDOF()); klcon_.push_back(ks.fitConsistency());
+    klt0_.push_back(ks.t0Val()); klt0err_.push_back(std::sqrt(ks.t0Var()));
+    auto seg = ks.segments().empty() ? ks.segments().end() : ks.nearestSegment(ks.t0Val());
+    for (int i = 0; i < 6; ++i) {
+      if (seg == ks.segments().end()) { klpar_[i].push_back(0); klerr_[i].push_back(-1); continue; }
+      auto kl = seg->kinematicLine();
+      klpar_[i].push_back(kl.paramVal(i)); klerr_[i].push_back(std::sqrt(kl.paramVar(i)));
+    }
+    int nact = 0;
+    for (auto const& h : ks.hits()) {
+      bool act = h.flag().hasAllProperties(StrawHitFlag::active);
+      nact += act;
+      khtrk_.push_back(itrk); khind_.push_back(h.index()); khsid_.push_back(h.strawId().asUint16());
+      khamb_.push_back(h.ambig()); khact_.push_back(act);
+      khdoca_.push_back(h.fitDOCA()); khrdrift_.push_back(h.driftRadius()); khdt_.push_back(h.fitDt());
+    }
+    klnhit_.push_back(ks.hits().size()); klnact_.push_back(nact);
+    ++itrk;
+  }
+}
+
 void StrawHitTableDumper::analyze(art::Event const& e) {
   if (!condDone_) dumpConditions(e);
   run_ = e.run(); subrun_ = e.subRun(); event_ = e.event();
@@ -208,6 +304,7 @@ void StrawHitTableDumper::analyze(art::Event const& e) {
   }
   fillCH(*e.getValidHandle<ComboHitCollection>(shTag_), false);
   fillCH(*e.getValidHandle<ComboHitCollection>(phTag_), true);
+  if (dumpTracks_) fillTracks(e);
   ev_->Fill();
 }
 

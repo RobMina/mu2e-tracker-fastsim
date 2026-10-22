@@ -1,0 +1,16 @@
+# T-VR1b/T-VR2 reference (MC): stock hit reco + SimpleTimeCluster + LineFinder + KKLine on a kkts_extrap_v04 dig file
+# (MDC2025au) -> StrawHitTableDumper with DumpTracks (clusters, seeds, KinematicLine fits, per-hit fit state).
+# Hit and line reco as reco_kkts_extrap_nofilter_v04.fcl (recoMC/Extracted -> NoField + NoPileup + OffSpillTiming epilogs).
+#include "Production/JobConfig/recoMC/Extracted.fcl"
+services.GeometryService.inputFile : "Offline/Mu2eG4/geom/geom_common_extracted_v04.txt"
+services.DbService.purpose : Sim_best
+services.DbService.version : v1_5
+services.DbService.verbose : 0
+services.TFileService.fileName : "tracks_ref_mc.root"
+physics.analyzers.trkdump : { module_type : StrawHitTableDumper  ProtonBunchTimeTag : @local::physics.producers.makeSH.ProtonBunchTimeTag  DumpTracks : true }
+physics.RecoPath : [ PBTFSD, makeSH, makePH, makeSTH, flagPH, SimpleTimeCluster, LineFinder, KKLine ]
+physics.producers.KKLine.KKFitSettings.UseCaloCluster : false   # CosmicTrackSeeds carry no CaloCluster; avoids reading CaloClusterMaker
+physics.trigger_paths : [ RecoPath ]
+physics.DumpPath : [ trkdump ]
+physics.end_paths : [ DumpPath ]
+outputs : {}

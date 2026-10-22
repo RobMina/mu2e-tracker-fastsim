@@ -1,6 +1,7 @@
 """Tracker fast reco commands: `python3 -m trkfastsim reco-<cmd> REF.root [...]`
 
   conditions  StrawHitTableDumper conditions tree -> text (JSON) conditions file for the hit reco
+  vr1b        T-VR1b: SimpleTimeCluster + LineFinder ports vs the stock clusters and seeds (dump_tracks_* tables)
   vr1         T-VR1: dumped StrawDigis -> numpy makeSH + makePH vs the stock hits in the same tables
               (--jax: also the JAX straw hits vs numpy, with warm throughput)
 """
@@ -128,6 +129,74 @@ def _jax_combo_twin(sh, settings):
     return res
 
 
+def _ref_col(paths, name):
+    return np.concatenate([ak.to_numpy(ak.flatten(uproot.open(p)["trkdump/events"][name].array())) for p in paths])
+
+
+def _ref_tracks(paths):
+    """Stock time clusters and line seeds from DumpTracks tables, flattened with a global event index."""
+    cols = ["tc_n", "tc_ind", "tc_t0", "tc_t0err", "sd_tc", "sd_n", "sd_ind", "sd_t0", "sd_a0", "sd_b0", "sd_a1", "sd_b1"]
+    out = {k: [] for k in cols + ["tc_ev", "sd_ev"]}
+    off = 0
+    for p in paths:
+        a = uproot.open(p)["trkdump/events"].arrays(cols)
+        out["tc_ev"].append(np.repeat(np.arange(len(a)) + off, ak.to_numpy(ak.num(a.tc_n))))
+        out["sd_ev"].append(np.repeat(np.arange(len(a)) + off, ak.to_numpy(ak.num(a.sd_n))))
+        for c in cols:
+            out[c].append(ak.to_numpy(ak.flatten(a[c])))
+        off += len(a)
+    return {k: np.concatenate(v) for k, v in out.items()}
+
+
+def vr1b(inputs, outdir, conditions, settings, stock_hits=False):
+    from . import linefind
+    os.makedirs(outdir, exist_ok=True)
+    cond = hitreco.load_conditions(conditions)
+    d = hitreco.read_digis(inputs)
+    sh = hitreco.straw_hits(d, cond, settings)
+    if stock_hits:   # isolate the clustering/seeding logic from the 1-ulp float32 hit-time differences (T-VR1)
+        rs = _ref(inputs, "s_")
+        for c in ("time", "et0", "et1", "edep", "flag"):
+            sh[c] = rs[c].astype(sh[c].dtype)
+        for c in ("dtime", "ptime", "wdist", "uvar", "x", "y", "z"):
+            sh[c] = _ref_col(inputs, "s_" + c).astype(sh[c].dtype)
+    r = _ref_tracks(inputs)
+    tc = linefind.time_clusters(sh)
+    res = {"hits": "stock" if stock_hits else "fast", "n_events": int(d["evkey"].shape[0]), "n_stock_tc": int(len(r["tc_n"])), "n_fast_tc": int(len(tc["n"]))}
+    same = len(r["tc_n"]) == len(tc["n"]) and np.array_equal(r["tc_ev"], tc["ev"]) and np.array_equal(r["tc_n"], tc["n"])
+    res["tc_same_counts"] = bool(same)
+    if same:
+        res["tc_members_identical"] = bool(np.array_equal(r["tc_ind"], tc["ind"]))
+        res["tc_t0_max_abs_ns"] = float(np.abs(r["tc_t0"] - tc["t0"]).max()) if len(tc["t0"]) else 0.0
+        res["tc_t0err_max_abs_ns"] = float(np.abs(r["tc_t0err"] - tc["t0err"]).max()) if len(tc["t0"]) else 0.0
+    if len(r["tc_n"]) == len(tc["n"]) and np.array_equal(r["tc_ev"], tc["ev"]):
+        res["tc_nhits_identical"] = float(np.mean(r["tc_n"] == tc["n"]))
+        res["tc_clusters_differing"] = int((r["tc_n"] != tc["n"]).sum())
+    if not same:
+        ne = int(d["evkey"].shape[0])
+        cs, cf = np.bincount(r["tc_ev"], minlength=ne), np.bincount(tc["ev"], minlength=ne)
+        res["tc_events_count_mismatch"] = int((cs != cf).sum())
+    sd = linefind.line_seeds(sh, tc, cond)
+    res["n_stock_seeds"], res["n_fast_seeds"] = int(len(r["sd_n"])), int(len(sd["n"]))
+    ssame = len(r["sd_n"]) == len(sd["n"]) and np.array_equal(r["sd_ev"], sd["ev"])
+    res["sd_same_list"] = bool(ssame)
+    if ssame and len(sd["n"]):
+        res["sd_nhits_identical"] = float(np.mean(r["sd_n"] == sd["n"]))
+        for k in ("t0", "a0", "b0", "a1", "b1"):
+            dd = np.abs(r["sd_" + k] - sd[k])
+            res[f"sd_{k}_abs_diff"] = {"q50": float(np.median(dd)), "q99": float(np.quantile(dd, 0.99)), "max": float(dd.max())}
+        res["sd_members_identical"] = bool(len(r["sd_ind"]) == len(sd["ind"]) and np.array_equal(r["sd_ind"], sd["ind"]))
+        same_n = r["sd_n"] == sd["n"]
+        rs, fs = np.repeat(np.arange(len(r["sd_n"])), r["sd_n"]), np.repeat(np.arange(len(sd["n"])), sd["n"])
+        rk, fk = same_n[rs], same_n[fs]
+        diff = np.zeros(len(r["sd_n"]), bool)
+        diff[rs[rk][r["sd_ind"][rk] != sd["ind"][fk]]] = True     # same counts: compare member by member
+        res["sd_seeds_with_member_mismatch"] = int((~same_n).sum() + diff.sum())
+    with open(os.path.join(outdir, "vr1b.json"), "w") as f:
+        json.dump(res, f, indent=1)
+    print(json.dumps(res, indent=1))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="trkfastsim reco", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -141,8 +210,16 @@ def main(argv=None):
     v.add_argument("--settings", default="mc", choices=["mc", "data"])
     v.add_argument("--outdir", default="plots/reco-vr1")
     v.add_argument("--jax", action="store_true", help="also run the JAX twin and compare it with numpy")
+    b = sub.add_parser("vr1b")
+    b.add_argument("inputs", nargs="+")
+    b.add_argument("--conditions", required=True)
+    b.add_argument("--settings", default="mc", choices=["mc", "data"])
+    b.add_argument("--outdir", default="plots/reco-vr1b")
+    b.add_argument("--stock-hits", action="store_true", help="cluster and seed the stock makeSH hits (logic-only test)")
     a = p.parse_args(argv)
     if a.cmd == "conditions":
         hitreco.extract_conditions(a.ref, a.out)
+    elif a.cmd == "vr1b":
+        vr1b(a.inputs, a.outdir, a.conditions, a.settings, a.stock_hits)
     else:
         vr1(a.inputs, a.outdir, a.conditions, a.settings, a.jax)

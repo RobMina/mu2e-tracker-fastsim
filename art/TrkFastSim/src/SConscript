@@ -16,6 +16,8 @@ helper.make_plugins([
     'mu2e_ProditionsService',
     'mu2e_DbService',
     'mu2e_DbTables',
+    'KinKal_Trajectory',
+    'KinKal_General',
     'art_Framework_Core',
     'art_Framework_Principal',
     'art_Framework_Services_Registry',

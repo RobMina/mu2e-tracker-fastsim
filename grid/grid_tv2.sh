@@ -25,6 +25,10 @@ if ifdh ls "$OUTDIR/$NTS" >/dev/null 2>&1; then echo "SKIP: $OUTDIR/$NTS exists"
 ifdh cp "$CODE_TARBALL" ./Code.tar.bz2 && tar xjf ./Code.tar.bz2 && rm -f ./Code.tar.bz2 || { echo "ERROR: code"; exit 2; }
 source ./Code/setup.sh || { echo "ERROR: Code/setup.sh"; exit 2; }
 which mu2e >/dev/null || { echo "ERROR: mu2e missing"; exit 2; }
+# the tarball's setup omits the backing Musing's build dir, which holds the generated mu2e-trig-config menus
+BACKBUILD="$(readlink -f ./Code/backing)/build/$MUSE_STUB"
+[ -f "$BACKBUILD/mu2e-trig-config/gen/trig_physMenuPSConfig.fcl" ] || { echo "ERROR: no trig menus in $BACKBUILD"; exit 2; }
+export FHICL_FILE_PATH="$BACKBUILD:$FHICL_FILE_PATH"
 mkdir -p fcl
 for f in reco_kkts_extrap_nofilter_v04.fcl reco_smoke_kl_ts.fcl reco_evd_v03.fcl ntuple_kkts_extrap_v04.fcl digi_g4_alltrig.fcl; do
   ifdh cp "$FCL_PNFS/$f" "fcl/$f" || { echo "ERROR: fcl $f"; exit 2; }

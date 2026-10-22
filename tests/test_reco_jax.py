@@ -107,3 +107,53 @@ def test_panel_hits_jax_chunking_is_invisible():
     b = combo_jax.panel_hits(sh, "data", chunk=1 << 20)
     for k in a:
         assert np.array_equal(a[k], b[k]), k
+
+
+def _toy_tracks(ntrk, nhit, rng):
+    """Straight muon tracks crossing toy wires (planes along y, wires along x or z), hits generated from the F2 model
+    itself with small noise, so the fit has a known answer."""
+    from trkfastsim.reco import linefit
+    xt = np.stack([rng.uniform(-200, 200, ntrk), rng.uniform(-200, 200, ntrk), rng.uniform(-0.5, 0.5, ntrk),
+                   rng.uniform(-0.5, 0.5, ntrk), rng.uniform(1000, 2000, ntrk)], 1)
+    ys = np.linspace(400, -400, nhit)
+    mid = np.zeros((ntrk, nhit, 3)); wdir = np.zeros((ntrk, nhit, 3))
+    along = np.arange(nhit) % 2 == 0
+    pos = xt[:, None, [0, 1]] + xt[:, None, [2, 3]] * (-ys[None, :, None])     # (x, z) at plane y
+    mid[..., 0] = np.where(along, 0.0, pos[..., 0] + rng.uniform(-2, 2, (ntrk, nhit)))
+    mid[..., 1] = ys
+    mid[..., 2] = np.where(along, pos[..., 1] + rng.uniform(-2, 2, (ntrk, nhit)), 0.0)
+    wdir[..., 0] = np.where(along, 1.0, 0.0); wdir[..., 2] = np.where(along, 0.0, 1.0)
+    H = {"active": np.ones((ntrk, nhit), bool), "lr": np.zeros((ntrk, nhit)), "tmeas": np.zeros((ntrk, nhit)),
+         "hlen": np.full((ntrk, nhit), 600.0), "esign": np.where(rng.uniform(size=(ntrk, nhit)) < 0.5, 1.0, -1.0),
+         "vsig": np.full((ntrk, nhit), 200.0), "mid": mid, "wdir": wdir, "totdt": np.zeros((ntrk, nhit)),
+         "tvar": np.full((ntrk, nhit), 25.0), "uvar": np.full((ntrk, nhit), 900.0), "wdist": np.zeros((ntrk, nhit)),
+         "udir_dot_w": np.ones((ntrk, nhit)), "sh": np.zeros((ntrk, nhit), int)}
+    dt = np.linspace(-20, 80, 2001)
+    drift = {"dt": dt, "rdrift": np.clip(0.065 * dt, 0, 2.5), "dvel": np.full_like(dt, 0.065),
+             "sderr": np.full_like(dt, 0.15), "uderr": np.full_like(dt, 0.2)}
+    # make the measurements consistent with xt: drift side from the true DOCA, drift time from the true distance
+    r, doca, dT, _ = linefit._model(xt, H, drift)
+    H["lr"] = np.sign(doca)
+    H["tmeas"] = np.abs(doca) / 0.065 - dT + rng.normal(0, 1.0, doca.shape)  # dT_true = |doca|/v (+ noise)
+    r, doca, dT, _ = linefit._model(xt, H, drift)
+    H["totdt"] = dT + rng.normal(0, 5.0, dT.shape)
+    H["wdist"] = r[..., 2] * 0 + (np.where(H["esign"] < 0, -1, 1) * 0)                  # time division neutral
+    x0 = xt + np.array([5.0, 5.0, 0.01, 0.01, 2.0]) * rng.normal(size=xt.shape)
+    return xt, x0, H, drift
+
+
+def test_linefit_jax_matches_numpy():
+    from trkfastsim.reco import linefit, linefit_jax
+    rng = np.random.default_rng(4)
+    xt, x0, H, drift = _toy_tracks(64, 20, rng)
+    ref = linefit.fit(x0, H, drift, niter=8, use_long=False)
+    out = linefit_jax.fit(x0, H, drift, niter=8, use_long=False)
+    assert np.all(np.isfinite(out["x"]))
+    # numerical (numpy) vs exact (JAX) Jacobian: same minimum within the parameter errors' 1e-3
+    err = np.sqrt(np.diagonal(ref["cov"], axis1=1, axis2=2))
+    assert np.max(np.abs(out["x"] - ref["x"]) / err) < 1e-3
+    assert np.allclose(np.sqrt(np.diagonal(out["cov"], axis1=1, axis2=2)), err, rtol=1e-4)
+    assert np.allclose(out["chi2"], ref["chi2"], rtol=1e-4, atol=1e-6)
+    # padding to a longer hit length changes nothing
+    out2 = linefit_jax.fit(x0, H, drift, niter=8, use_long=False, n_pad=64)
+    assert np.allclose(out2["x"], out["x"], rtol=0, atol=1e-9)

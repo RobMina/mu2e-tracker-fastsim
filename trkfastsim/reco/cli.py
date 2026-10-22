@@ -203,7 +203,8 @@ def _drift_table(path):
     return {"dt": c["dtgrid"][0], "rdrift": c["rdrift"][0], "dvel": c["dvel"][0], "sderr": c["sderr"][0], "uderr": c["uderr"][0]}
 
 
-def vr2(inputs, outdir, conditions, settings, niter=8, max_tracks=None, use_tot=True, use_long=True, drift_dt=False):
+def vr2(inputs, outdir, conditions, settings, niter=8, max_tracks=None, use_tot=True, use_long=True, drift_dt=False,
+        use_jax=False):
     """F2 on stock inputs: stock LineFinder seed, the stock fit's hit list, active flags and left/right states; compares
     the fitted KinematicLine parameters with stock KKLine per track, in units of the stock errors."""
     import time
@@ -267,10 +268,21 @@ def vr2(inputs, outdir, conditions, settings, niter=8, max_tracks=None, use_tot=
           "dT_diff_q50_mean_q99_ns": [float(np.median(dt_)), float(np.mean(dt_)), float(np.quantile(np.abs(dt_), .99))]}
     x0 = linefit.seed_params(*(A[k][:ntrk] for k in ("sd_a0", "sd_b0", "sd_a1", "sd_b1", "sd_t0")))
     t0c = time.perf_counter()
-    f = linefit.fit(x0, H, drift, niter=niter, use_tot=use_tot, use_long=use_long, drift_dt=drift_dt)
-    wall = time.perf_counter() - t0c
+    if use_jax:
+        from . import linefit_jax
+        import jax
+        fj = linefit_jax.fit(x0, H, drift, niter=niter, drift_dt=drift_dt, use_tot=use_tot, use_long=use_long)
+        first = time.perf_counter() - t0c
+        t0c = time.perf_counter()
+        f = linefit_jax.fit(x0, H, drift, niter=niter, drift_dt=drift_dt, use_tot=use_tot, use_long=use_long)
+        wall = time.perf_counter() - t0c
+        jax_info = {"backend": jax.default_backend(), "first_call_s": first, "warm_s": wall}
+    else:
+        f = linefit.fit(x0, H, drift, niter=niter, use_tot=use_tot, use_long=use_long, drift_dt=drift_dt)
+        wall = time.perf_counter() - t0c
+        jax_info = None
     kl = linefit.to_kinematic_line(f["x"])
-    res = {"model_check_at_stock_params": mc, "n_tracks": int(ntrk), "niter": niter, "use_tot": use_tot, "use_long": use_long, "drift_dt": drift_dt, "fit_wall_s": wall, "tracks_per_s": ntrk / wall,
+    res = {"jax": jax_info, "model_check_at_stock_params": mc, "n_tracks": int(ntrk), "niter": niter, "use_tot": use_tot, "use_long": use_long, "drift_dt": drift_dt, "fit_wall_s": wall, "tracks_per_s": ntrk / wall,
            "active_hits_q50": float(np.median(H["active"].sum(1)))}
     ok = np.isfinite(f["chi2"])
     res["fit_finite_frac"] = float(ok.mean())
@@ -329,9 +341,10 @@ def main(argv=None):
     f2.add_argument("--no-tot", action="store_true", help="drop the TOT drift-time residual")
     f2.add_argument("--no-long", action="store_true", help="drop the longitudinal (time-division) residual")
     f2.add_argument("--drift-dt", action="store_true", help="let drift radii constrain t0 (KKSHFlag DriftDt; stock: off)")
+    f2.add_argument("--jax", action="store_true", help="fit with the JAX twin (exact Jacobian, vmapped); timing is warm")
     a = p.parse_args(argv)
     if a.cmd == "vr2":
-        return vr2(a.inputs, a.outdir, a.conditions, a.settings, a.niter, a.max_tracks, not a.no_tot, not a.no_long, a.drift_dt)
+        return vr2(a.inputs, a.outdir, a.conditions, a.settings, a.niter, a.max_tracks, not a.no_tot, not a.no_long, a.drift_dt, a.jax)
     if a.cmd == "conditions":
         hitreco.extract_conditions(a.ref, a.out)
     elif a.cmd == "vr1b":

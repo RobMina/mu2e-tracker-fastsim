@@ -2,6 +2,7 @@
 
   conditions  StrawHitTableDumper conditions tree -> text (JSON) conditions file for the hit reco
   vr1         T-VR1: dumped StrawDigis -> numpy makeSH + makePH vs the stock hits in the same tables
+              (--jax: also the JAX straw hits vs numpy, with warm throughput)
 """
 import argparse
 import json
@@ -30,13 +31,16 @@ def _ref(paths, pre):
     return {k: np.concatenate(v) for k, v in out.items()}
 
 
-def vr1(inputs, outdir, conditions, settings):
+def vr1(inputs, outdir, conditions, settings, use_jax=False):
     os.makedirs(outdir, exist_ok=True)
     cond = hitreco.load_conditions(conditions)
     d = hitreco.read_digis(inputs)
     sh = hitreco.straw_hits(d, cond, settings)
+    res = {"n_digis": int(len(d["ev"]))}
+    if use_jax:
+        res["jax_vs_numpy"] = _jax_twin(d, cond, settings, sh)
     rs = _ref(inputs, "s_")
-    res = {"n_digis": int(len(d["ev"])), "n_stock_sh": int(len(rs["ev"]))}
+    res["n_stock_sh"] = int(len(rs["ev"]))
     same = len(rs["ev"]) == len(sh["ev"]) and np.array_equal(rs["sid"], sh["sid"])
     res["sh_same_list"] = bool(same)
     if same:
@@ -75,6 +79,31 @@ def vr1(inputs, outdir, conditions, settings):
     print(json.dumps(res, indent=1))
 
 
+def _jax_twin(d, cond, settings, sh):
+    """JAX straw hits vs the numpy reference on the same digis: identical fraction, max ulp, warm throughput."""
+    import time
+    import jax
+    from . import hitreco_jax
+    dc = hitreco_jax.device_conditions(cond)
+    packed = hitreco_jax.pack_digis(d, dc["npre"])
+    t0 = time.perf_counter()
+    sj = hitreco_jax.straw_hits(d, cond, settings, dcond=dc, packed=packed)
+    first = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    for _ in range(3):
+        sj = hitreco_jax.straw_hits(d, cond, settings, dcond=dc, packed=packed)
+    warm = (time.perf_counter() - t0) / 3
+    out = {"backend": jax.default_backend(), "first_call_s": first, "warm_s": warm,
+           "digis_per_s_warm": len(d["ev"]) / warm, "n_pad": int(len(packed["us"]))}
+    for k in sh:
+        a, b = np.asarray(sh[k]), np.asarray(sj[k])
+        out[k + "_identical"] = float(np.mean(a == b))
+        if a.dtype.kind == "f" and a.dtype.itemsize == 4:
+            ulp = np.abs(a.astype(np.float64) - b) / np.spacing(np.abs(a))
+            out[k + "_max_ulp"] = float(ulp.max()) if len(ulp) else 0.0
+    return out
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="trkfastsim reco", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -87,8 +116,9 @@ def main(argv=None):
     v.add_argument("--conditions", required=True)
     v.add_argument("--settings", default="mc", choices=["mc", "data"])
     v.add_argument("--outdir", default="plots/reco-vr1")
+    v.add_argument("--jax", action="store_true", help="also run the JAX twin and compare it with numpy")
     a = p.parse_args(argv)
     if a.cmd == "conditions":
         hitreco.extract_conditions(a.ref, a.out)
     else:
-        vr1(a.inputs, a.outdir, a.conditions, a.settings)
+        vr1(a.inputs, a.outdir, a.conditions, a.settings, a.jax)

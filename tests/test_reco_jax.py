@@ -63,3 +63,47 @@ def test_padding_does_not_change_results():
     b = hitreco_jax.straw_hits(d, cond, dcond=dc, packed=hitreco_jax.pack_digis(d, dc["npre"], n_pad=4096, ns_pad=32))
     for k in a:
         assert np.array_equal(a[k], b[k]), k
+
+
+def _combo_case(seed, settings):
+    from trkfastsim.reco import combo
+    rng = np.random.default_rng(seed)
+    nstraw = 36 * 6 * 96
+    cond = _cond(nstraw, rng)
+    d = _digis(6000, nstraw, rng)
+    n = len(d["sid"])
+    d["ev"] = np.sort(rng.integers(0, 150, n))                               # ~40 hits per event
+    d["pbt"] = rng.uniform(0, 50, 150)
+    plane, panel = rng.integers(0, 2, n), rng.integers(0, 2, n)               # ~10 hits per panel run
+    d["sid"] = ((plane << 10) | (panel << 7) | rng.integers(0, 12, n)).astype(np.uint16)
+    d["tdc0"] = rng.integers(1000, 2500, n)                                    # within ~60 ns
+    d["tdc1"] = d["tdc0"] + rng.integers(-50, 50, n)
+    sh = hitreco.straw_hits(d, cond, settings)
+    sh["flag"] = sh["flag"] | np.uint32(combo.SEL)          # force the selection bits so most hits combine
+    return combo, sh
+
+
+@pytest.mark.parametrize("settings", ["mc", "data"])
+def test_panel_hits_jax_matches_numpy(settings):
+    from trkfastsim.reco import combo_jax
+    combo, sh = _combo_case(11, settings)
+    ref = combo.panel_hits(sh, settings)
+    out = combo_jax.panel_hits(sh, settings)
+    assert (ref["ncombo"] > 1).sum() > 100
+    for k in ("ev", "sid", "ncombo", "flag", "ind", "ind_file", "ind_combo"):
+        assert np.array_equal(ref[k], out[k]), k
+    for k in ("edep", "et0", "et1", "time", "wdist", "x", "y", "z", "uvar"):
+        a, b = ref[k], out[k]
+        if jax.default_backend() == "cpu":
+            assert np.array_equal(a, b), (k, np.flatnonzero(a != b)[:5])
+        else:
+            assert np.all(np.abs(a.astype(np.float64) - b) <= 2 * np.spacing(np.abs(a))), k
+
+
+def test_panel_hits_jax_chunking_is_invisible():
+    from trkfastsim.reco import combo_jax
+    combo, sh = _combo_case(5, "data")
+    a = combo_jax.panel_hits(sh, "data", chunk=64)
+    b = combo_jax.panel_hits(sh, "data", chunk=1 << 20)
+    for k in a:
+        assert np.array_equal(a[k], b[k]), k

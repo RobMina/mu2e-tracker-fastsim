@@ -39,6 +39,7 @@ def vr1(inputs, outdir, conditions, settings, use_jax=False):
     res = {"n_digis": int(len(d["ev"]))}
     if use_jax:
         res["jax_vs_numpy"] = _jax_twin(d, cond, settings, sh)
+        res["jax_vs_numpy_combo"] = _jax_combo_twin(sh, settings)
     rs = _ref(inputs, "s_")
     res["n_stock_sh"] = int(len(rs["ev"]))
     same = len(rs["ev"]) == len(sh["ev"]) and np.array_equal(rs["sid"], sh["sid"])
@@ -102,6 +103,29 @@ def _jax_twin(d, cond, settings, sh):
             ulp = np.abs(a.astype(np.float64) - b) / np.spacing(np.abs(a))
             out[k + "_max_ulp"] = float(ulp.max()) if len(ulp) else 0.0
     return out
+
+
+def _jax_combo_twin(sh, settings):
+    """JAX panel combo hits vs the numpy port on the same straw hits: identical lists, columns, warm throughput."""
+    import time
+    from . import combo_jax
+    ref = combo.panel_hits(sh, settings)
+    t0 = time.perf_counter()
+    out = combo_jax.panel_hits(sh, settings)
+    first = time.perf_counter() - t0
+    t0 = time.perf_counter()
+    for _ in range(3):
+        out = combo_jax.panel_hits(sh, settings)
+    warm = (time.perf_counter() - t0) / 3
+    res = {"first_call_s": first, "warm_s": warm, "straw_hits_per_s_warm": len(sh["ev"]) / warm,
+           "max_run_len": int(combo_jax.run_index(sh, settings)[2].max()),
+           "n_combos": int(len(ref["ncombo"]))}
+    same = len(ref["ncombo"]) == len(out["ncombo"])
+    res["same_count"] = bool(same)
+    if same:
+        for k in ("ncombo", "sid", "flag", "ind", "edep", "et0", "et1", "time", "wdist", "x", "y", "z", "uvar"):
+            res[k + "_identical"] = float(np.mean(ref[k] == out[k])) if len(ref[k]) == len(out[k]) else 0.0
+    return res
 
 
 def main(argv=None):

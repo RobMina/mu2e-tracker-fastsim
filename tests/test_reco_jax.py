@@ -157,3 +157,44 @@ def test_linefit_jax_matches_numpy():
     # padding to a longer hit length changes nothing
     out2 = linefit_jax.fit(x0, H, drift, niter=8, use_long=False, n_pad=64)
     assert np.allclose(out2["x"], out["x"], rtol=0, atol=1e-9)
+
+
+def test_line_seeds_jax_matches_numpy():
+    """Toy clusters: hits on random lines through random straws (no Mu2e input); seeds from both ports must agree."""
+    from trkfastsim.reco import linefind, linefind_jax
+    rng = np.random.default_rng(9)
+    ncl = 300
+    nh = rng.integers(10, 40, ncl)
+    nh[:3] = [300, 12, 70]                                  # one oversize cluster takes the numpy path
+    n = int(nh.sum())
+    ev = np.repeat(np.arange(ncl), nh)
+    nstraw = 36 * 6 * 96
+    st = {"midx": np.zeros(nstraw), "midy": np.zeros(nstraw), "midz": np.zeros(nstraw), "dirx": np.ones(nstraw),
+          "diry": np.zeros(nstraw), "dirz": np.zeros(nstraw), "hlen": np.full(nstraw, 600.0)}
+    us = rng.choice(nstraw, n, replace=False)
+    a0, b0 = rng.uniform(-300, 300, ncl), rng.uniform(-800, 800, ncl)
+    a1, b1 = rng.uniform(-0.6, 0.6, ncl), rng.uniform(-0.6, 0.6, ncl)
+    y = rng.uniform(-500, 500, n)
+    x = a0[ev] - a1[ev] * y + rng.normal(0, 3, n)
+    z = b0[ev] - b1[ev] * y + rng.normal(0, 2, n)
+    phi = rng.uniform(0, np.pi, n)
+    st["dirx"][us], st["dirz"][us] = np.cos(phi), np.sin(phi)
+    st["midx"][us] = x - 50 * np.cos(phi); st["midy"][us] = y; st["midz"][us] = z - 50 * np.sin(phi)
+    noise = rng.uniform(size=n) < 0.15                        # off-track hits
+    st["midz"][us[noise]] += rng.uniform(50, 300, noise.sum())
+    plane, rem = us // 576, us % 576
+    sid = ((plane << 10) | ((rem // 96) << 7) | (rem % 96)).astype(np.uint16)
+    f32 = np.float32
+    sh = {"ev": ev, "sid": sid, "x": x.astype(f32), "y": y.astype(f32), "z": z.astype(f32),
+          "wdist": np.full(n, 50.0, f32), "uvar": np.full(n, 900.0, f32), "eend": np.zeros(n, np.int64),
+          "et0": rng.uniform(1000, 1100, n).astype(f32), "et1": np.zeros(n, f32), "dtime": np.full(n, 10.0, f32),
+          "ptime": np.full(n, 2.0, f32)}
+    tc = {"ev": np.arange(ncl), "n": nh, "member": np.arange(n), "member_cl": ev}
+    cond = {"straw": st}
+    ref = linefind.line_seeds(sh, tc, cond)
+    out = linefind_jax.line_seeds(sh, tc, cond)
+    assert len(ref["n"]) > 200
+    for k in ("tc", "ev", "n", "member", "ind"):
+        assert np.array_equal(ref[k], out[k]), k
+    for k in ("t0", "a0", "b0", "a1", "b1"):
+        assert np.allclose(ref[k], out[k], rtol=1e-9, atol=1e-9), k

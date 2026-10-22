@@ -151,7 +151,7 @@ def _ref_tracks(paths):
     return {k: np.concatenate(v) for k, v in out.items()}
 
 
-def vr1b(inputs, outdir, conditions, settings, stock_hits=False):
+def vr1b(inputs, outdir, conditions, settings, stock_hits=False, use_jax=False):
     from . import linefind
     os.makedirs(outdir, exist_ok=True)
     cond = hitreco.load_conditions(conditions)
@@ -179,7 +179,19 @@ def vr1b(inputs, outdir, conditions, settings, stock_hits=False):
         ne = int(d["evkey"].shape[0])
         cs, cf = np.bincount(r["tc_ev"], minlength=ne), np.bincount(tc["ev"], minlength=ne)
         res["tc_events_count_mismatch"] = int((cs != cf).sum())
+    import time
+    t0 = time.perf_counter()
     sd = linefind.line_seeds(sh, tc, cond)
+    res["seeds_numpy_s"] = time.perf_counter() - t0
+    if use_jax:
+        from . import linefind_jax
+        import jax
+        t0 = time.perf_counter(); sj = linefind_jax.line_seeds(sh, tc, cond); first = time.perf_counter() - t0
+        t0 = time.perf_counter(); sj = linefind_jax.line_seeds(sh, tc, cond); warm = time.perf_counter() - t0
+        same = all(np.array_equal(sd[k], sj[k]) for k in ("tc", "ev", "n", "member"))
+        res["seeds_jax"] = {"backend": jax.default_backend(), "first_s": first, "warm_s": warm,
+                            "clusters_per_s_warm": len(tc["n"]) / warm, "lists_identical_to_numpy": bool(same),
+                            "max_abs_param_diff": float(max(np.abs(sd[k] - sj[k]).max() for k in ("t0", "a0", "b0", "a1", "b1"))) if same and len(sd["n"]) else None}
     res["n_stock_seeds"], res["n_fast_seeds"] = int(len(r["sd_n"])), int(len(sd["n"]))
     ssame = len(r["sd_n"]) == len(sd["n"]) and np.array_equal(r["sd_ev"], sd["ev"])
     res["sd_same_list"] = bool(ssame)
@@ -324,7 +336,9 @@ def vr3(inputs, outdir, conditions, settings, niter=4):
     tt = {}
     t0 = time.perf_counter(); sh = hitreco.straw_hits(d, cond, settings); tt["hits_s"] = time.perf_counter() - t0
     t0 = time.perf_counter(); tc = linefind.time_clusters(sh); tt["clusters_s"] = time.perf_counter() - t0
-    t0 = time.perf_counter(); sd = linefind.line_seeds(sh, tc, cond); tt["seeds_s"] = time.perf_counter() - t0
+    from . import linefind_jax
+    t0 = time.perf_counter(); sd = linefind_jax.line_seeds(sh, tc, cond); tt["seeds_first_s"] = time.perf_counter() - t0
+    t0 = time.perf_counter(); sd = linefind_jax.line_seeds(sh, tc, cond); tt["seeds_warm_s"] = time.perf_counter() - t0
     drift = _drift_table(inputs[0])
     # fit every seed with all its hits as candidates; states decided by the fit
     ns = sd["n"]
@@ -404,6 +418,7 @@ def main(argv=None):
     b.add_argument("--settings", default="mc", choices=["mc", "data"])
     b.add_argument("--outdir", default="plots/reco-vr1b")
     b.add_argument("--stock-hits", action="store_true", help="cluster and seed the stock makeSH hits (logic-only test)")
+    b.add_argument("--jax", action="store_true", help="also run the JAX LineFinder and compare it with numpy")
     f2 = sub.add_parser("vr2")
     f2.add_argument("inputs", nargs="+")
     f2.add_argument("--conditions", required=True)
@@ -429,6 +444,6 @@ def main(argv=None):
     if a.cmd == "conditions":
         hitreco.extract_conditions(a.ref, a.out)
     elif a.cmd == "vr1b":
-        vr1b(a.inputs, a.outdir, a.conditions, a.settings, a.stock_hits)
+        vr1b(a.inputs, a.outdir, a.conditions, a.settings, a.stock_hits, a.jax)
     else:
         vr1(a.inputs, a.outdir, a.conditions, a.settings, a.jax)

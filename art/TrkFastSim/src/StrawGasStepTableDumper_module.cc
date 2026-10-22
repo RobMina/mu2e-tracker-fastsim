@@ -52,7 +52,7 @@ class StrawGasStepTableDumper : public art::EDAnalyzer {
   TTree *sgs_{nullptr}, *ss_{nullptr}, *traj_{nullptr}, *vd_{nullptr}, *parts_{nullptr}, *gens_{nullptr},
       *subruns_{nullptr};
   unsigned run_{0}, subrun_{0}, event_{0};
-  // StrawGasStep row (positions in the Mu2e frame, as stored)
+  // StrawGasStep row (positions in the detector frame, as stored by StrawSD)
   int nsgs_{0}, sid_{0}, plane_{0}, panel_{0}, straw_{0}, upanel_{0}, shape_{0}, ion_{0}, sp_{0};
   float eion_{0}, len_{0}, width_{0}, x0_{0}, y0_{0}, z0_{0}, x1_{0}, y1_{0}, z1_{0}, px_{0}, py_{0}, pz_{0};
   double t_{0};
@@ -101,7 +101,7 @@ void StrawGasStepTableDumper::beginJob() {
   subruns_->Branch("primaries", &primaries_);
   if (!conf_.writeSteps()) return;
 
-  sgs_ = tfs->make<TTree>("sgsteps", "StrawGasSteps (Mu2e frame)");
+  sgs_ = tfs->make<TTree>("sgsteps", "StrawGasSteps (detector frame)");
   ids(sgs_);
   branches<int>(sgs_, {{"nsgs", &nsgs_}, {"sid", &sid_}, {"plane", &plane_}, {"panel", &panel_}, {"straw", &straw_},
                        {"upanel", &upanel_}, {"shape", &shape_}, {"ion", &ion_}, {"sp", &sp_}});

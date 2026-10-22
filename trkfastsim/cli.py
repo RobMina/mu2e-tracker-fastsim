@@ -6,8 +6,9 @@ plots/<cmd>); --emit X.json / --merge for batchable ones.
 import argparse
 import sys
 
-from .analyses import (buildlib, elosscheck, fatecheck, msccheck, refcheck, secdiag, slowcheck, stepcheck, steps,
+from .analyses import (buildlib, elosscheck, fatecheck, libplacecheck, msccheck, refcheck, secdiag, slowcheck, stepcheck, steps,
                        slabcheck, surfcheck, survivalcheck, tubecheck, tv2compare, v0check, v1compare, worldcheck)
+from .analyses import geomcheck
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -18,6 +19,7 @@ ANALYSES = {
     "worldcheck": (worldcheck.run, "world model event by event: |p| at the first straw vs generation, delivery and loss, fast vs G4"),
     "msccheck":  (msccheck.run,  "in-tracker scattering per consecutive step pair (p theta, straw-only vs support pairs), fast vs G4"),
     "stepcheck": (stepcheck.run, "diagnose the T-V1 path and eIon checks: crossing-angle population, G4 half-vs-half noise floor, band bins"),
+    "geomcheck": (geomcheck.run, "true G4 path vs the fast world for muons one arm delivers (fate, footprint, material along both paths)"),
     "fatecheck": (fatecheck.run, "fate of the muons the fast sim does not deliver (stopped above / missed / few steps), paired with G4"),
     "slowcheck": (slowcheck.run, "slow muons in the tracker per |p| bin: rates by good-step count, entry state, in-tracker loss, fast vs G4"),
     "survivalcheck": (survivalcheck.run, "selected-muon rate by generated |p|, world column and energy margin, fast vs G4 (unpaired)"),
@@ -26,6 +28,7 @@ ANALYSES = {
     "surfcheck": (surfcheck.run, "tracker VD crossings (SurfaceSteps, sids 0-4) of the primary muon, fast vs G4 per sid (unpaired, per live time)"),
     "tv2compare": (tv2compare.run, "T-V2/T-V3: stock digi+reco+EventNtuple on fast vs G4 steps (yield, hits, chi2, residuals at TT_Outer; digis with --hits)"),
     "secdiag": (secdiag.run, "why fewer non-muon track hits: secondary steps by place, shared-straw timing, track hits by straw content, fast vs G4"),
+    "libplacecheck": (libplacecheck.run, "placement of non-muon steps in their straws (along-wire offset, wire distance), fast vs G4"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
 }
 BATCHABLE = {"refcheck"}
@@ -40,7 +43,7 @@ def build_parser():
                             formatter_class=argparse.RawDescriptionHelpFormatter)
         sp.add_argument("inputs", nargs="+", help="input files (globs allowed, quote them)")
         sp.add_argument("--outdir", default=None, help="output dir (default plots/<cmd>)")
-        if name in ("v0check", "steps", "worldcheck", "msccheck", "stepcheck", "tubecheck", "fatecheck", "survivalcheck"):
+        if name in ("v0check", "steps", "buildlib", "libplacecheck", "worldcheck", "msccheck", "stepcheck", "tubecheck", "fatecheck", "survivalcheck"):
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
@@ -70,6 +73,12 @@ def build_parser():
                             help="do not write the surfsteps tree (tracker VD crossings of the primary muon)")
             sp.add_argument("--band-spread", action="store_true",
                             help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
+        if name == "geomcheck":
+            sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
+            sp.add_argument("--fast", nargs="+", required=True, metavar="ROOT", help="fast step tables made from these gen tables")
+            sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables (with trajpts)")
+            sp.add_argument("--seed", type=int, default=1, help="base seed of the fast steps run")
+            sp.add_argument("--no-tubes", action="store_true", help="skip the tube/polycone column along the G4 paths")
         if name == "fatecheck":
             sp.add_argument("--seed", type=int, default=1, help="base seed, as steps (file i uses (seed, i))")
         if name == "elosscheck":
@@ -78,8 +87,12 @@ def build_parser():
             sp.add_argument("--splits", default="1,2,4", help="sub-step counts to test, comma-separated")
         if name == "buildlib":
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
+            sp.add_argument("--format", type=int, default=2, choices=[1, 2], help="library format (2: straw-local placement)")
         if name in ("v1compare", "worldcheck", "msccheck", "stepcheck", "fatecheck", "slowcheck", "survivalcheck", "surfcheck"):
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
+        if name == "libplacecheck":
+            sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
+            sp.add_argument("--fast-ref", nargs="+", default=None, metavar="ROOT", help="second fast arm (e.g. v1 library)")
         if name == "slabcheck":
             sp.add_argument("--nbands", type=int, default=4, help="height bands the slab is split into (as stage C)")
             sp.add_argument("--nmu", type=int, default=100000, help="fast muons per point")

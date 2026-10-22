@@ -451,13 +451,35 @@ def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARG
 SECONDARY_KEY0 = 1000   # SimParticle keys of library secondaries: 1000 + n within the event (the muon is key 1)
 
 
-def add_instraw_secondaries(steps, parts, sampler):
+def _paste_local(st, m, a, half, radius, q0, q1, pmu, uref_fn):
+    """Library v2 step ends (du, r, phi, mub in `st`) rebuilt around a fast muon: straw (m, a, half), muon line through
+    q0 -> q1 (Mu2e frame) with momentum pmu; uref_fn(m, a, half, q0, q1, d) gives the along-wire reference. Detector frame."""
+    from . import library as L
+    d = L.muon_dir(pmu, q0, q1)
+    s, e1, e2 = L.straw_frame(a, d)
+    flip = np.where(np.sign(L._dot(q0 - m, e2)) * np.sign(st.mub.to_numpy()) < 0, -1.0, 1.0)  # muon on the other side
+    uref = uref_fn(m, a, half, q0, q1, d)
+    if "cn0" in st:   # chord coordinates (in-straw): e2 mirrored with the side, so h keeps its sense towards/away from the wire
+        b = L._dot(q0 - m, e2)
+        return [geometry.to_detector(L.from_chord(st[f"du{e}"].to_numpy(), st[f"cn{e}"].to_numpy(), flip * st[f"h{e}"].to_numpy(),
+                                                  m, a, s, e1, e2, uref, half, b, radius)) for e in "01"]
+    return [geometry.to_detector(L.from_local(st[f"du{e}"].to_numpy(), st[f"r{e}"].to_numpy(), flip * st[f"phi{e}"].to_numpy(),
+                                              m, a, s, e1, e2, uref, half, radius)) for e in "01"]
+
+
+def _xyz_mu2e(df, end):
+    return geometry.to_mu2e(df[[f"x{end}", f"y{end}", f"z{end}"]].to_numpy(float))
+
+
+def add_instraw_secondaries(steps, parts, sampler, geom=None):
     """Append library secondary steps sharing the fast muon's straws (decision T2, in-straw component).
 
     Each muon crossing draws a G4 crossing of the same (|p|, path) bin and copies its secondary steps: same straw and
-    time as the muon step, start/end on the muon chord (the G4 secondaries' own geometry inside the straw is not
-    kept; the digitiser uses eIon, length and type), eion/len/ion/shape from the library. Each copied step becomes a
-    SimParticle (pdg from the library, parent = the muon).
+    time as the muon step, eion/len/ion/shape from the library. Placement: v1 library (or no geom), start/end on the muon
+    chord; v2 library with geom, each end at the stored along-wire offset from the fast chord's point nearest the wire
+    and at the stored chord coordinates (cn, h) about the fast chord (library.to_chord; (r, phi) when the wire offsets
+    agree), in the fast muon's straw frame (library.straw_frame). Each
+    copied step becomes a SimParticle (pdg from the library, parent = the muon).
     """
     steps = steps.reset_index(drop=True)
     mu = steps[steps.sp == 1].reset_index(drop=True)          # muon crossings only, never pasted secondaries
@@ -469,6 +491,14 @@ def add_instraw_secondaries(steps, parts, sampler):
     new = src.copy()
     for c in ("eion", "len", "ion", "shape"):
         new[c] = st[c].to_numpy().astype(src[c].dtype)
+    if geom is not None and "du0" in st:
+        from . import library as L
+        js = (src.upanel.to_numpy() * NSTRAWS_ + src.straw.to_numpy()).astype(np.int64)
+        x0, x1 = _paste_local(st, geom.mid[js], geom.dir[js], geom.halflen[js], geom.radius, _xyz_mu2e(src, "0"),
+                              _xyz_mu2e(src, "1"), src[["px", "py", "pz"]].to_numpy(float),
+                              lambda m, a, h, q0, q1, d: L.chord_u(m, a, q0, q1))
+        for j, c in enumerate("xyz"):
+            new[f"{c}0"], new[f"{c}1"] = x0[:, j], x1[:, j]
     new["px"] = new["py"] = new["pz"] = 0.0      # secondary momentum is not in the library (digi uses step type)
     rank = new.groupby(KEY).cumcount().to_numpy()
     new["sp"] = SECONDARY_KEY0 + rank
@@ -502,8 +532,10 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     times the fast muon's count), then plane + dpl, panel (+ dpa) mod 6,
     straw + dst. A target plane outside 0..35 or straw outside 0..95 is mirrored back once at the boundary (-1 -> 1,
     36 -> 34; counted as reflected); still outside after the mirror, or in a straw the fast muon crosses, the step
-    is dropped (the in-straw component covers the muon's straws). The step is laid along the target straw axis with the library length, centred on the straw
-    midpoint; time = anchor time + library delay. Steps of one G4 secondary stay one SimParticle (parent = the muon).
+    is dropped (the in-straw component covers the muon's straws). Placement: v1 library, along the target straw axis with
+    the library length, centred on the straw midpoint; v2 library, each end at the stored along-wire offset from the point
+    where the fast anchor step's line passes closest to the target straw axis (clipped to the half length) and at the
+    stored (r, phi) about the wire, phi from the anchor direction's transverse part. Time = anchor time + library delay. Steps of one G4 secondary stay one SimParticle (parent = the muon).
     Returns (steps, parts, stats).
     """
     mu = steps[steps.sp == 1].sort_values(KEY + ["t"]).reset_index(drop=True)
@@ -528,8 +560,10 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     else:
         k = st.k.to_numpy()
     k = np.clip(k, 0, nk[i] - 1)
+    v2 = "du0" in st
+    acols = ["x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"] if v2 else []
     anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in KEY}, "k": k}).merge(
-        mu[KEY + ["k", "plane", "panel", "straw", "t"]], on=KEY + ["k"], how="left")
+        mu[KEY + ["k", "plane", "panel", "straw", "t"] + acols], on=KEY + ["k"], how="left")
     plane0 = anc.plane.to_numpy() + st.dpl.to_numpy()
     panel = (anc.panel.to_numpy() + st.dpa.to_numpy()) % NPANELS_
     straw0 = anc.straw.to_numpy() + st.dst.to_numpy()
@@ -548,7 +582,7 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
                   **getattr(sampler, "last_concentration", {})})
     if not keep.any():
         return steps, parts, stats
-    st, i, js, t_anc = st[keep].reset_index(drop=True), i[keep], js[keep], anc.t.to_numpy()[keep]
+    st, i, js, t_anc, anc = st[keep].reset_index(drop=True), i[keep], js[keep], anc.t.to_numpy()[keep], anc[keep]
     half = 0.5 * np.minimum(st.len.to_numpy(), 2 * geom.halflen[js])
     new = pd.DataFrame({c: f[c].to_numpy()[i] for c in KEY})
     new["sid"] = geom.sid[js]
@@ -559,8 +593,14 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     new["len"] = st.len.to_numpy()
     new["width"] = 0.0
     new["t"] = t_anc + st.dt.to_numpy()
-    p0 = geometry.to_detector(geom.mid[js] - geom.dir[js] * half[:, None])
-    p1 = geometry.to_detector(geom.mid[js] + geom.dir[js] * half[:, None])
+    if v2:
+        from . import library as L
+        p0, p1 = _paste_local(st, geom.mid[js], geom.dir[js], geom.halflen[js], geom.radius, _xyz_mu2e(anc, "0"),
+                              _xyz_mu2e(anc, "1"), anc[["px", "py", "pz"]].to_numpy(float),
+                              lambda m, a, h, q0, q1, d: L.line_u(m, a, h, q0, d))
+    else:
+        p0 = geometry.to_detector(geom.mid[js] - geom.dir[js] * half[:, None])
+        p1 = geometry.to_detector(geom.mid[js] + geom.dir[js] * half[:, None])
     for j, c in enumerate("xyz"):
         new[f"{c}0"], new[f"{c}1"] = p0[:, j], p1[:, j]
         new[f"p{c}"] = 0.0
@@ -731,5 +771,5 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     if offaxis is not None:   # before the in-straw pasting, so the frame uses muon steps only
         steps, parts, make_steps.offaxis_stats = add_offaxis_secondaries(steps, parts, offaxis, geom)
     if sampler is not None:
-        steps, parts = add_instraw_secondaries(steps, parts, sampler)
+        steps, parts = add_instraw_secondaries(steps, parts, sampler, geom)
     return steps, parts

@@ -160,4 +160,4 @@ def straw_hits(d, cond, settings="mc"):
             "time": time, "et0": t_cal, "et1": t_hv, "tot0": tot_cal, "tot1": tot_hv, "edep": energy, "eend": eend,
             "dtime": F32(dtime), "ptime": ptime, "wdist": F32(wdist), "uvar": F32(wres * wres),
             "vvar": np.full(len(us), F32(rout * rout / 3.0)), "timevar": F32(tres * tres), "x": x, "y": y, "z": z,
-            "udx": F32(st["dirx"][us]), "udy": F32(st["diry"][us]), "flag": flag}
+            "udx": F32(st["dirx"][us]), "udy": F32(st["diry"][us]), "flag": flag, "halfpv": halfpv}

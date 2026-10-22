@@ -118,7 +118,8 @@ def _straw_hits(p, c, s, npre, tot_bins):
     return {"time": time, "et0": t_cal, "et1": t_hv, "tot0": tot_cal, "tot1": tot_hv, "edep": energy, "eend": eend,
             "dtime": dtime.astype(F32), "ptime": ptime, "wdist": wdist.astype(F32), "uvar": (wres * wres).astype(F32),
             "vvar": jnp.full(us.shape, (rout * rout / 3.0)).astype(F32), "timevar": (tres * tres).astype(F32),
-            "x": x, "y": y, "z": z, "udx": c["dirx"][us].astype(F32), "udy": c["diry"][us].astype(F32), "flag": flag}
+            "x": x, "y": y, "z": z, "udx": c["dirx"][us].astype(F32), "udy": c["diry"][us].astype(F32), "flag": flag,
+            "halfpv": halfpv}
 
 
 _straw_hits_jit = jax.jit(_straw_hits, static_argnames=("npre", "tot_bins"))

@@ -1,6 +1,7 @@
 """Tracker fast reco commands: `python3 -m trkfastsim reco-<cmd> REF.root [...]`
 
   conditions  StrawHitTableDumper conditions tree -> text (JSON) conditions file for the hit reco
+  vr2         T-VR2 (F2): batched Gauss-Newton line fit on the stock seed, hit list and drift states vs stock KKLine
   vr1b        T-VR1b: SimpleTimeCluster + LineFinder ports vs the stock clusters and seeds (dump_tracks_* tables)
   vr1         T-VR1: dumped StrawDigis -> numpy makeSH + makePH vs the stock hits in the same tables
               (--jax: also the JAX straw hits vs numpy, with warm throughput)
@@ -197,6 +198,99 @@ def vr1b(inputs, outdir, conditions, settings, stock_hits=False):
     print(json.dumps(res, indent=1))
 
 
+def _drift_table(path):
+    c = uproot.open(path)["trkdump/conditions"].arrays(["dtgrid", "rdrift", "dvel", "sderr", "uderr"], library="np")
+    return {"dt": c["dtgrid"][0], "rdrift": c["rdrift"][0], "dvel": c["dvel"][0], "sderr": c["sderr"][0], "uderr": c["uderr"][0]}
+
+
+def vr2(inputs, outdir, conditions, settings, niter=8, max_tracks=None, use_tot=True, use_long=True):
+    """F2 on stock inputs: stock LineFinder seed, the stock fit's hit list, active flags and left/right states; compares
+    the fitted KinematicLine parameters with stock KKLine per track, in units of the stock errors."""
+    import time
+    from . import linefit
+    os.makedirs(outdir, exist_ok=True)
+    cond = hitreco.load_conditions(conditions)
+    d = hitreco.read_digis(inputs)
+    sh = hitreco.straw_hits(d, cond, settings)
+    rs = _ref(inputs, "s_")                                   # stock makeSH (the fit's input hits)
+    for c in ("time", "et0", "et1", "edep", "flag"):
+        sh[c] = rs[c].astype(sh[c].dtype)
+    drift = _drift_table(inputs[0])
+    cols = ["sd_a0", "sd_b0", "sd_a1", "sd_b1", "sd_t0", "kl_d0", "kl_phi0", "kl_z0", "kl_theta", "kl_t0",
+            "kl_d0err", "kl_phi0err", "kl_z0err", "kl_thetaerr", "kl_t0err", "kl_chi2", "kl_ndof", "kl_status",
+            "kh_trk", "kh_ind", "kh_ambig", "kh_active", "kh_rdoca", "kh_rdt", "kh_dt"]
+    acc = {k: [] for k in cols}
+    evh, off_ev, ntrk_off, evoff_sh = [], 0, 0, []
+    tr_ev, hit_trk, hit_sh, hit_lr, hit_act = [], [], [], [], []
+    ev0 = np.searchsorted(sh["ev"], np.arange(d["evkey"].shape[0] + 1), side="left")
+    for p in inputs:
+        a = uproot.open(p)["trkdump/events"].arrays(cols)
+        one = (ak.num(a.kl_d0) == 1) & (ak.num(a.sd_a0) == 1)        # one seed and one fit: unambiguous pairing
+        ie = np.flatnonzero(ak.to_numpy(one))
+        b = a[one]
+        for k in cols:
+            acc[k].append(ak.to_numpy(ak.flatten(b[k])) if k.startswith(("kh_",)) else ak.to_numpy(ak.flatten(b[k])))
+        nh = ak.to_numpy(ak.num(b.kh_ind))
+        tidx = np.repeat(np.arange(len(b)) + ntrk_off, nh)
+        hit_trk.append(tidx)
+        hit_sh.append(ak.to_numpy(ak.flatten(b.kh_ind)) + np.repeat(ev0[ie + off_ev], nh))
+        tr_ev.append(ie + off_ev)
+        ntrk_off += len(b)
+        off_ev += len(a)
+    A = {k: np.concatenate(v) for k, v in acc.items()}
+    trk, shi = np.concatenate(hit_trk), np.concatenate(hit_sh)
+    amb, act = A["kh_ambig"], A["kh_active"].astype(bool)
+    lr = np.where(np.abs(amb) == 1, amb, 0).astype(np.float64)
+    ntrk = ntrk_off
+    if max_tracks:
+        keep = trk < max_tracks
+        trk, shi, lr, act = trk[keep], shi[keep], lr[keep], act[keep]
+        ntrk = min(ntrk, max_tracks)
+    H = linefit.build_hits(trk, shi, lr, act, sh, cond, ntrk)
+    # model check: our per-hit DOCA and deltaT at the STOCK final parameters vs the stock reference values
+    xs = linefit.from_kinematic_line(*(A["kl_" + k][:ntrk] for k in ("d0", "phi0", "z0", "theta", "t0")))
+    _, doca_s, dT_s, _ = linefit._model(xs, H, drift)
+    sel = H["sh"] >= 0
+    hidx = np.full(H["sh"].shape, -1)
+    o = np.lexsort((np.arange(len(trk)), trk))
+    cnt = np.bincount(trk, minlength=ntrk)
+    posn = np.arange(len(trk)) - np.repeat(np.cumsum(cnt) - cnt, cnt)
+    hidx[trk[o], posn] = o
+    flat = hidx[sel]
+    keepm = np.ones(len(A["kh_trk"]), bool) if not max_tracks else np.concatenate(hit_trk) < max_tracks
+    rdoca = A["kh_rdoca"][keepm][flat] * H["esign"][sel] * -1.0    # TrkStrawHitSeed stores rdoca * endSign (hv = +1)
+    rdt = A["kh_rdt"][keepm][flat]
+    actf = H["active"][sel]
+    dd, dt_ = (doca_s[sel] - rdoca)[actf], (dT_s[sel] - rdt)[actf]
+    mc = {"doca_absdiff_q50_q99_mm": [float(np.median(np.abs(dd))), float(np.quantile(np.abs(dd), .99))],
+          "doca_sum_q50_q99_mm": [float(np.median(np.abs(doca_s[sel] + rdoca)[actf])), float(np.quantile(np.abs(doca_s[sel] + rdoca)[actf], .99))],
+          "dT_diff_q50_mean_q99_ns": [float(np.median(dt_)), float(np.mean(dt_)), float(np.quantile(np.abs(dt_), .99))]}
+    x0 = linefit.seed_params(*(A[k][:ntrk] for k in ("sd_a0", "sd_b0", "sd_a1", "sd_b1", "sd_t0")))
+    t0c = time.perf_counter()
+    f = linefit.fit(x0, H, drift, niter=niter, use_tot=use_tot, use_long=use_long)
+    wall = time.perf_counter() - t0c
+    kl = linefit.to_kinematic_line(f["x"])
+    res = {"model_check_at_stock_params": mc, "n_tracks": int(ntrk), "niter": niter, "use_tot": use_tot, "use_long": use_long, "fit_wall_s": wall, "tracks_per_s": ntrk / wall,
+           "active_hits_q50": float(np.median(H["active"].sum(1)))}
+    ok = np.isfinite(f["chi2"])
+    res["fit_finite_frac"] = float(ok.mean())
+    for k in ("d0", "phi0", "z0", "theta", "t0"):
+        ref, err = A["kl_" + k][:ntrk], A["kl_" + k + "err"][:ntrk]
+        dv = kl[k] - ref
+        if k == "phi0":
+            dv = (dv + np.pi) % (2 * np.pi) - np.pi
+        pull = dv / np.where(err > 0, err, np.nan)
+        m = ok & np.isfinite(pull)
+        res[f"{k}_dsigma"] = {"q50": float(np.median(pull[m])), "q16_84": [float(np.quantile(pull[m], .16)), float(np.quantile(pull[m], .84))],
+                              "frac_within_0p1": float(np.mean(np.abs(pull[m]) < 0.1)), "frac_within_1": float(np.mean(np.abs(pull[m]) < 1.0))}
+    rc = A["kl_chi2"][:ntrk] / np.maximum(A["kl_ndof"][:ntrk], 1)
+    fc = f["chi2"] / np.maximum(f["ndof"], 1)
+    res["chi2ndf_stock_q50"], res["chi2ndf_fast_q50"] = float(np.median(rc)), float(np.median(fc[ok]))
+    with open(os.path.join(outdir, "vr2.json"), "w") as fo:
+        json.dump(res, fo, indent=1)
+    print(json.dumps(res, indent=1))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="trkfastsim reco", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -216,7 +310,18 @@ def main(argv=None):
     b.add_argument("--settings", default="mc", choices=["mc", "data"])
     b.add_argument("--outdir", default="plots/reco-vr1b")
     b.add_argument("--stock-hits", action="store_true", help="cluster and seed the stock makeSH hits (logic-only test)")
+    f2 = sub.add_parser("vr2")
+    f2.add_argument("inputs", nargs="+")
+    f2.add_argument("--conditions", required=True)
+    f2.add_argument("--settings", default="mc", choices=["mc", "data"])
+    f2.add_argument("--niter", type=int, default=8)
+    f2.add_argument("--max-tracks", type=int, default=None)
+    f2.add_argument("--outdir", default="plots/reco-vr2")
+    f2.add_argument("--no-tot", action="store_true", help="drop the TOT drift-time residual")
+    f2.add_argument("--no-long", action="store_true", help="drop the longitudinal (time-division) residual")
     a = p.parse_args(argv)
+    if a.cmd == "vr2":
+        return vr2(a.inputs, a.outdir, a.conditions, a.settings, a.niter, a.max_tracks, not a.no_tot, not a.no_long)
     if a.cmd == "conditions":
         hitreco.extract_conditions(a.ref, a.out)
     elif a.cmd == "vr1b":

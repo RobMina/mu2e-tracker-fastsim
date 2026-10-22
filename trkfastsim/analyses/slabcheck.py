@@ -25,6 +25,10 @@ G4_CONCRETE = materials.Material("G4_CONCRETE", 2.3, 135.2, {"H": 0.01, "C": 0.0
                                                        "Al": 0.033872, "Si": 0.337021, "K": 0.013, "Ca": 0.044, "Fe": 0.014})
 RHO = G4_CONCRETE.rho
 _TAG = re.compile(r"t(\d+)_p(\d+)")
+# (name, per-band |p|, single-scattering tail, tail threshold in theta0 (None = where tail and Gaussian cross), core width factor)
+VARIANTS = (("fast", True, True, None, 1.0), ("fast_noslice", False, True, None, 1.0), ("fast_notail", True, False, None, 1.0),
+            ("k2", True, True, 2.0, 1.0), ("k2_c96", True, True, 2.0, 0.96), ("k2_c94", True, True, 2.0, 0.94),
+            ("k1.7_c94", True, True, 1.7, 0.94), ("k1.7_c92", True, True, 1.7, 0.92))
 
 
 def _slab_world(thick_mm, half_xz=2.0e5):
@@ -34,7 +38,7 @@ def _slab_world(thick_mm, half_xz=2.0e5):
     return [("G4_CONCRETE", P, np.array([-half_xz, -thick_mm, -half_xz]), np.array([half_xz, 0.0, half_xz]))]
 
 
-def fast(rng, p_mev, thick_mm, n, nbands=4, sliced=True, tail=True):
+def fast(rng, p_mev, thick_mm, n, nbands=4, sliced=True, tail=True, tail_k=None, core_scale=1.0):
     """Exit state of n muons: alive, |p|, direction [n,3], position on the exit face y = -thick [n,3]."""
     materials.BY_NAME.setdefault("G4_CONCRETE", G4_CONCRETE)
     o = np.tile([0.0, 1e-3, 0.0], (n, 1))
@@ -51,7 +55,8 @@ def fast(rng, p_mev, thick_mm, n, nbands=4, sliced=True, tail=True):
     on, dn = o.copy(), d.copy()
     on[s], dn[s], _ = tr.msc_to_plane(rng, o[s], d[s], p_msc, -thick_mm, eloss.radiation_length_mm(materials.AIR), xx0[s],
                                       bxx0[s], bh[s], band_p=bp[s] if sliced else None,
-                                      band_chic2=chic2[s] if tail else None, band_thn=thn[s] if tail else None)
+                                      band_chic2=chic2[s] if tail else None, band_thn=thn[s] if tail else None,
+                                      tail_k=tail_k, core_scale=core_scale)
     return ok, pw, dn, on
 
 
@@ -102,9 +107,9 @@ def run(inputs, outdir, nbands=4, nmu=100000, seed=1, **kw):
         gx = _project(gx, gd, thick)
         ref = _summ(ga, gp, gd, gx)
         row = {"g_cm2": tg, "p_MeV": pm, "thick_mm": thick, "g4": ref}
-        for name, sl, tl in (("fast", True, True), ("fast_noslice", False, True), ("fast_notail", True, False)):
+        for name, sl, tl, tk, cs in VARIANTS:
             rng = np.random.default_rng([int(seed), tg, pm])
-            ok, p, d, pos = fast(rng, pm, thick, int(nmu), nbands=int(nbands), sliced=sl, tail=tl)
+            ok, p, d, pos = fast(rng, pm, thick, int(nmu), nbands=int(nbands), sliced=sl, tail=tl, tail_k=tk, core_scale=cs)
             f = _summ(ok, p, d, pos)
             for k in ("_p", "_ang", "_lat"):
                 if len(f[k]) > 100 and len(ref[k]) > 100:
@@ -118,6 +123,16 @@ def run(inputs, outdir, nbands=4, nmu=100000, seed=1, **kw):
         json.dump(clean, fh, indent=1)
     print(f"{'g/cm2':>5} {'p':>5} | {'surv G4':>7} {'fast':>6} | {'p50 G4':>7} {'fast':>7} | "
           f"{'ang q50/q90/q99 G4 [mrad]':>26} {'fast':>20} {'noslice':>20} {'notail':>20} | {'lat q90 G4':>10} {'fast':>6}")
+    print("angle quantiles relative to G4 (fast / G4 - 1) for each variant: q50 q90 q99")
+    for r in clean:
+        g = r["g4"]["angle_mrad_q50_q90_q99"]
+        if not g:
+            continue
+        cells = []
+        for name, *_ in VARIANTS:
+            f = r[name]["angle_mrad_q50_q90_q99"]
+            cells.append(f"{name}: " + " ".join(f"{a / b - 1:+.2f}" for a, b in zip(f, g)) if f else f"{name}: -")
+        print(f"{r['g_cm2']:>5} {r['p_MeV']:>5} | " + " | ".join(cells))
     for r in clean:
         g, f, ns, nt = r["g4"], r["fast"], r["fast_noslice"], r["fast_notail"]
         fa = lambda x: "/".join(f"{v:.0f}" for v in x.get("angle_mrad_q50_q90_q99", [])) or "-"

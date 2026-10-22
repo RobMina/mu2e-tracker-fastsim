@@ -4,9 +4,11 @@ Surfaces from the v04 GDML (VirtualDetector_TT_*), in the detector frame where t
 StrawGasStepTableDumper surfsteps tree): planes TT_FrontHollow (sid 0), TT_Mid + TT_MidInner (sid 1), TT_Back (sid 2);
 cylinders TT_InSurf (sid 3) and TT_OutSurf (sid 4). Each VD is 0.02 mm thick: a SurfaceStep runs across that thickness.
 
-The muon path is the polyline through its own StrawGasStep entry/exit points (time order), extended straight before the
-first and after the last straw along the first/last step direction. No random numbers: the steps are untouched.
-|p| at a crossing is the nearest step's |p|; t is that step's time shifted by the path length at the muon's speed.
+The muon path: with `vertices` (steps.make_steps.path_vertices, stage C with the interior transport) the transported
+polyline itself, from the start of the interior transport through every kink (segment end, displaced restart, new
+direction), extended straight at both ends; so the crossings include the scattering in the support structure. Without
+vertices, the polyline through the muon's own StrawGasStep entry/exit points, extended straight before the first and
+after the last straw (misses the kinks between TT_Outer and the first straw). No random numbers either way.
 Only primary-muon (sp == 1) crossings: G4 also records secondaries (about 5 % of its surfsteps, census in surfcheck).
 """
 import numpy as np
@@ -76,9 +78,53 @@ def _crossings(A, B):
     return k, np.concatenate([o[1] for o in out]), np.concatenate([o[2] for o in out])
 
 
-def surface_steps(sgsteps):
-    """Fast StrawGasSteps -> surfsteps rows (columns as StrawGasStepTableDumper's surfsteps tree) for the primary muon."""
+def _from_vertices(v):
+    """Path vertices (one muon per event, ordered) -> surfsteps rows."""
+    v = v.sort_values(KEY + ["path"], kind="stable").reset_index(drop=True)
+    ev = v.groupby(KEY, sort=False).ngroup().to_numpy()
+    nxt = np.r_[ev[1:] == ev[:-1], False]
+    a = np.flatnonzero(nxt)
+    P = v[["x", "y", "z"]].to_numpy(float)
+    A, B = P[a], P[a + 1]
+    k, t, sid = _crossings(A, B)
+    seg = B[k] - A[k]
+    L = np.linalg.norm(seg, axis=1)
+    u = seg / np.maximum(L, 1e-30)[:, None]
+    c = A[k] + t[:, None] * seg
+    j0, j1 = a[k], a[k] + 1
+    pa, pb = v.p.to_numpy()[j0], v.p.to_numpy()[j1]
+    p = pa + t * (pb - pa)
+    path = v.path.to_numpy()[j0] + t * L
+    tt = v.t0.to_numpy()[j0] + path / (v.beta.to_numpy()[j0] * C_MM_PER_NS)
+    return _rows(v.iloc[j0], sid, c, u, p, tt)
+
+
+def _rows(src, sid, c, u, p, tt):
+    nrm = np.where((sid <= 2)[:, None], np.array([0.0, 0.0, 1.0]),
+                   np.c_[c[:, 0], c[:, 1], np.zeros(len(c))] / np.maximum(np.hypot(c[:, 0], c[:, 1]), 1e-30)[:, None])
+    h = np.minimum(0.5 * THICK / np.maximum(np.abs((u * nrm).sum(1)), 1e-6), 5.0)
+    x0, x1 = c - h[:, None] * u, c + h[:, None] * u
+    out = pd.DataFrame({kk: src[kk].to_numpy() for kk in KEY})
+    out["surf"] = sid.astype(np.int32)
+    out["sindex"] = np.zeros(len(sid), np.int32)
+    out["sp"] = np.ones(len(sid), np.int32)
+    out["edep"] = np.zeros(len(sid), np.float32)
+    for j, ax in enumerate("xyz"):
+        out[f"{ax}0"] = x0[:, j].astype(np.float32)
+        out[f"{ax}1"] = x1[:, j].astype(np.float32)
+        out[f"p{ax}"] = (u[:, j] * p).astype(np.float32)
+    out["t"] = tt
+    return out.sort_values(KEY + ["t"], kind="stable").reset_index(drop=True)[COLS]
+
+
+def surface_steps(sgsteps, vertices=None):
+    """Fast primary muon -> surfsteps rows (columns as StrawGasStepTableDumper's surfsteps tree): from the transported
+    path `vertices` if given (and covering the event), else from the muon's StrawGasStep polyline."""
     st = sgsteps[sgsteps.sp == 1].sort_values(KEY + ["t"], kind="stable").reset_index(drop=True)
+    if vertices is not None and len(vertices):
+        hit = st[KEY].drop_duplicates()
+        v = vertices.merge(hit, on=KEY)                      # events whose muon reached a straw, as without vertices
+        return _from_vertices(v) if len(v) else pd.DataFrame({c: np.zeros(0) for c in COLS})
     if not len(st):
         return pd.DataFrame({c: np.zeros(0) for c in COLS})
     st["_ev"] = st.groupby(KEY, sort=False).ngroup()
@@ -91,24 +137,9 @@ def surface_steps(sgsteps):
     js = idx[k]
     pv = st[["px", "py", "pz"]].to_numpy(float)[js]
     p = np.linalg.norm(pv, axis=1)
-    # normal: z for planes, radial for cylinders; half-crossing length capped for grazing tracks
-    nrm = np.where((sid <= 2)[:, None], np.array([0.0, 0.0, 1.0]),
-                   np.c_[c[:, 0], c[:, 1], np.zeros(len(c))] / np.maximum(np.hypot(c[:, 0], c[:, 1]), 1e-30)[:, None])
-    h = np.minimum(0.5 * THICK / np.maximum(np.abs((u * nrm).sum(1)), 1e-6), 5.0)
-    x0, x1 = c - h[:, None] * u, c + h[:, None] * u
     # time: from the carrying step's entry point along the path, at the muon's speed (negative before the entry)
     ent = st[["x0", "y0", "z0"]].to_numpy(float)[js]
     ds = ((c - ent) * u).sum(1)
     beta = p / np.sqrt(p * p + MMU * MMU)
     tt = st["t"].to_numpy()[js] + ds / (beta * C_MM_PER_NS)
-    out = pd.DataFrame({kk: st[kk].to_numpy()[js] for kk in KEY})
-    out["surf"] = sid.astype(np.int32)
-    out["sindex"] = np.zeros(len(js), np.int32)
-    out["sp"] = np.ones(len(js), np.int32)
-    out["edep"] = np.zeros(len(js), np.float32)
-    for j, ax in enumerate("xyz"):
-        out[f"{ax}0"] = x0[:, j].astype(np.float32)
-        out[f"{ax}1"] = x1[:, j].astype(np.float32)
-        out[f"p{ax}"] = (u[:, j] * p).astype(np.float32)
-    out["t"] = tt
-    return out.sort_values(KEY + ["t"], kind="stable").reset_index(drop=True)[COLS]
+    return _rows(st.iloc[js], sid, c, u, p, tt)

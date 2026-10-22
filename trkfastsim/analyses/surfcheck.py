@@ -27,7 +27,8 @@ def _load(paths):
     sm = s.merge(prim, on=T.KEY + ["sp"])
     f = T.trk_filter(sm)
     sel = f[f.pass_trk].reset_index()[T.KEY]
-    t1 = sm.merge(sel, on=T.KEY).groupby(T.KEY).t.min().rename("t_first").reset_index()
+    fs = sm.merge(sel, on=T.KEY).sort_values("t").groupby(T.KEY, sort=False).first().reset_index()
+    t1 = fs[T.KEY + ["t", "px", "py", "pz"]].rename(columns={"t": "t_first", "px": "fpx", "py": "fpy", "pz": "fpz"})
     ss = T.read_many(paths, "surfsteps")
     ss = ss[ss.surf.isin(list(NAMES))].merge(sel, on=T.KEY)
     is_prim = ss.merge(prim.assign(_p=1), on=T.KEY + ["sp"], how="left")._p.fillna(0).to_numpy() == 1
@@ -43,8 +44,12 @@ def _obs(g):
     zsurf = np.select([sid == 0, sid == 1, sid == 2], [surfaces.Z_FRONT, surfaces.Z_MID, surfaces.Z_BACK], np.nan)
     rsurf = np.where(sid == 3, surfaces.R_IN, surfaces.R_OUT)
     cosn = np.where(plane, np.abs(g.pz.to_numpy()) / p, np.abs(g.px.to_numpy() * x + g.py.to_numpy() * y) / (p * r))
+    fp = g[["fpx", "fpy", "fpz"]].to_numpy(float)
+    u1 = fp / np.linalg.norm(fp, axis=1)[:, None]
+    u0 = g[["px", "py", "pz"]].to_numpy(float) / p[:, None]
+    defl = np.arccos(np.clip((u0 * u1).sum(1), -1, 1)) * 1000.0          # mrad, crossing -> first straw
     return {"resid": np.where(plane, z - zsurf, r - rsurf), "free1": np.where(plane, r, z), "phi": np.arctan2(y, x),
-            "p": p, "cosn": cosn, "dt": (g.t - g.t_first).to_numpy()}
+            "p": p, "cosn": cosn, "dt": (g.t - g.t_first).to_numpy(), "defl": defl}
 
 
 def run(inputs, outdir, compare=None, **kw):
@@ -71,6 +76,11 @@ def run(inputs, outdir, compare=None, **kw):
         if nf and nr:
             of, orf = _obs(a), _obs(b)
             d["resid_p99_mm"] = [float(np.quantile(np.abs(of["resid"]), 0.99)), float(np.quantile(np.abs(orf["resid"]), 0.99))]
+            pre = of["dt"] < 0                                           # crossings before the first straw (entry side)
+            prer = orf["dt"] < 0
+            if pre.sum() > 20 and prer.sum() > 20:
+                d["defl_to_first_straw_mrad_q50_q90"] = [[float(np.quantile(of["defl"][pre], q)) for q in (0.5, 0.9)],
+                                                         [float(np.quantile(orf["defl"][prer], q)) for q in (0.5, 0.9)]]
             for k in ("free1", "phi", "p", "cosn", "dt"):
                 rb = stats.ratio_band(of[k], orf[k], min_ref=100)
                 d[f"{k}_band_m2s"] = rb["max_abs_dev_minus_2sigma"]
@@ -82,4 +92,8 @@ def run(inputs, outdir, compare=None, **kw):
               f"{f('phi_band_m2s')} {f('p_band_m2s')} {f('cosn_band_m2s')} {f('dt_band_m2s')} {d['g4_nonprimary_share']:>9.3f}")
     with open(os.path.join(outdir, "surfcheck.json"), "w") as fh:
         json.dump(out, fh, indent=1, default=float)
+    for name, d in out["by_sid"].items():
+        if "defl_to_first_straw_mrad_q50_q90" in d:
+            f_, g_ = d["defl_to_first_straw_mrad_q50_q90"]
+            print(f"{name}: deflection crossing -> first straw (entry side) q50/q90 [mrad] fast {f_[0]:.1f}/{f_[1]:.1f}, G4 {g_[0]:.1f}/{g_[1]:.1f}")
     print(f"wrote {os.path.join(outdir, 'surfcheck.json')}")

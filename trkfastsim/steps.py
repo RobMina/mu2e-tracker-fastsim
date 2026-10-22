@@ -174,6 +174,7 @@ class TrackerInterior:
         restarted = np.zeros(n, bool)                # muon restarted before its kink straw (back-off segment counted)
         act = np.arange(n)
         rows = []
+        kinks = []                                   # kink points per muon, for the surface crossings (no rng use)
         done = np.zeros(0, np.int64)                 # muon * nstraw + straw of the recorded crossings
         ns = len(geom.sid)
         r_in = geom.radius
@@ -330,6 +331,8 @@ class TrackerInterior:
             pos, dn = _kink(end, d[km], dth, dy)
             # a displacement can still land the point inside a straw's gas: move it back out along the new direction
             pos = _exit_gas_backwards(pos, dn, geom)
+            kinks.append({"it": km.copy(), "end": end.copy(), "pos": pos.copy(), "dir": dn.copy(),
+                          "path": travelled[km] + s_k - back, "p": p_k.copy()})
             o[km] = pos
             d[km] = dn
             restarted[km] = True
@@ -341,6 +344,9 @@ class TrackerInterior:
         else:
             st["capped"] += len(act)
         self.last_stats = st
+        self.last_kinks = ({k: np.concatenate([q[k] for q in kinks]) for k in kinks[0]} if kinks else
+                           {"it": np.zeros(0, np.int64), "end": np.zeros((0, 3)), "pos": np.zeros((0, 3)),
+                            "dir": np.zeros((0, 3)), "path": np.zeros(0), "p": np.zeros(0)})
         if not rows:
             z3 = np.zeros((0, 3))
             return {"it": np.zeros(0, np.int64), "js": np.zeros(0, np.int64), "pos0": z3, "pos1": z3, "dir": z3,
@@ -581,6 +587,48 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     return out, pd.concat([parts, sp[parts.columns]], ignore_index=True), stats
 
 
+PATH_EXTEND = 4000.0   # straight extension before the interior start and after the last kink [mm]
+
+
+def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
+    """The transported muon path as ordered vertices (detector frame), for the tracker VD crossings (surfaces.py).
+
+    Per muon: a point PATH_EXTEND before the interior start, the start (top of the support rings), then for each kink the
+    segment end and the displaced restart point with the new direction, and a point PATH_EXTEND beyond the last one. Each
+    vertex carries the direction of the segment leaving it, |p|, the path length from the interior start, and the time
+    offset and speed used for the StrawGasStep times (so crossing times use the same convention)."""
+    nk = len(kinks["it"])
+    i0 = np.r_[sel, sel, sel[kinks["it"]], sel[kinks["it"]]]
+    pos = np.r_[o[sel] - PATH_EXTEND * d[sel], o[sel], kinks["end"], kinks["pos"]]
+    dirs = np.r_[d[sel], d[sel], np.zeros((nk, 3)), kinks["dir"]]
+    path = np.r_[np.full(len(sel), -PATH_EXTEND), np.zeros(len(sel)), kinks["path"], kinks["path"] + 1e-9]
+    p = np.r_[p_start[sel], p_start[sel], kinks["p"], kinks["p"]]
+    order = np.lexsort((path, i0))
+    i0, pos, dirs, path, p = i0[order], pos[order], dirs[order], path[order], p[order]
+    # an end point continues the incoming direction; the last vertex of each muon gets a far point along its direction
+    last = np.r_[i0[1:] != i0[:-1], True]
+    inc = np.r_[np.zeros((1, 3)), dirs[:-1]]
+    dirs = np.where((np.linalg.norm(dirs, axis=1) == 0)[:, None], inc, dirs)
+    tail_pos = pos[last] + PATH_EXTEND * dirs[last]
+    i0 = np.r_[i0, i0[last]]
+    pos = np.r_[pos, tail_pos]
+    dirs = np.r_[dirs, dirs[last]]
+    path = np.r_[path, path[last] + PATH_EXTEND]
+    p = np.r_[p, p[last]]
+    order = np.lexsort((path, i0))
+    v = pd.DataFrame({k: mu[k].to_numpy()[i0[order]] for k in KEY})
+    xyz = geometry.to_detector(pos[order])
+    for j, c in enumerate("xyz"):
+        v[c] = xyz[:, j]
+        v[f"u{c}"] = dirs[order][:, j]
+    v["p"] = p[order]
+    v["path"] = path[order]
+    p0 = p0_all[i0[order]]
+    v["t0"] = mu.t.to_numpy()[i0[order]] + t_off[i0[order]] / ((p0 / np.sqrt(p0 ** 2 + eloss.MMU ** 2)) * C_MM_PER_NS)
+    v["beta"] = p0 / np.sqrt(p0 ** 2 + eloss.MMU ** 2)
+    return v
+
+
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
                kink_xx0=KINK_XX0, band_spread=False):
@@ -593,6 +641,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     stays straight inside the tracker (loss only). msc_tail (default on): the single-scattering tail on the Gaussian core, in
     the world column above the plane (stage C) and in the interior; tail_k: tail threshold in units of theta0 (None =
     where the tail density crosses the Gaussian); kink_xx0: x/X0 of straw material between in-tracker kinks."""
+    make_steps.path_vertices = None   # set below only by the interior transport of this call
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
                                                    msc_tail=msc_tail, tail_k=tail_k, band_spread=band_spread)
@@ -614,6 +663,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         sel = np.flatnonzero(alive)
         tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0)
         make_steps.interior_stats = interior.last_stats
+        make_steps.path_vertices = _path_vertices(mu, sel, o, d, p_start, t_off, p0_all=np.sqrt(
+            mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy(), kinks=interior.last_kinks)
         it = sel[tr_["it"]]
         js = tr_["js"]
         w0, w1, dirs = tr_["pos0"], tr_["pos1"], tr_["dir"]

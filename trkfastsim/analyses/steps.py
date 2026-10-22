@@ -58,7 +58,8 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
         if offaxis is not None:
             print(f"#   off-axis: {getattr(st.make_steps, 'offaxis_stats', {})}", flush=True)
         name = f"fasttrk{stage}{'L' if lib else ''}{tag}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")
-        surf = surfaces.surface_steps(sgs) if not no_surfsteps else None
+        verts = getattr(st.make_steps, "path_vertices", None) if stage == "C" and not no_interior_msc else None
+        surf = surfaces.surface_steps(sgs, verts) if not no_surfsteps else None
         core_tables.write(os.path.join(outdir, name), {"sgsteps": sgs, "particles": parts, "gen": gen,
                                                         "subruns": sub, "surfsteps": surf}, as_ttree=True)
         print(f"# {f}: {len(parts):,} primary muons, {sgs[tables.KEY].drop_duplicates().shape[0]:,} with straw "

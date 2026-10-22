@@ -128,6 +128,26 @@ def _width(x):
     return float(0.5 * (q84 - q16)), float(q50)
 
 
+def _trkhits(paths, sel):
+    """Per track hit among selected events (EventNtuple trkhits + trkhitsmc, aligned): TOT (cal end), edep, state, the
+    true relationship to the track's particle (rel 0 = same particle) and trkhitsmc.len (the true cluster distance along
+    the wire from the straw centre, not a path length)."""
+    cols = {"tot": [], "edep": [], "state": [], "rel": [], "len": [], "plane": []}
+    for path in T.expand(paths):
+        t = uproot.open(path)[TREE]
+        keys = np.stack([t[f"evtinfo/{k}"].array(library="np").astype(np.int64) for k in ("run", "subrun", "event")], 1)
+        m = np.isin(_keyid_rows(keys), sel)
+        h = t["trkhits"].array()[m]
+        hm = t["trkhitsmc"].array()[m]
+        same = ak.all(ak.num(h, axis=2) == ak.num(hm, axis=2), axis=1)   # same hit count per track, per event
+        h, hm = h[same], hm[same]
+        tot = ak.flatten(ak.flatten(h.tot, axis=1), axis=1)       # [hit][2]: TOT per straw end
+        cols["tot"].append(ak.to_numpy(tot[:, 0]))                 # cal end, as the T-V2 digi comparison
+        for k, a in (("edep", h.edep), ("state", h.state), ("plane", h.plane), ("rel", hm.rel["_rel"]), ("len", hm.len)):
+            cols[k].append(ak.to_numpy(ak.flatten(a, axis=None)))
+    return {k: np.concatenate(v) for k, v in cols.items()}
+
+
 def _hits(paths, sel):
     """Digi-level arrays among selected events from StrawHitTableDumper tables."""
     out = {"ndigi": [], "tdc0": [], "tot0": [], "panel": []}
@@ -177,6 +197,19 @@ def run(inputs, outdir, compare=None, steps=None, steps_ref=None, hits=None, hit
         sf, sr = cf[ok] / cf.sum(), cr[ok] / cr.sum()
         chi = ((sf - sr) ** 2 / (sf / cf.sum() + sr / cr.sum())).sum()
         res["panel_occupancy_chi2ndf"] = float(chi / max(ok.sum() - 1, 1))
+    if kw.get("tot_breakdown"):
+        tf_, tr_ = _trkhits(inputs, sel_f), _trkhits(compare, sel_r)
+        bd = {}
+        for name, mf, mr in (("all", np.ones(len(tf_["tot"]), bool), np.ones(len(tr_["tot"]), bool)),
+                             ("muon (rel 0)", tf_["rel"] == 0, tr_["rel"] == 0),
+                             ("other (rel > 0)", tf_["rel"] > 0, tr_["rel"] > 0)):
+            d = {"n": [int(mf.sum()), int(mr.sum())], "share": [float(mf.mean()), float(mr.mean())]}
+            if mf.sum() > 100 and mr.sum() > 100:
+                for k in ("tot", "edep"):
+                    d[f"{k}_median"] = [float(np.median(tf_[k][mf])), float(np.median(tr_[k][mr]))]
+                    d[f"{k}_band"] = stats.ratio_band(tf_[k][mf], tr_[k][mr], min_ref=100)["max_abs_dev_minus_2sigma"]
+            bd[name] = d
+        res["tot_breakdown"] = {"by_relation": bd}
     with open(os.path.join(outdir, "tv2compare.json"), "w") as fh:
         json.dump(res, fh, indent=1, default=float)
     print(json.dumps(res, indent=1, default=float))

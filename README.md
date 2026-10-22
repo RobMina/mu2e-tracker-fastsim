@@ -9,10 +9,12 @@ a clone of the umbrella (setup there).
 
 This repository holds technical software only: no physics results, no Mu2e-internal conditions, tables or data.
 
-## Status (2026-10-20)
+## Status (2026-10-22)
 
-Fast simulation of the primary muon's `StrawGasStep`s is in place; fast reconstruction is not started
-(`docs/plan.md`). The generator `python3 -m trkfastsim steps` reruns the CRY primaries of the G4 reference sample:
+Fast simulation of the primary muon's `StrawGasStep`s is in place. Fast reconstruction has started
+(`trkfastsim.reco`, below): on the same stock digis, the straw-hit and combo-hit reco reproduce stock (T-VR1), in numpy
+and in JAX twins that are bitwise equal to numpy, and so do the time clusters and line seeds (T-VR1b). The digitisation
+prototypes and the track fit are next (`docs/plan.md`). The generator `python3 -m trkfastsim steps` reruns the CRY primaries of the G4 reference sample:
 
 | stage | what it does |
 |---|---|
@@ -37,6 +39,7 @@ tracks inside the tracker), `--no-msc-tail`, `--near-margin MM` (which muons get
 | `trkfastsim/analyses/` | one module per CLI subcommand (below) |
 | `scripts/stagec_msc_ab.sh`, `scripts/stagec_msc_ab_summary.py` | the stage C scattering A/B on the 20 reference shards (steps + v1compare + worldcheck + msccheck per arm) and its summary |
 | `art/` | muse satellite area with `StrawGasStepTableDumper` (G4 reference tables), `art/README.md` |
+| `trkfastsim/reco/` | fast reconstruction: `hitreco` (StrawHitReco), `combo` (CombineStrawHits), their JAX twins `hitreco_jax` and `combo_jax`, `linefind` (SimpleTimeCluster, LineFinder); subcommands `reco-conditions`, `reco-vr1`, `reco-vr1b` |
 | `tests/` | pytest unit tests (synthetic geometry, no data files) |
 
 CLI: `python3 -m trkfastsim <subcommand> -h`.
@@ -52,6 +55,9 @@ CLI: `python3 -m trkfastsim <subcommand> -h`.
 | `v1compare` | T-V1: primary-muon StrawGasSteps fast vs G4 (rate per live time, straws per muon, path, eIon with the MPV from a Moyal fit, first-straw state, first-to-last-straw deflection per \|p\|) with the T-V1 thresholds |
 | `msccheck` | in-tracker scattering per consecutive step pair (p theta), straw-only vs support pairs, tail shares, fast vs G4 |
 | `stepcheck` | diagnose the T-V1 path and eIon checks: crossing-angle population, G4 half-vs-half noise floor, band bins |
+| `reco-conditions` | the straw conditions a fast reco job needs, read from the conditions tree of a `StrawHitTableDumper` output |
+| `reco-vr1` | T-VR1: fast straw-hit and combo-hit reco against the stock hits dumped from the same digis (`--jax` for the JAX twins) |
+| `reco-vr1b` | T-VR1b: fast time clusters and line seeds against stock `SimpleTimeCluster` and `LineFinder` (`DumpTracks` in the dumper, `art/TrkFastSim/fcl/dump_tracks_mc.fcl`) |
 
 ## Reproducing the validation on a Mu2e GPVM
 

@@ -193,7 +193,7 @@ def build_hits(trk_of_hit, sh_index, lr, active, sh, cond, ntrk, nmax=None):
     H["mid"][trk_of_hit, pos] = np.stack([st["midx"][us], st["midy"][us], st["midz"][us]], 1)
     H["wdir"][trk_of_hit, pos] = np.stack([st["dirx"][us], st["diry"][us], st["dirz"][us]], 1)
     H["vsig"][trk_of_hit, pos] = 2.0 * sh["halfpv"][sh_index]          # 2*halfPropV(edep), as Mu2eKinKal::hitLine
-    for k, col in (("totdt", "dtime"), ("tvar", "timevar"), ("uvar", "uvar"), ("wdist", "wdist")):
+    for k, col in (("totdt", "dtime"), ("tvar", "timevar"), ("uvar", "uvar"), ("wdist", "wdist"), ("edep", "edep")):
         H[k] = np.zeros((ntrk, N)) if k != "tvar" and k != "uvar" else np.ones((ntrk, N))
         H[k][trk_of_hit, pos] = sh[col][sh_index].astype(np.float64)
     H["udir_dot_w"] = np.ones((ntrk, N))   # ComboHit uDir is the straw direction for single-straw hits

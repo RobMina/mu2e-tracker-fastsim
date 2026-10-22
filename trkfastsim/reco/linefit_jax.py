@@ -11,7 +11,22 @@ from .linefit import C, MMU, MOM
 
 jax.config.update("jax_enable_x64", True)
 
-HIT_KEYS = ("active", "lr", "tmeas", "hlen", "esign", "vsig", "mid", "wdir", "totdt", "tvar", "uvar", "wdist", "udir_dot_w")
+HIT_KEYS = ("active", "lr", "tmeas", "hlen", "esign", "vsig", "mid", "wdir", "totdt", "tvar", "uvar", "wdist", "udir_dot_w",
+            "edep")
+_ANN = {}   # stage index -> (sign layers, sign cut, cluster layers, cluster cut), filled by ann_schedule()
+
+
+def ann_schedule():
+    """The stock CHDRIFTEXT extension: three CADSHU meta-iterations (TOT:LongVal, then NullDriftVar), then the five
+    DriftANN meta-iterations, as (kind, ...) stages for fit_own_states. CADSHU (maxdoca, maxrdrift) gates come from
+    CHDRIFTEXT's CADSHUSettings; the BkgANN and annealing temperatures are not modelled."""
+    from . import driftann
+    stages = [(10.0, 1.0, 3.0), (10.0, 1.0, 3.0), (8.0, 1.0, 3.0)]
+    gates = [(8.0, 3.0), (6.0, 3.0), (5.0, 3.0), (5.0, 3.0), (5.0, 3.0)]
+    for i, ((sw, sc, cw, cc), (md, mr)) in enumerate(zip(driftann.SCHEDULE, gates)):
+        _ANN[i] = (driftann.load(driftann.find(sw)), sc, driftann.load(driftann.find(cw)), cc)
+        stages.append(("ann", i, md, mr))
+    return tuple(stages)
 DRIFT_KEYS = ("dt", "rdrift", "sderr", "uderr")
 
 
@@ -84,6 +99,8 @@ def _fit_batch(x0, h, d, niter, drift_dt, use_tot, use_long):
 def _pad_hits(H, n_pad):
     out = {}
     for k in HIT_KEYS:
+        if k not in H:
+            continue
         a = np.asarray(H[k])
         pad = [(0, 0), (0, n_pad - a.shape[1])] + [(0, 0)] * (a.ndim - 2)
         fill = 1.0 if k in ("tvar", "uvar", "hlen", "vsig", "esign", "udir_dot_w") else 0.0
@@ -127,16 +144,37 @@ def _states_one(x, h, d, maxdoca, nullsig, cons):
     return act, lr
 
 
+def _states_ann(x, h, d, ann, maxdoca, maxrdrift, cov):
+    """CADSHU gate (active if |DOCA| < maxdoca and rDrift < maxrdrift) then the drift ANNs (driftann) decide drift vs
+    null: setLR = cluster > cut and sign > cut. DOCA variance from the current parameter covariance."""
+    from . import driftann
+    _, dT, rd_live, doca = _resid_one(x, h, d, None, True)
+    J = jax.jacfwd(lambda xx: _resid_one(xx, h, d, None, True)[3])(x)            # dDOCA/dx [N, 5]
+    docavar = jnp.einsum("ni,ij,nj->n", J, cov, J)
+    u = jnp.array([x[2], -1.0, x[3]]); u = u / jnp.linalg.norm(u)
+    dirdot = h["wdir"] @ u
+    sp, cp = driftann.inputs(doca, docavar, rd_live, rd_live, h["totdt"], h["edep"], dirdot)
+    sq = driftann.mlp(ann[0], sp)
+    cq = driftann.mlp(ann[2], cp)
+    act = h["valid"] & (jnp.abs(doca) < maxdoca) & (rd_live < maxrdrift)
+    setlr = (cq > ann[3]) & (sq > ann[1])
+    return act, jnp.where(setlr, jnp.sign(doca), 0.0), sq, cq
+
+
 @functools.partial(jax.jit, static_argnames=("niter", "use_tot", "use_long", "schedule"))
 def _fit_own_states(x0, h, d, niter, use_tot, use_long, schedule):
     """Alternate state updates and fixed-iteration fits; schedule = ((maxdoca, nullsig), ...) per pass."""
     def one(x0_, h_):
         x = x0_
         hh = dict(h_)
-        for maxdoca, nullsig, cons in schedule:
-            act, lr = _states_one(x, hh, d, maxdoca, nullsig, cons)
+        cov = jnp.eye(5)
+        for stage in schedule:
+            if stage[0] == "ann":
+                act, lr, _, _ = _states_ann(x, hh, d, _ANN[stage[1]], stage[2], stage[3], cov)
+            else:
+                act, lr = _states_one(x, hh, d, *stage)
             hh["active"], hh["lr"] = act, lr
-            x = _fit_one(x, hh, d, niter, False, use_tot, use_long)[0]
+            x, cov = _fit_one(x, hh, d, niter, False, use_tot, use_long)[:2]
         out = _fit_one(x, hh, d, niter, False, use_tot, use_long)
         return out + (hh["active"], hh["lr"])
     return jax.vmap(one)(x0, h)

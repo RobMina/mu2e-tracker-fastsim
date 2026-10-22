@@ -70,6 +70,10 @@ class StrawHitTableDumper : public art::EDAnalyzer {
   // KalSeed hits: track index, makeSH index, strawId, ambiguity, active, fit DOCA, drift radius, fit dt
   std::vector<int> khtrk_, khind_, khsid_, khamb_, khact_;
   std::vector<float> khdoca_, khrdrift_, khdt_, khrdt_, khsderr_, khrdoca_;
+  std::vector<float> khsignq_, khdriftq_, khcdrift_, khudocavar_, khwdot_;   // drift ANN outputs and inputs
+  // KalSeed straws (material crossings): track index, strawId, active, TOCA, wall/gas/wire path lengths, X0 fraction
+  std::vector<int> ksttrk_, kstsid_, kstact_;
+  std::vector<float> ksttoca_, kstwall_, kstgas_, kstwire_, kstradlen_;
   ProditionsHandle<StrawResponse> srep_h_;
   ProditionsHandle<StrawElectronics> sele_h_;
   ProditionsHandle<TrackerStatus> tstat_h_;
@@ -136,7 +140,14 @@ void StrawHitTableDumper::beginJob() {
     for (auto [n, v] : std::vector<std::pair<const char*, std::vector<float>*>>{
              {"tc_t0", &tct0_}, {"tc_t0err", &tct0err_}, {"kl_chi2", &klchi2_}, {"kl_fitcon", &klcon_},
              {"kl_t0", &klt0_}, {"kl_t0err", &klt0err_}, {"kh_doca", &khdoca_}, {"kh_rdrift", &khrdrift_},
-             {"kh_dt", &khdt_}, {"kh_rdt", &khrdt_}, {"kh_sderr", &khsderr_}, {"kh_rdoca", &khrdoca_}})
+             {"kh_dt", &khdt_}, {"kh_rdt", &khrdt_}, {"kh_sderr", &khsderr_}, {"kh_rdoca", &khrdoca_},
+             {"kh_signqual", &khsignq_}, {"kh_driftqual", &khdriftq_}, {"kh_cdrift", &khcdrift_},
+             {"kh_udocavar", &khudocavar_}, {"kh_wdot", &khwdot_},
+             {"kst_toca", &ksttoca_}, {"kst_wall", &kstwall_}, {"kst_gas", &kstgas_}, {"kst_wire", &kstwire_},
+             {"kst_radlen", &kstradlen_}})
+      ev_->Branch(n, v);
+    for (auto [n, v] : std::vector<std::pair<const char*, std::vector<int>*>>{
+             {"kst_trk", &ksttrk_}, {"kst_sid", &kstsid_}, {"kst_active", &kstact_}})
       ev_->Branch(n, v);
     for (auto [n, v] : std::vector<std::pair<const char*, std::vector<double>*>>{
              {"sd_t0", &sdt0_}, {"sd_a0", &sda0_}, {"sd_b0", &sdb0_}, {"sd_a1", &sda1_}, {"sd_b1", &sdb1_}})
@@ -248,6 +259,9 @@ void StrawHitTableDumper::fillTracks(art::Event const& e) {
   for (auto* v : {&tcn_, &tcind_, &sdtc_, &sdn_, &sdind_, &klndof_, &klnhit_, &klnact_, &khtrk_, &khind_, &khsid_,
                   &khamb_, &khact_}) v->clear();
   for (auto* v : {&sdstat_, &klstat_}) v->clear();
+  for (auto* v : {&ksttrk_, &kstsid_, &kstact_}) v->clear();
+  for (auto* v : {&ksttoca_, &kstwall_, &kstgas_, &kstwire_, &kstradlen_, &khsignq_, &khdriftq_, &khcdrift_,
+                  &khudocavar_, &khwdot_}) v->clear();
   for (auto* v : {&tct0_, &tct0err_, &klchi2_, &klcon_, &klt0_, &klt0err_, &khdoca_, &khrdrift_, &khdt_, &khrdt_, &khsderr_,
                   &khrdoca_}) v->clear();
   for (auto* v : {&sdt0_, &sda0_, &sdb0_, &sda1_, &sdb1_}) v->clear();
@@ -287,8 +301,15 @@ void StrawHitTableDumper::fillTracks(art::Event const& e) {
       khamb_.push_back(h.ambig()); khact_.push_back(act);
       khdoca_.push_back(h.fitDOCA()); khrdrift_.push_back(h.driftRadius()); khdt_.push_back(h.fitDt());
       khrdt_.push_back(h.refDt()); khsderr_.push_back(h.radialErr()); khrdoca_.push_back(h.refDOCA());
+      khsignq_.push_back(h._signqual); khdriftq_.push_back(h._driftqual); khcdrift_.push_back(h._cdrift);
+      khudocavar_.push_back(h._udocavar); khwdot_.push_back(h._wdot);
     }
     klnhit_.push_back(ks.hits().size()); klnact_.push_back(nact);
+    for (auto const& st : ks.straws()) {
+      ksttrk_.push_back(itrk); kstsid_.push_back(st._straw.asUint16()); kstact_.push_back(st.active());
+      ksttoca_.push_back(st._toca); kstwall_.push_back(st._wallpath); kstgas_.push_back(st._gaspath);
+      kstwire_.push_back(st._wirepath); kstradlen_.push_back(st._radlen);
+    }
     ++itrk;
   }
 }

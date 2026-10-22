@@ -1,0 +1,5 @@
+# dump_tracks_mc.fcl with KKLine SaveAllFits: failed fits are kept (status word without FitOK/kalmanOK), so the fast
+# reco can learn which seeds stock rejects and why (T-VR3 yield study).
+#include "TrkFastSim/fcl/dump_tracks_mc.fcl"
+physics.producers.KKLine.ModuleSettings.SaveAllFits : true
+services.TFileService.fileName : "tracks_ref_mc_saveall.root"

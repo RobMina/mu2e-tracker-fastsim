@@ -21,6 +21,8 @@ for v in ${VARIANTS:-base xstock noscat}; do
     scat07) run scat07 F1_SCATSCALE=0.7 ;;
     saxis) run saxis F1_STRAWAXIS=$D/align/TrkAlignStraw.csv ;;
     saxis_pstock) run saxis_pstock F1_STRAWAXIS=$D/align/TrkAlignStraw.csv F1_PATHS=stock F1_XACT=stock ;;
+    saxis_xstock) run saxis_xstock F1_STRAWAXIS=$D/align/TrkAlignStraw.csv F1_XACT=stock ;;
+    saxis_seedx) run saxis_seedx F1_STRAWAXIS=$D/align/TrkAlignStraw.csv F1_NOHIT_IN_SEED=1 ;;
     tight) run tight F1_CONVSCALE=0.001 F1_MAXNITER=40 ;;
     scat14) run scat14 F1_SCATSCALE=1.4 ;;
   esac

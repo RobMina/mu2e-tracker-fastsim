@@ -406,6 +406,7 @@ PARALLEL = __import__("os").environ.get("F1_SEQUENTIAL", "1") != "1"
 FILTER = __import__("os").environ.get("F1_FILTER", "cov")       # cov (RTS over crossings) or info (two-filter)
 SCATSCALE = float(__import__("os").environ.get("F1_SCATSCALE", "1"))   # diagnostic only: scale on the scattering variance
 FIXED_NULLDV_ALL = __import__("os").environ.get("F1_FIXED_NULLDV", "0") == "1"
+NOHIT_IN_SEED = __import__("os").environ.get("F1_NOHIT_IN_SEED", "0") == "1"   # diagnostic: old behaviour
 UNROLL = int(__import__("os").environ.get("F1_UNROLL", "8"))      # scan steps fused per loop iteration
 CONVERGED, UNCONVERGED, LOWNDOF, GAPDIV, PARDIV, CHIDIV, FAILED = 0, 1, 2, 3, 4, 5, 7
 
@@ -661,6 +662,9 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
         _, dref, _ = straw_poca_batch(c["xe"][N:], crs)
         hact = jnp.where(crs["hit"] >= 0, st2["active"][jnp.maximum(crs["hit"], 0)], False)
         xact = (jnp.abs(dref) < sg["sx_maxdoca"]) | hact
+        # crossings without a hit exist only from the extension on (KKFit::addStraws); the seed fit has the
+        # crossings made with the straw hits (KKFit::makeStrawHits)
+        xact = xact & ((crs["hit"] >= 0) | ~sg["seedfit"] | NOHIT_IN_SEED)
         if "stock_active" in crs:
             xact = crs["stock_active"]
         vs = (1.0 + sg["T"]) ** 2
@@ -720,7 +724,7 @@ def stock_stages(seed=True, ext=True):
     if seed:
         for T, cad in zip((5.0, 5.0, 2.0, 1.0), ((400.0, 800000.0, 50.0, 50.0), (40.0, 80.0, 5.0, 5.0),
                                                  (20.0, 40.0, 5.0, 4.0), (10.0, 20.0, 5.0, 3.0))):
-            rows.append(dict(T=T, cad=cad, cad_nulldv=False, bkg=0, ann=-1, scut=0.0, ccut=0.0, sx_maxdoca=2.5,
+            rows.append(dict(T=T, cad=cad, cad_nulldv=False, bkg=0, ann=-1, scut=0.0, ccut=0.0, sx_maxdoca=2.5, seedfit=True,
                              sx_nsig=100.0, sx_scale=True, gate=False, **seedcfg))
     if ext:
         temps = (2.0, 1.0, 0.3, 0.0, 1.0, 0.5, 0.2, 0.0, 0.0)
@@ -732,7 +736,7 @@ def stock_stages(seed=True, ext=True):
         cuts = (0, 0, 0, 0, 0.5, 0.4, 0.3, 0.2, 0.1)
         nsig = (10.0, 5.0, 2.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0)
         for i in range(9):
-            rows.append(dict(T=temps[i], cad=cads[i], cad_nulldv=i >= 2, bkg=bkg[i], ann=ann[i], scut=cuts[i],
+            rows.append(dict(T=temps[i], cad=cads[i], cad_nulldv=i >= 2, bkg=bkg[i], ann=ann[i], scut=cuts[i], seedfit=False,
                              ccut=cuts[i], sx_maxdoca=2.5, sx_nsig=nsig[i], sx_scale=i < 3, gate=seed and i == 0,
                              **extcfg))
     out = {k: jnp.asarray([r[k] for r in rows]) for k in rows[0]}

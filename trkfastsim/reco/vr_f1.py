@@ -292,7 +292,8 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         if k == "phi0":
             dv = (dv + np.pi) % (2 * np.pi) - np.pi
         pulls[k] = dv / np.where(ref["kl_" + k + "err"] > 0, ref["kl_" + k + "err"], np.nan)
-    np.savez(os.path.join(outdir, "pulls.npz"), good=good, nh=H["valid"].sum(1), nact=H["active"].sum(1),
+    np.savez(os.path.join(outdir, "pulls.npz"), good=good, cpn_f1=chi2[:, -1] / np.maximum(ndof[:, -1], 1),
+             cpn_stock=ref["kl_chi2"] / np.maximum(ref["kl_ndof"], 1), nh=H["valid"].sum(1), nact=H["active"].sum(1),
              nx=X["valid"].sum(1), nxact=X["stock_active"].sum(1), **pulls,
              **{"ref_" + k: ref["kl_" + k] for k in KL}, **{"f1_" + k: kl[k] for k in KL})
     cpn = chi2[:, -1] / np.maximum(ndof[:, -1], 1)
@@ -311,6 +312,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
             jnp2.asarray(xc[sl]), jnp2.asarray(Cc[sl]), jnp2.asarray(X["mid"][sl]), jnp2.asarray(X["wdir"][sl]))
         dd.append([np.asarray(a) for a in o])
     doca, dvar, dirdot = (np.concatenate([o[i] for o in dd]) for i in range(3))
+    doca_all = doca
     nsig_final = 1.0
     wall, gas = (np.asarray(a) for a in kkmaterial.path_lengths(doca, dvar, dirdot, nsig_final))
     m = xv & X["stock_active"]
@@ -329,6 +331,22 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     ddoca = (hd - H["stock_rdoca"])[hm]
     res["hit_doca_vs_stock_ref"] = {"n": int(hm.sum()), "q16_50_84_mm": np.quantile(ddoca, [.16, .5, .84]).tolist(),
                                     "abs_q50_q99_mm": np.quantile(np.abs(ddoca), [.5, .99]).tolist()}
+    # crossing activity: ours (KKStrawXing rule at the final pieces: |DOCA| < 2.5 mm or the hit active) vs stock flag
+    hact_x = np.zeros_like(X["valid"])
+    hhx = (X["hit"] >= 0) & X["valid"]
+    hact_x[hhx] = np.take_along_axis(H["active"], np.maximum(X["hit"], 0), 1)[hhx]
+    allx = X["valid"] & ok[:, None]
+    ours = (np.abs(doca_all) < 2.5) | hact_x
+    sa = X["stock_active"]
+    so = ~ours & sa & allx
+    res["crossing_activity_stock_only_split"] = {"with_hit": int((so & hhx).sum()), "no_hit": int((so & ~hhx).sum()),
+                                                 "with_inactive_hit": int((so & hhx & ~hact_x).sum())}
+    res["crossing_activity"] = {"n": int(allx.sum()), "agree": float(np.mean((ours == sa)[allx])),
+                                "ours_only": int((ours & ~sa & allx).sum()), "stock_only": int((~ours & sa & allx).sum()),
+                                "stock_only_doca_q16_50_84": np.quantile(np.abs(doca_all)[~ours & sa & allx], [.16, .5, .84]).tolist()
+                                if (~ours & sa & allx).any() else None,
+                                "ours_only_doca_q16_50_84": np.quantile(np.abs(doca_all)[ours & ~sa & allx], [.16, .5, .84]).tolist()
+                                if (ours & ~sa & allx).any() else None}
     np.savez(os.path.join(outdir, "xings.npz"), doca=doca[m], dvar=dvar[m], dirdot=dirdot[m], wall=wall[m], gas=gas[m],
              kst_wall=X["kst_wall"][m], kst_gas=X["kst_gas"][m], kst_radlen=X["kst_radlen"][m],
              hashit=(X["hit"] >= 0)[m], trk=np.nonzero(m)[0])

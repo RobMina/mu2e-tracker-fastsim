@@ -12,6 +12,7 @@ from .analyses import geomcheck
 from .analyses import interiorcensus
 from .analyses import seedcheck
 from .analyses import rangecheck
+from .analyses import arrivalcheck
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -32,6 +33,7 @@ ANALYSES = {
     "tv2compare": (tv2compare.run, "T-V2/T-V3: stock digi+reco+EventNtuple on fast vs G4 steps (yield, hits, chi2, residuals at TT_Outer; digis with --hits)"),
     "secdiag": (secdiag.run, "why fewer non-muon track hits: secondary steps by place, shared-straw timing, track hits by straw content, fast vs G4"),
     "libplacecheck": (libplacecheck.run, "placement of non-muon steps in their straws (along-wire offset, wire distance), fast vs G4"),
+    "arrivalcheck": (arrivalcheck.run, "muon state at the plane above the tracker, fast vs G4 on the same primaries, for every G4 muon crossing it (arrival, |p|, offset, aim) by energy margin"),
     "rangecheck": (rangecheck.run, "energy loss near range-out in thick slabs: G4 slabs vs the interior loss model (transmission, exit KE)"),
     "seedcheck": (seedcheck.run, "is geomcheck's seeded interior-scattering excess real? seed at the ring tops / plane / tracker envelope, all events and the CRV-term subset"),
     "interiorcensus": (interiorcensus.run, "tracker-interior material per volume group: fast shells vs G4 trajectory loss, plane to first straw, and mass vs GDML"),
@@ -93,6 +95,14 @@ def build_parser():
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables (with trajpts)")
             sp.add_argument("--seed", type=int, default=1, help="base seed of the fast steps run")
             sp.add_argument("--no-tubes", action="store_true", help="skip the tube/polycone column along the G4 paths")
+        if name == "arrivalcheck":
+            sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
+            sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables (with trajpts)")
+            sp.add_argument("--seed", type=int, default=1, help="base seed, as steps (file i uses (seed, i))")
+            sp.add_argument("--no-sliced", action="store_true", help="column scattering at one |p| (geometric mean) instead of per band")
+            sp.add_argument("--no-msc-tail", action="store_true", help="no single-scattering tail in the world column")
+            sp.add_argument("--band-mm", type=float, default=None, help="uniform height bands of this size [mm] (diagnostic)")
+            sp.add_argument("--crv", nargs="+", default=None, metavar="ROOT", help="G4 CrvStep tables: keep CRV-term events only")
         if name == "rangecheck":
             sp.add_argument("--nmu", type=int, default=30000, help="fast muons per point")
             sp.add_argument("--seed", type=int, default=1)

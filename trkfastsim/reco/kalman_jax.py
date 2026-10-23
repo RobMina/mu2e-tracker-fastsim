@@ -658,6 +658,10 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
             sd, ud = jnp.interp(dTu, d["dt"], d["sderr"]), jnp.interp(dTu, d["dt"], d["uderr"])
             rdp = jnp.maximum(rdu, 0.0)
             dvar = jnp.where(st2["lr"] != 0, sd * sd, jnp.where(st2["nulldv"], rdp * rdp + ud * ud, MAXDVAR))
+        # hits added by the extension (KKFit::addStrawHits) do not exist in the seed-fit stages
+        if "inseed" in h:
+            st2 = dict(st2, active=st2["active"] & (h["inseed"] | ~sg["seedfit"]),
+                       lr=jnp.where(h["inseed"] | ~sg["seedfit"], st2["lr"], 0.0))
         # KKStrawXing::updateState(first): active_ = |DOCA at the reference| < SXU maxdoca, or its hit is active
         _, dref, _ = straw_poca_batch(c["xe"][N:], crs)
         hact = jnp.where(crs["hit"] >= 0, st2["active"][jnp.maximum(crs["hit"], 0)], False)

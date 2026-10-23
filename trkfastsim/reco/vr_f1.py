@@ -44,7 +44,7 @@ def _straw_axes(path, cond, table):
     return strawaxis.straw_axes(cond["straw"], wc, wh, strawaxis.read_trkalignstraw(table))
 
 
-def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None):
+def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None, fitok_only=True):
     """One dump file -> per-track seed, padded hits (linefit.build_hits) with stock states, padded crossings, stock
     reference values. Only events with one seed and one KKLine fit, and only FitOK fits."""
     d = hitreco.read_digis([path])
@@ -55,20 +55,20 @@ def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None):
         sh[c] = rs[c].astype(sh[c].dtype)
     drift = _drift_table(path)
     cols = ["sd_a0", "sd_b0", "sd_a1", "sd_b1", "sd_t0", "kl_status", "kl_chi2", "kl_ndof", "kl_nactive",
-            "kh_ind", "kh_ambig", "kh_active", "kh_rdoca", "kst_sid", "kst_active", "kst_wall", "kst_gas", "kst_radlen"]
+            "kh_ind", "kh_ambig", "kh_active", "kh_rdoca", "sd_ind", "kst_sid", "kst_active", "kst_wall", "kst_gas", "kst_radlen"]
     cols += ["kl_" + k for k in KL] + ["kl_" + k + "err" for k in KL]
     a = uproot.open(path)["trkdump/events"].arrays(cols)
     ev0 = np.searchsorted(sh["ev"], np.arange(d["evkey"].shape[0] + 1), side="left")
     one = (ak.num(a.kl_d0) == 1) & (ak.num(a.sd_a0) == 1)
     st = ak.fill_none(ak.firsts(a.kl_status), 0)
-    sel = ak.to_numpy(one & ((np.asarray(st, dtype=np.int64) & FITOK) != 0))
+    sel = ak.to_numpy(one & ((np.asarray(st, dtype=np.int64) & FITOK) != 0)) if fitok_only else ak.to_numpy(one)
     ie = np.flatnonzero(sel)
     if max_tracks:
         ie = ie[:max_tracks]
     b = a[ie]
     ntrk = len(b)
     flat = lambda k: ak.to_numpy(ak.flatten(b[k]))
-    ref = {k: flat(k) for k in cols if k.startswith(("kl_", "sd_"))}
+    ref = {k: flat(k) for k in cols if k.startswith(("kl_", "sd_")) and k != "sd_ind"}
     nh = ak.to_numpy(ak.num(b.kh_ind))
     trk = np.repeat(np.arange(ntrk), nh)
     shi = flat("kh_ind") + np.repeat(ev0[ie], nh)
@@ -77,6 +77,9 @@ def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None):
     act = flat("kh_active").astype(bool)
     H = linefit.build_hits(trk, shi, lr, act, sh, cond, ntrk)
     H["valid"] = H["sh"] >= 0
+    # hits of the LineFinder seed (the rest were added by the extension, KKFit::addStrawHits)
+    inseed = ak.to_numpy(ak.flatten(ak.Array([np.isin(np.asarray(k), np.asarray(sd)) for k, sd in zip(b.kh_ind, b.sd_ind)])))
+    H["inseed"], _ = _pad(trk, inseed.astype(bool), ntrk, False)
     # stock reference DOCA per hit (TrkStrawHitSeed stores refDOCA * endSign; sign flipped as in reco-vr2)
     H["stock_rdoca"], _ = _pad(trk, flat("kh_rdoca").astype(np.float64), ntrk, np.nan)
     H["stock_rdoca"] = H["stock_rdoca"] * H["esign"] * -1.0
@@ -106,6 +109,7 @@ def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None):
     eq = xs_us[:, :, None] == hsid[:, None, :]
     X["hit"] = np.where(eq.any(-1), eq.argmax(-1), -1)
     x0 = linefit.seed_params(*(ref[k] for k in ("sd_a0", "sd_b0", "sd_a1", "sd_b1", "sd_t0")))
+    ref["event_index"] = ie
     return x0, H, X, ref, drift, int(len(ie))
 
 
@@ -114,7 +118,10 @@ def _jnp_tree(dct, keys=None):
     return {k: jnp.asarray(v) for k, v in dct.items() if keys is None or k in keys}
 
 
-def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, material=True, straw_axis=None):
+def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, material=True, straw_axis=None,
+        own_states=False):
+    """own_states: the fit decides its hit states with the stock updaters (CADSHU, BkgANN, DriftANN) on every
+    single-seed event, FitOK or not (T-VR3 yield); default: stock final states on FitOK tracks (T-VR2 F1)."""
     import jax
     import jax.numpy as jnp
     cache = os.environ.get("F1_JAX_CACHE")
@@ -126,14 +133,16 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     os.makedirs(outdir, exist_ok=True)
     cond = hitreco.load_conditions(conditions)
     t0 = time.perf_counter()
-    x0, H, X, ref, drift, ntrk = read_inputs(path, cond, settings, max_tracks, straw_axis or os.environ.get("F1_STRAWAXIS"))
+    x0, H, X, ref, drift, ntrk = read_inputs(path, cond, settings, max_tracks, straw_axis or os.environ.get("F1_STRAWAXIS"),
+                                             fitok_only=not own_states)
+    stockok = (ref["kl_status"].astype(np.int64) & FITOK) != 0
     t_read = time.perf_counter() - t0
     dj = {k: jnp.asarray(np.asarray(drift[k], np.float64)) for k in DRIFT_KEYS}
     ann = K.load_anns()
     stages = K.stock_stages()
     if not material:
         stages = dict(stages, sx_maxdoca=jnp.zeros_like(stages["sx_maxdoca"]))
-    hkeys = HIT_KEYS + ("valid",)
+    hkeys = HIT_KEYS + ("valid", "inseed") if own_states else HIT_KEYS + ("valid",)
     Hn = {k: np.asarray(H[k]) for k in hkeys}
     Xn = {k: X[k] for k in ("mid", "wdir", "valid", "hit")}
     if os.environ.get("F1_PATHS") == "stock":          # diagnostic: scattering from the stock KalSeed path lengths
@@ -145,9 +154,10 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     fixed = {"active": H["active"], "lr": H["lr"], "nulldv": np.ones_like(H["active"])}
 
     def one(x, h, c, fx, maxniter):
-        cf, hist, good = K.fit_track(x, h, c, dj, stages, ann, fixed=fx, maxniter=maxniter)
+        cf, hist, good = K.fit_track(x, h, c, dj, stages, ann, fixed=None if own_states else fx, maxniter=maxniter)
         xt0, Ct0, _ = K.t0_piece(cf)
-        return xt0, Ct0, hist[0], hist[1], hist[2], hist[3], good, cf["xe"], cf["Ce"]
+        return (xt0, Ct0, hist[0], hist[1], hist[2], hist[3], good, cf["xe"], cf["Ce"], cf["st"]["active"],
+                cf["st"]["lr"], cf["good_seed"])
 
     # two passes, exact: a vmapped while_loop runs every lane until the slowest converges, so one track at MaxNIter
     # makes the whole batch pay 11 iterations. Pass 1 caps at FAST_NITER; tracks that reached the cap in any stage
@@ -211,6 +221,10 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
             t_fit += dt
         o = [np.asarray(a)[:n].copy() for a in o]
         # per-effect pieces back to the full padded width (hits N, crossings M) for the analysis below
+        for j in (9, 10):
+            full = np.zeros((n, Nf), dtype=o[j].dtype)
+            full[:, :Nb] = o[j]
+            o[j] = full
         for j in (7, 8):
             full = np.zeros((n, Nf + Mf) + o[j].shape[2:])
             full[:, :Nb] = o[j][:, :Nb]
@@ -241,8 +255,12 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         o2 = [np.asarray(a)[:nr] for a in o2]
         k = 0
         for io, redo, _ in items:
-            for j in range(9):
+            for j in range(12):
                 v = o2[j][k:k + len(redo)]
+                if j in (9, 10):
+                    full = np.zeros((len(redo), Nf), dtype=v.dtype)
+                    full[:, :Nb] = v
+                    v = full
                 if j in (7, 8):
                     full = np.zeros((len(redo), Nf + Mf) + v.shape[2:])
                     full[:, :Nb] = v[:, :Nb]
@@ -255,7 +273,8 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
               "pass2_shape": stats.get("pass2_shape"), "total_fit_s": round(sum(stats["pass1_s"]) + sum(stats["pass2_s"]), 3),
               "refit_with_maxniter10": stats["redo"], "fast_niter": FAST_NITER, "bucket_tracks": {f"{a}x{b}": c for (a, b), c in btr.items()}, "n_compiles": len(shapes),
               "warm_fit_s": t_fit}
-    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce = (np.concatenate([o[i] for o in outs])[inv] for i in range(9))
+    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce, fact, flr, gseed = (np.concatenate([o[i] for o in outs])[inv]
+                                                                     for i in range(12))
     # KinematicLine parameters on the piece holding the t0 point (KalSeed::t0Segment / PiecewiseTrajectory::t0): the
     # POCA to the z axis, s1 along the track; the piece is the smoothed state at the last effect before s1
     N = H["valid"].shape[1]
@@ -274,7 +293,26 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
            "iterations_per_stage_q50": np.median(np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1), 0).tolist(),
            "iterations_per_stage_q99": np.quantile(np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1), .99, 0).tolist(),
            "iterations_per_stage_max": np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1).max(0).tolist()}
-    ok = good
+    ok = good & stockok
+    if own_states:
+        # yield confusion against stock FitOK, and hit states against the stock final states on tracks both keep
+        res["yield"] = {"n_seeds": int(ntrk), "stock_fitok": int(stockok.sum()), "f1_good": int(good.sum()),
+                        "both": int((good & stockok).sum()), "f1_only": int((good & ~stockok).sum()),
+                        "stock_only": int((~good & stockok).sum()), "neither": int((~good & ~stockok).sum()),
+                        "f1_good_over_stock": float(good.sum() / max(stockok.sum(), 1)),
+                        "failed_at_extension_gate": int((~gseed).sum()),
+                        "f1_final_status_on_stock_failures": np.bincount(stat[~stockok, -1], minlength=8).tolist()}
+        hv = H["valid"] & ok[:, None]
+        sa, sl = H["active"], H["lr"]
+        res["hit_states_vs_stock"] = {"n_hits": int(hv.sum()), "active_agree": float(np.mean((fact == sa)[hv])),
+                                      "state_agree": float(np.mean(((fact == sa) & (np.where(fact, flr, 0) == np.where(sa, sl, 0)))[hv])),
+                                      "opposite_sign": float(np.mean((fact & sa & (flr * sl < 0))[hv]))}
+        np.savez(os.path.join(outdir, "yield.npz"), good=good, stockok=stockok, stat=stat[:, -1],
+                 nact_f1=fact.sum(1), nact_stock=(H["active"] & H["valid"]).sum(1), nh=H["valid"].sum(1),
+                 ndrift_f1=(fact & (flr != 0)).sum(1), ndrift_stock=(H["active"] & H["valid"] & (H["lr"] != 0)).sum(1),
+                 ninseed=(H["inseed"] & H["valid"]).sum(1), stat_all=stat, niter=niter, gseed=gseed,
+                 kl_status=ref["kl_status"].astype(np.int64), event_index=ref["event_index"],
+                 cpn_f1=chi2[:, -1] / np.maximum(ndof[:, -1], 1), cpn_stock=ref["kl_chi2"] / np.maximum(ref["kl_ndof"], 1))
     for i, k in enumerate(KL):
         dv = kl[k] - ref["kl_" + k]
         if k == "phi0":

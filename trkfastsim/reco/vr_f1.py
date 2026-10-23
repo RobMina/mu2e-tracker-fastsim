@@ -149,7 +149,9 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     p2 = lambda n, lo: np.maximum(lo, 2 ** np.ceil(np.log2(np.maximum(n, 1)))).astype(int)
     Nf, Mf = Hn["valid"].shape[1], Xn["valid"].shape[1]
     NMAIN, MMAIN = int(os.environ.get("F1_MAIN_HITS", "32")), int(os.environ.get("F1_MAIN_XINGS", "64"))
-    key = ((nh > NMAIN) | (nx > MMAIN)).astype(int)                 # 0 main bucket, 1 overflow
+    # three size classes: main, middle (2x), overflow (the file maximum)
+    CLS = [(NMAIN, MMAIN), (min(Nf, 2 * NMAIN), min(Mf, 2 * MMAIN)), (Nf, Mf)]
+    key = np.where((nh <= CLS[0][0]) & (nx <= CLS[0][1]), 0, np.where((nh <= CLS[1][0]) & (nx <= CLS[1][1]), 1, 2))
     order = np.lexsort((nx, nh, key))
     res_x = [None] * 9
     outs_idx, outs, t_fit, first, shapes, btr, pend = [], [], 0.0, None, {}, {}, {}
@@ -160,9 +162,9 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     done = 0
     for s0, s1 in bounds:
         idx = order[s0:s1]
-        Nb, Mb = (NMAIN, MMAIN) if key[idx[0]] == 0 else (Nf, Mf)
+        Nb, Mb = CLS[key[idx[0]]]
         n = len(idx)
-        padn = (chunk if n == chunk else max(256, int(2 ** np.ceil(np.log2(n))))) - n
+        padn = (chunk if n == chunk else int(256 * np.ceil(n / 256))) - n          # multiples of 256
         pad = lambda a: np.concatenate([a, np.repeat(a[-1:], padn, 0)]) if padn else a
         args = (jnp.asarray(pad(x0[idx])), {k: jnp.asarray(pad(v[idx][:, :Nb])) for k, v in Hn.items()},
                 {k: jnp.asarray(pad(v[idx][:, :Mb])) for k, v in Xn.items()},
@@ -172,7 +174,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         dt = time.perf_counter() - tt
         redo = redo[redo < n]
         if len(redo):
-            pend.setdefault("all", []).append((len(outs), redo, idx[redo]))
+            pend.setdefault(int(key[idx[0]]), []).append((len(outs), redo, idx[redo]))
         new_shape = (Nb, Mb, n + padn) not in shapes
         shapes[(Nb, Mb, n + padn)] = 1
         btr[(Nb, Mb)] = btr.get((Nb, Mb), 0) + n
@@ -194,13 +196,13 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
               flush=True)
     # pass 2: every capped track refitted at MaxNIter 10 in one call at the widest shape needed (padded tracks repeat
     # the last one); results written back into each chunk's outputs
-    for _, items in pend.items():
+    stats["pass2_shape"] = []
+    for cls, items in sorted(pend.items()):
         gidx = np.concatenate([it_[2] for it_ in items])
         nr = len(gidx)
         stats["redo"] += nr
-        Nb = int(min(Nf, max(NMAIN, p2(nh[gidx].max(), 32)))) if nr else NMAIN
-        Mb = int(min(Mf, max(MMAIN, p2(nx[gidx].max(), 64)))) if nr else MMAIN
-        npad = max(256, int(2 ** np.ceil(np.log2(nr)))) - nr
+        Nb, Mb = CLS[cls]
+        npad = int(256 * np.ceil(nr / 256)) - nr
         sel = np.concatenate([gidx, np.repeat(gidx[-1:], npad)])
         args = (jnp.asarray(x0[sel]), {k: jnp.asarray(v[sel][:, :Nb]) for k, v in Hn.items()},
                 {k: jnp.asarray(v[sel][:, :Mb]) for k, v in Xn.items()}, {k: jnp.asarray(v[sel][:, :Nb]) for k, v in fixed.items()})
@@ -208,7 +210,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         o2 = f10(*args)
         jax.block_until_ready(o2)
         stats["pass2_s"].append(round(time.perf_counter() - t2, 3))
-        stats["pass2_shape"] = [Nb, Mb, nr + npad]
+        stats["pass2_shape"].append([Nb, Mb, nr, nr + npad])
         o2 = [np.asarray(a)[:nr] for a in o2]
         k = 0
         for io, redo, _ in items:

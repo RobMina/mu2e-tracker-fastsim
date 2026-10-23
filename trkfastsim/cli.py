@@ -81,6 +81,8 @@ def build_parser():
                             help="stage C: G4-slab width calibration of the support-structure scattering (steps.INTERIOR_MSC_CAL)")
             sp.add_argument("--lever-moments", action="store_true",
                             help="stage C: interior kink lever arms from the support material's own moments (default: segment midpoint)")
+            sp.add_argument("--kink-sup-xx0", type=float, default=None,
+                            help="stage C: split support segments into kinks of at most this x/X0 (default: one kink per segment)")
             sp.add_argument("--band-spread", action="store_true",
                             help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
         if name == "geomcheck":
@@ -98,6 +100,8 @@ def build_parser():
             sp.add_argument("--seed", type=int, default=1)
             sp.add_argument("--lever-moments", action="store_true",
                             help="interior kinks with the material's own lever-arm moments (TrackerInterior.transport lever_moments)")
+            sp.add_argument("--kink-sup-xx0", type=float, default=None,
+                            help="split support segments into kinks of at most this x/X0 (TrackerInterior.transport kink_sup_xx0)")
         if name == "interiorcensus":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--nsub", type=int, default=8, help="phi samples per sector interval (as TrackerInterior)")

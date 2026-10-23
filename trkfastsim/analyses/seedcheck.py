@@ -223,7 +223,7 @@ def count_table(df):
     return {"total": tot, "by_p_seed": rows}
 
 
-def run(inputs, outdir, crv=None, gdml=None, seed=1, lever_moments=False, **kw):
+def run(inputs, outdir, crv=None, gdml=None, seed=1, lever_moments=False, kink_sup_xx0=None, **kw):
     if not crv:
         raise SystemExit("seedcheck G4SGSTEPS --crv G4CRVSTEPS")
     from .steps import default_gdml
@@ -256,6 +256,8 @@ def run(inputs, outdir, crv=None, gdml=None, seed=1, lever_moments=False, **kw):
     frames = []
     for i, (name, (e, o, u, p, start)) in enumerate(variants.items()):
         tkw = {"lever_moments": True} if lever_moments else {}
+        if kink_sup_xx0 is not None:
+            tkw["kink_sup_xx0"] = kink_sup_xx0
         n_seed, n_st, xx0, vf, xf, pmin = seeded(np.random.default_rng([int(seed), 77, i]), interior, geom, o, u, p, start, **tkw)
         df = ev.iloc[e][KEY + ["iev", "g4_pass", "crv_pass", "ngood_g4"]].reset_index(drop=True)
         df["variant"], df["p_seed"], df["xx0"], df["n_seed"], df["n_straight"] = name, p, xx0, n_seed, n_st

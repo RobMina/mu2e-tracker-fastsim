@@ -27,3 +27,12 @@ def test_moments_equal_midpoint_for_a_full_segment_and_differ_for_material_at_th
     assert np.allclose(xm, 50.0)                               # centroid = midpoint
     c = _Col(0.0, 10.0).column(o, d, seg, moments=True)["G4_Cu"]
     assert np.allclose(c[1] / c[0], 5.0)                       # material at the top: centroid near the start
+
+
+def test_split_length_puts_the_first_kink_after_material():
+    it = st.TrackerInterior.__new__(st.TrackerInterior)
+    it.shells, it.nsub = _Col(80.0, 100.0), 8               # all the material in the last fifth of the segment
+    o, d = np.zeros((1, 3)), np.array([[0.0, -1.0, 0.0]])
+    x0 = __import__("mu2efastsim.eloss", fromlist=["x"]).radiation_length_mm(__import__("mu2efastsim.materials", fromlist=["x"]).get("G4_Cu"))
+    L = it._split_length(o, d, np.array([100.0]), np.array([10.0 / x0]))   # half the material
+    assert 87.4 < L[0] < 93.8                                  # 90 mm, on the 1/16 grid

@@ -92,3 +92,79 @@ def crossing_effects(x, cov, mid, wdir, valid, nsig, varscale, mom=MOM):
     toff = kkmaterial.STRAW["wrad"]
     return {"s": st + toff, "Q": Q, "scatvar": sv, "doca": doca, "docavar": docavar, "wall": wall, "gas": gas,
             "dirdot": c}
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Part 2: forward/backward filter and smoother over time-ordered effects (Track::iterate, Measurement/Material).
+# With no field and no energy loss the parameters are global (every piece has the same parametrisation and a
+# crossing shifts no mean), so a crossing only adds Q to the covariance: a random walk between pieces.
+# Effect arrays per track, padded to E and sorted by s (pad effects have w = 0 and Q = 0):
+#   xref [E, 5]  reference parameters of the effect's piece (linearisation point)
+#   H [E, 3, 5]  d(residual)/d(params) at xref;  r [E, 3] residual at xref
+#   w [E, 3]     weight 1 / (mvar x varscale) per residual row, 0 if inactive;  mvar [E, 3] unscaled variance
+#   Q [E, 5, 5]  process noise (crossings only)
+# Information state (W, b) with x = W^-1 b. A hit adds W += H^T w H, b += H^T w (H xref - r), i.e. the KinKal
+# Residual::weight with dRdP = -H and value = r.
+
+def _solve(W, b):
+    return jnp.linalg.solve(W, b)
+
+
+def _add_noise(W, b, Q):
+    """(W, b) -> covariance form, C += Q, back (Material::process; parameters unchanged)."""
+    C = jnp.linalg.inv(W)
+    x = C @ b
+    Wn = jnp.linalg.inv(C + Q)
+    return Wn, Wn @ x
+
+
+def _hit_info(e):
+    Hw = e["H"] * e["w"][:, None]
+    return jnp.einsum("ki,kj->ij", Hw, e["H"]), Hw.T @ (e["H"] @ e["xref"] - e["r"])
+
+
+def _predicted_chi2(W, b, e):
+    """Chisq of the hit's rows against state (W, b) (ResidualHit::chisq): predicted residual r + H (x - xref), variance
+    mvar + H C H^T (measurement variance not temperature-scaled)."""
+    C = jnp.linalg.inv(W)
+    x = C @ b
+    res = e["r"] + e["H"] @ (x - e["xref"])
+    var = e["mvar"] + jnp.einsum("ki,ij,kj->k", e["H"], C, e["H"])
+    act = e["w"] > 0
+    return jnp.sum(jnp.where(act, res * res / jnp.where(act, var, 1.0), 0.0)), jnp.sum(act)
+
+
+def filter_smooth(eff, W0f, b0f, W0b, b0b):
+    """One algebraic iteration for one track. W0f/b0f and W0b/b0b: deweighted priors at the front and back
+    (Track::initFitState). Returns per effect the smoothed information (forward through the effect + backward
+    from the next effect: the piece holding the effect), the forward chi2 and ndof (ndof - 5 as Chisq(NParams))."""
+    def fwd(carry, e):
+        W, b, chi2, nd = carry
+        c, n = _predicted_chi2(W, b, e)
+        dW, db = _hit_info(e)
+        W, b = W + dW, b + db
+        W, b = _add_noise(W, b, e["Q"])
+        return (W, b, chi2 + c, nd + n), (W, b)
+
+    def bwd(carry, e):
+        W, b = carry
+        out = (W, b)                                   # downstream information, before this effect
+        W, b = _add_noise(W, b, e["Q"])
+        dW, db = _hit_info(e)
+        return (W + dW, b + db), out
+
+    (_, _, chi2, nd), (Wf, bf) = jax.lax.scan(fwd, (W0f, b0f, 0.0, 0), eff)
+    (Wbf, bbf), (Wb, bb) = jax.lax.scan(bwd, (W0b, b0b), eff, reverse=True)
+    Ws, bs = Wf + Wb, bf + bb
+    return {"W": Ws, "b": bs, "chi2": chi2, "ndof": nd - 5, "Wfront": Wbf, "bfront": bbf}
+
+
+def smoothed(fs, eff):
+    """Parameters and covariance of each effect's piece, and the unbiased parameters of each hit (Hit::
+    unbiasedParameters: the piece weight minus the hit's own weight)."""
+    C = jnp.linalg.inv(fs["W"])
+    x = jnp.einsum("eij,ej->ei", C, fs["b"])
+    dW, db = jax.vmap(_hit_info)(eff)
+    Cu = jnp.linalg.inv(fs["W"] - dW)
+    xu = jnp.einsum("eij,ej->ei", Cu, fs["b"] - db)
+    return x, C, xu, Cu

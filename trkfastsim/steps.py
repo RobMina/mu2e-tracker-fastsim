@@ -86,6 +86,7 @@ def load_world(gdml_path, geom):
 INTERIOR_SKIP = ("TrackerStraw", "TrackerWire",   # the straws themselves are handled by crossings/eIon
                  "CalorimeterMother")             # calorimeter: boxes and boolean solids the shell model cannot hold
 KINK_XX0 = 1e-3      # x/X0 of thin material (straws, gaps) accumulated before the in-tracker transport kinks the track
+KINK_SUP_XX0 = 0.25  # support segments with more x/X0 are split into kinks of at most this (seedcheck 2026-10-23; <= 0 = off)
 KINK_BACKOFF_MM = 0.05   # the in-tracker kink is applied this far before the kink straw's gas entry
 GAP_MATERIAL = None  # medium between straws and support inside the tracker: the GDML's DSVacuum (None = no material)
 
@@ -231,7 +232,7 @@ class TrackerInterior:
         return out, stats
 
     def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
-                  max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=None):
+                  max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
@@ -246,7 +247,7 @@ class TrackerInterior:
         (lever arms of the support material at its segment's midpoint, or with lever_moments=True at the material's own
         first and second moments along the track, x/X0-weighted; random numbers and lengths are the same either way).
         kink_sup_xx0: split support segments with more x/X0 than this into several kinks (each at the |p| reached
-        there); None = one kink per segment
+        there); None or <= 0 = one kink per segment (the behaviour before 2026-10-23)
         (transport.highland_var_increment), each piece at its own lever arm (support and air at the segment midpoint,
         straw material at its chord midpoint), plus the single-scattering tail on the group's nuclear chi_c^2 if
         `tail`: per material on nuclei (each with its form factor) and on atomic electrons (up to ME_OVER_MMU), above
@@ -308,7 +309,7 @@ class TrackerInterior:
             # thick support: kink inside the segment, after 1/n of it (n = ceil(x_sup / kink_sup_xx0)), and restart there
             cut = np.zeros(nr, bool)
             s_kink = s_in.copy()
-            if kink_sup_xx0 is not None:
+            if kink_sup_xx0 is not None and kink_sup_xx0 > 0:
                 cut = x_sup > kink_sup_xx0
                 if cut.any():
                     ci = np.flatnonzero(cut)
@@ -871,7 +872,7 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
 
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
-               kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=None):
+               kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
@@ -883,7 +884,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     where the tail density crosses the Gaussian); kink_xx0: x/X0 of straw material between in-tracker kinks;
     interior_msc_cal: support-scattering calibration (TrackerInterior.transport msc_cal; None = off); lever_moments:
     support lever arms from the material's own moments (TrackerInterior.transport; default midpoint); kink_sup_xx0:
-    split thick support segments into kinks of at most this x/X0 (default None: one kink per segment)."""
+    split thick support segments into kinks of at most this x/X0 (default KINK_SUP_XX0; None or <= 0: one kink per segment)."""
     make_steps.path_vertices = None   # set below only by the interior transport of this call
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,

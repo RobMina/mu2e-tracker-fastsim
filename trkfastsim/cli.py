@@ -85,6 +85,8 @@ def build_parser():
                             help="stage C: interior kink lever arms from the support material's own moments (default: segment midpoint)")
             sp.add_argument("--no-calo", action="store_true",
                             help="stage C: leave the calorimeter disk out of the interior (diagnostic)")
+            sp.add_argument("--exit-scatter", action="store_true",
+                            help="stage C: scatter the material behind the last straw into the path for the tracker VD (surfsteps) exit crossings")
             sp.add_argument("--world-mods", default=None,
                             help="stage C: named world modification (trkfastsim.worldmods, e.g. issue2017) for geometry sensitivity runs")
             sp.add_argument("--kink-sup-xx0", type=float, default=0.25,

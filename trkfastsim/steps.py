@@ -94,6 +94,7 @@ INTERIOR_SKIP = ("TrackerStraw", "TrackerWire",   # the straws themselves are ha
 KINK_XX0 = 1e-3      # x/X0 of thin material (straws, gaps) accumulated before the in-tracker transport kinks the track
 KINK_SUP_XX0 = 0.25  # support segments with more x/X0 are split into kinks of at most this (seedcheck 2026-10-23; <= 0 = off)
 KINK_BACKOFF_MM = 0.05   # the in-tracker kink is applied this far before the kink straw's gas entry
+EXIT_SCATTER_MM = 1500.0   # path behind the last straw scattered for the exit side of the tracker VDs (exit_scatter)
 GAP_MATERIAL = None  # medium between straws and support inside the tracker: the GDML's DSVacuum (None = no material)
 
 
@@ -213,6 +214,67 @@ class TrackerInterior:
                 sm1 += mom[m][1] / x0m
                 sm2 += mom[m][2] / x0m
         return solid, x_sup, sm1, sm2
+
+    def exit_scatter(self, rng, o, d, p, xcum, length=EXIT_SCATTER_MM, tail=True, tail_k=None):
+        """Material behind each muon's last straw (support rings, end plates, calorimeter) crossed as kinks of at most
+        KINK_SUP_XX0, so the path beyond the tracker (the tracker VD exit crossings) carries its scattering; energy loss
+        sampled per kink. Straws are not looked for (the muon has left the straw volume or is done). Returns kink dicts
+        as transport's last_kinks (end, pos, dir, path from o, p) and the per-muon number of kinks."""
+        n = len(o)
+        o, d = o.copy(), d.copy()
+        p = p.copy()
+        xc = xcum.copy()
+        trav = np.zeros(n)
+        out = []
+        act = np.flatnonzero(p > 1.0)
+        for _ in range(64):
+            if not len(act):
+                break
+            left = length - trav[act]
+            col, _ = self._support(o[act], d[act], left, False)
+            solid, x_sup, _, _ = self._support_sums(col, {}, len(act))
+            go = x_sup > 1e-6
+            act = act[go]
+            if not len(act):
+                break
+            left, x_sup = left[go], x_sup[go]
+            col = {m: c[go] for m, c in col.items()}
+            target = np.minimum(x_sup, KINK_SUP_XX0)
+            seg = self._split_length(o[act], d[act], left, target)
+            col, _ = self._support(o[act], d[act], seg, False)
+            _, X, _, _ = self._support_sums(col, {}, len(act))
+            tk = np.sqrt(p[act] ** 2 + eloss.MMU ** 2) - eloss.MMU
+            lost = np.zeros(len(act))
+            for m, c in col.items():
+                h = np.flatnonzero(c > 0)
+                if len(h):
+                    lost[h] += tr.slab_loss(rng, materials.get(m), np.maximum(p[act][h], 1.0), c[h])
+            alive = tk - lost > 0.5
+            pk = _p_of(np.maximum(tk - lost, 0.0))
+            # Highland at the mean |p| over the kink (entry and exit), not the exit |p|: a muon that ranges out in the
+            # piece would otherwise scatter at |p| -> 0 (radian deflections); stopped muons end at the kink point
+            pm = 0.5 * (p[act] + pk)
+            V = tr.highland_var_increment(np.maximum(pm, 1.0), xc[act], xc[act] + X)
+            w1, w2 = 0.5 * seg, seg ** 2 / 3.0
+            dth, dy, a = _kink_core(rng, V, w1, w2)
+            if tail:
+                parts = [(materials.get(m), c) for m, c in col.items()]
+                tt = _group_tail(rng, parts, np.arange(len(act)), np.maximum(pm, 1.0), np.maximum(pm, 1.0), a, tail_k)
+                dth += tt
+                dy += tt * w1[:, None]
+            dth[~alive], dy[~alive] = 0.0, 0.0            # a muon that stops in this piece does not leave it
+            end = o[act] + d[act] * seg[:, None]
+            pos, dn = _kink(end, d[act], dth, dy)
+            out.append({"it": act[alive].copy(), "end": end[alive], "pos": pos[alive], "dir": dn[alive],
+                        "path": (trav[act] + seg)[alive], "p": pk[alive]})
+            o[act], d[act], p[act] = pos, dn, pk
+            xc[act] += X
+            trav[act] += seg
+            act = act[alive & (trav[act] < length - 1.0)]
+        if not out:
+            z3 = np.zeros((0, 3))
+            return {"it": np.zeros(0, np.int64), "end": z3, "pos": z3, "dir": z3, "path": np.zeros(0), "p": np.zeros(0)}
+        return {k: np.concatenate([q[k] for q in out]) for k in out[0]}
 
     def loss_to_straws(self, rng, o, d, p, it, s_in):
         """Energy lost [MeV] in the interior between each muon's origin o (on the plane) and each straw entry.
@@ -455,6 +517,8 @@ class TrackerInterior:
         else:
             st["capped"] += len(act)
         self.last_stats = st
+        self.last_final = {"o": o.copy(), "d": d.copy(), "p": _p_of(np.maximum(tk_start - lost, 0.0)),
+                           "path": travelled.copy(), "xcum": xcum.copy()}
         self.last_kinks = ({k: np.concatenate([q[k] for q in kinks]) for k in kinks[0]} if kinks else
                            {"it": np.zeros(0, np.int64), "end": np.zeros((0, 3)), "pos": np.zeros((0, 3)),
                             "dir": np.zeros((0, 3)), "path": np.zeros(0), "p": np.zeros(0)})
@@ -505,7 +569,9 @@ def interior_msc_var_factor(cal, xm, X, p):
 def _replace_rows(col, mom, ci, cc, cm, nr):
     """Support columns with rows ci replaced by the columns cc (moments cm) of their shortened segments."""
     out, outm = {}, {}
-    for m in set(col) | set(cc):
+    # fixed material order (col's, then new ones in cc's order): the loss sampling draws random numbers in this order,
+    # and a set's iteration order changes between processes (string hashing), which broke per-seed reproducibility
+    for m in list(col) + [k for k in cc if k not in col]:
         v = col[m].copy() if m in col else np.zeros(nr)
         v[ci] = cc[m] if m in cc else 0.0
         out[m] = v
@@ -886,7 +952,8 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
 
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
-               kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0):
+               kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
+               exit_scatter=False):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
@@ -898,7 +965,9 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     where the tail density crosses the Gaussian); kink_xx0: x/X0 of straw material between in-tracker kinks;
     interior_msc_cal: support-scattering calibration (TrackerInterior.transport msc_cal; None = off); lever_moments:
     support lever arms from the material's own moments (TrackerInterior.transport; default midpoint); kink_sup_xx0:
-    split thick support segments into kinks of at most this x/X0 (default KINK_SUP_XX0; None or <= 0: one kink per segment)."""
+    split thick support segments into kinks of at most this x/X0 (default KINK_SUP_XX0; None or <= 0: one kink per segment);
+    exit_scatter: scatter the material behind each muon's last straw into the path used for the tracker VD crossings
+    (TrackerInterior.exit_scatter; StrawGasSteps unchanged)."""
     make_steps.path_vertices = None   # set below only by the interior transport of this call
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
@@ -922,8 +991,18 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0,
                                  msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0)
         make_steps.interior_stats = interior.last_stats
+        kinks = interior.last_kinks
+        if exit_scatter:
+            # scatter the material behind each muon's last straw, so the tracker VD exit crossings carry it; a spawned rng
+            # stream (does not advance rng), so the StrawGasSteps are identical with and without it. The transport's final
+            # origin is its last restart point; no support lies between it and the last straw (else it would have kinked)
+            fin = interior.last_final
+            ek = interior.exit_scatter(np.random.default_rng(rng.bit_generator.seed_seq.spawn(1)[0]), fin["o"], fin["d"], fin["p"],
+                                       fin["xcum"], tail=msc_tail, tail_k=tail_k)
+            ek = dict(ek, path=ek["path"] + fin["path"][ek["it"]])
+            kinks = {k: np.concatenate([kinks[k], ek[k]]) for k in kinks}
         make_steps.path_vertices = _path_vertices(mu, sel, o, d, p_start, t_off, p0_all=np.sqrt(
-            mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy(), kinks=interior.last_kinks)
+            mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy(), kinks=kinks)
         it = sel[tr_["it"]]
         js = tr_["js"]
         w0, w1, dirs = tr_["pos0"], tr_["pos1"], tr_["dir"]

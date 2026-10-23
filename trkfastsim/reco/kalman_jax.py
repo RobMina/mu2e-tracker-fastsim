@@ -106,7 +106,7 @@ def crossing_effects(x, cov, mid, wdir, valid, nsig, varscale, mom=MOM):
     docavar = jnp.einsum("mi,ij,mj->m", J, cov, J)
     wall, gas = kkmaterial.path_lengths(doca, docavar, c, nsig)
     sv = kkmaterial.scatter_angle_var("straw-wall", mom, wall) + kkmaterial.scatter_angle_var("straw-gas", mom, gas)
-    sv = jnp.where(valid, sv * varscale, 0.0)
+    sv = jnp.where(valid, sv * varscale * SCATSCALE, 0.0)
     D = jax.vmap(lambda s: kink_jacobian(x, s))(st)
     toff = kkmaterial.STRAW["wrad"]
     return {"s": st + toff, "D": D, "scatvar": sv, "doca": doca, "docavar": docavar, "wall": wall, "gas": gas,
@@ -404,6 +404,7 @@ MAXDVAR = 2.4 * 2.4 / 3.0              # DriftInfo::maxdvar_
 # the associative-scan version
 PARALLEL = __import__("os").environ.get("F1_SEQUENTIAL", "1") != "1"
 FILTER = __import__("os").environ.get("F1_FILTER", "cov")       # cov (RTS over crossings) or info (two-filter)
+SCATSCALE = float(__import__("os").environ.get("F1_SCATSCALE", "1"))   # diagnostic only: scale on the scattering variance
 UNROLL = int(__import__("os").environ.get("F1_UNROLL", "8"))      # scan steps fused per loop iteration
 CONVERGED, UNCONVERGED, LOWNDOF, GAPDIV, PARDIV, CHIDIV, FAILED = 0, 1, 2, 3, 4, 5, 7
 
@@ -502,7 +503,12 @@ def crossing_rows(xref_c, cref_c, crs, nsig, varscale):
     def one(x, C, mid, wdir):
         e = crossing_effects(x, C, mid[None], wdir[None], jnp.array([True]), nsig, varscale)
         return {k: v[0] for k, v in e.items()}
-    return jax.vmap(one)(xref_c, cref_c, crs["mid"], crs["wdir"])
+    out = jax.vmap(one)(xref_c, cref_c, crs["mid"], crs["wdir"])
+    if "kst_wall" in crs:        # diagnostic: scattering from the stock KalSeed path lengths
+        sv = (kkmaterial.scatter_angle_var("straw-wall", MOM, crs["kst_wall"]) +
+              kkmaterial.scatter_angle_var("straw-gas", MOM, crs["kst_gas"])) * varscale * SCATSCALE
+        out = dict(out, scatvar=sv)
+    return out
 
 
 def _pos(x, t):
@@ -544,7 +550,14 @@ def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dw
         Qx = jnp.where(vx[:, None, None], effs["sv"][xpos][:, None, None] * effs["D"][xpos] @
                        jnp.swapaxes(effs["D"][xpos], -1, -2), 0.0)
         Px, PC = _rts(xpre[xpos], Cpre[xpos], Qx, xl, Cl)             # pieces [M + 1]
-        pidx = jnp.cumsum(isx)                                         # piece of each sorted effect
+        # piece of every effect by its position along the track (KinKal PCA on the piecewise trajectory): the number
+        # of in-bounds crossing boundaries (TOCA + wire radius) at or before it; a crossing sits at its TOCA, i.e. on
+        # the piece before its own boundary; crossings outside the bounds or inactive get their local piece too
+        toff = kkmaterial.STRAW["wrad"]
+        bnd = jnp.sort(jnp.where(inb, ce["s"], big))
+        s_true = jnp.concatenate([s_h, ce["s"] - toff])
+        pid_nat = jnp.searchsorted(bnd, s_true, side="right")
+        pidx = pid_nat[order]
         xs_, Cs_ = Px[pidx], PC[pidx]
         tx = effs["xref"][xpos, 4] + s_all[order][xpos] / V
         gaps = jax.vmap(lambda a, b, t: jnp.linalg.norm(_pos(a, t) - _pos(b, t)))(Px[1:], Px[:-1], tx)
@@ -558,7 +571,7 @@ def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dw
         last = (E - 1) - jnp.argmax(acts[::-1])
         return {"x": x, "C": C, "xu": xu, "Cu": Cu, "chi2": chi2, "ndof": ndof,
                 "xfront": xs_[first], "Cfront": Cs_[first], "xback": xs_[last], "Cback": Cs_[last], "avggap": avggap,
-                "s_hit": s_h, "inbounds": inb, "xing": ce, "nact": jnp.sum(act)}
+                "s_hit": s_h, "inbounds": inb, "xing": ce, "nact": jnp.sum(act), "pid": pid_nat, "bnd": bnd}
     if PARALLEL:
         fs = filter_smooth_par(effs, prior["Cf"] * dw, prior["xf"], prior["Cb"] * dw, prior["xb"])
     else:
@@ -574,9 +587,11 @@ def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dw
     first = jnp.argmax(effs["w"].sum(-1) > 0)
     last = (effs["w"].shape[0] - 1) - jnp.argmax((effs["w"].sum(-1) > 0)[::-1])
     inv = jnp.argsort(order)
+    pid = jnp.cumsum(isx)[inv]
+    bnd = jnp.sort(jnp.where(inb, ce["s"], big))
     return {"x": x[inv], "C": C[inv], "xu": xu[inv][:N], "Cu": Cu[inv][:N], "chi2": fs["chi2"], "ndof": fs["ndof"],
             "xfront": x[first], "Cfront": C[first], "xback": x[last], "Cback": C[last], "avggap": avggap,
-            "s_hit": s_h, "inbounds": inb, "xing": ce, "nact": jnp.sum(act)}
+            "s_hit": s_h, "inbounds": inb, "xing": ce, "nact": jnp.sum(act), "pid": pid, "bnd": bnd}
 
 
 def set_status(o, ref, prevcpn, it, cfg):
@@ -623,7 +638,8 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
               "dvar": jnp.full(N, MAXDVAR), "ref": {"xf": x0, "Cf": C0, "xb": x0, "Cb": C0},
               "status": jnp.array(UNCONVERGED), "stop": jnp.array(False), "good_seed": jnp.array(True),
               "chi2": jnp.array(0.0), "ndof": jnp.array(0), "cpn": jnp.array(-1.0), "niter": jnp.array(0),
-              "s_hit": jnp.zeros(N), "xact": jnp.zeros(M, bool)}
+              "s_hit": jnp.zeros(N), "xact": jnp.zeros(M, bool), "pid": jnp.zeros(N + M, jnp.int32),
+              "bnd": jnp.full(M, 1e12)}
 
     def stage_fn(c, sg):
         # goodFit gate before the extension (and the schedule stops after any unusable status)
@@ -641,6 +657,8 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
         _, dref, _ = straw_poca_batch(c["xe"][N:], crs)
         hact = jnp.where(crs["hit"] >= 0, st2["active"][jnp.maximum(crs["hit"], 0)], False)
         xact = (jnp.abs(dref) < sg["sx_maxdoca"]) | hact
+        if "stock_active" in crs:
+            xact = crs["stock_active"]
         vs = (1.0 + sg["T"]) ** 2
         sxs = jnp.where(sg["sx_scale"], vs, 1.0)
         hs = {"active": st2["active"], "lr": st2["lr"], "dvar": dvar}
@@ -656,7 +674,8 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
                     "xb": take(o["xback"], cc["ref"]["xb"]), "Cb": take(o["Cback"], cc["ref"]["Cb"])}
             cn = dict(cc, xe=take(o["x"], cc["xe"]), Ce=take(o["C"], cc["Ce"]), xu=take(o["xu"], cc["xu"]),
                       Cu=take(o["Cu"], cc["Cu"]), ref=nref, status=status, chi2=o["chi2"], ndof=o["ndof"], cpn=cpn,
-                      niter=cc["niter"] + 1, s_hit=take(o["s_hit"], cc["s_hit"]))
+                      niter=cc["niter"] + 1, s_hit=take(o["s_hit"], cc["s_hit"]),
+                      pid=take(o["pid"].astype(jnp.int32), cc["pid"]), bnd=take(o["bnd"], cc["bnd"]))
             return it + 1, cn
 
         def cond(ic):
@@ -712,4 +731,28 @@ def stock_stages(seed=True, ext=True):
             rows.append(dict(T=temps[i], cad=cads[i], cad_nulldv=i >= 2, bkg=bkg[i], ann=ann[i], scut=cuts[i],
                              ccut=cuts[i], sx_maxdoca=2.5, sx_nsig=nsig[i], sx_scale=i < 3, gate=seed and i == 0,
                              **extcfg))
-    return {k: jnp.asarray([r[k] for r in rows]) for k in rows[0]}
+    out = {k: jnp.asarray([r[k] for r in rows]) for k in rows[0]}
+    cs = float(__import__("os").environ.get("F1_CONVSCALE", "1"))     # diagnostic: tighter convergence test
+    if cs != 1.0:
+        out["conv"] = out["conv"] * cs
+    return out
+
+
+def t0_piece(cf, nself=10):
+    """Parameters and covariance of the piece holding the POCA to the z axis, found self-consistently as
+    PiecewiseTrajectory::t0 (KalSeed::t0Segment): start from the piece of the first effect, compute that piece's
+    z-axis POCA track length s1, move to the piece whose range contains s1 (number of boundaries <= s1)."""
+    xe, Ce, pid, bnd = cf["xe"], cf["Ce"], cf["pid"], cf["bnd"]
+
+    def s1_of(x):
+        p, u = point_dir(x)
+        uz = u[2]
+        return (p[2] * uz - p @ u) / jnp.maximum(1.0 - uz * uz, 1e-12)
+
+    def step(e, _):
+        pnew = jnp.searchsorted(bnd, s1_of(xe[e]), side="right")
+        cand = pid == pnew
+        return jnp.where(jnp.any(cand), jnp.argmax(cand), e), None
+
+    e, _ = jax.lax.scan(step, jnp.array(0), None, length=nself)
+    return xe[e], Ce[e], pid[e]

@@ -41,7 +41,7 @@ def read_inputs(path, cond, settings, max_tracks=None):
         sh[c] = rs[c].astype(sh[c].dtype)
     drift = _drift_table(path)
     cols = ["sd_a0", "sd_b0", "sd_a1", "sd_b1", "sd_t0", "kl_status", "kl_chi2", "kl_ndof", "kl_nactive",
-            "kh_ind", "kh_ambig", "kh_active", "kst_sid", "kst_active", "kst_wall", "kst_gas", "kst_radlen"]
+            "kh_ind", "kh_ambig", "kh_active", "kh_rdoca", "kst_sid", "kst_active", "kst_wall", "kst_gas", "kst_radlen"]
     cols += ["kl_" + k for k in KL] + ["kl_" + k + "err" for k in KL]
     a = uproot.open(path)["trkdump/events"].arrays(cols)
     ev0 = np.searchsorted(sh["ev"], np.arange(d["evkey"].shape[0] + 1), side="left")
@@ -63,6 +63,9 @@ def read_inputs(path, cond, settings, max_tracks=None):
     act = flat("kh_active").astype(bool)
     H = linefit.build_hits(trk, shi, lr, act, sh, cond, ntrk)
     H["valid"] = H["sh"] >= 0
+    # stock reference DOCA per hit (TrkStrawHitSeed stores refDOCA * endSign; sign flipped as in reco-vr2)
+    H["stock_rdoca"], _ = _pad(trk, flat("kh_rdoca").astype(np.float64), ntrk, np.nan)
+    H["stock_rdoca"] = H["stock_rdoca"] * H["esign"] * -1.0
     # crossings: straw geometry from the conditions by unique straw index
     ns = ak.to_numpy(ak.num(b.kst_sid))
     ctrk = np.repeat(np.arange(ntrk), ns)
@@ -115,13 +118,18 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     hkeys = HIT_KEYS + ("valid",)
     Hn = {k: np.asarray(H[k]) for k in hkeys}
     Xn = {k: X[k] for k in ("mid", "wdir", "valid", "hit")}
+    if os.environ.get("F1_PATHS") == "stock":          # diagnostic: scattering from the stock KalSeed path lengths
+        Xn["kst_wall"], Xn["kst_gas"] = X["kst_wall"], X["kst_gas"]
+    if os.environ.get("F1_XACT") == "stock":           # diagnostic: crossing activity from the stock KalSeed
+        Xn["stock_active"] = X["stock_active"] & X["valid"]
     if not material:
         Xn["valid"] = np.zeros_like(Xn["valid"])
     fixed = {"active": H["active"], "lr": H["lr"], "nulldv": np.ones_like(H["active"])}
 
     def one(x, h, c, fx, maxniter):
         cf, hist, good = K.fit_track(x, h, c, dj, stages, ann, fixed=fx, maxniter=maxniter)
-        return cf["xe"][0], cf["Ce"][0], hist[0], hist[1], hist[2], hist[3], good, cf["xe"], cf["Ce"]
+        xt0, Ct0, _ = K.t0_piece(cf)
+        return xt0, Ct0, hist[0], hist[1], hist[2], hist[3], good, cf["xe"], cf["Ce"]
 
     # two passes, exact: a vmapped while_loop runs every lane until the slowest converges, so one track at MaxNIter
     # makes the whole batch pay 11 iterations. Pass 1 caps at FAST_NITER; tracks that reached the cap in any stage
@@ -129,7 +137,8 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     # the same as with MaxNIter 10.
     FAST_NITER = int(os.environ.get("F1_FAST_NITER", "3"))
     f1 = jax.jit(jax.vmap(lambda x, h, c, fx: one(x, h, c, fx, FAST_NITER)))
-    f10 = jax.jit(jax.vmap(lambda x, h, c, fx: one(x, h, c, fx, 10)))
+    MAXN = int(os.environ.get("F1_MAXNITER", "10"))     # stock MaxNIter 10; larger only as a diagnostic
+    f10 = jax.jit(jax.vmap(lambda x, h, c, fx: one(x, h, c, fx, MAXN)))
 
     def f(*args):
         """Pass 1 only; returns outputs and the chunk-local indices that reached the cap (refitted later, all
@@ -232,8 +241,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     # KinematicLine parameters on the piece holding the t0 point (KalSeed::t0Segment / PiecewiseTrajectory::t0): the
     # POCA to the z axis, s1 along the track; the piece is the smoothed state at the last effect before s1
     N = H["valid"].shape[1]
-    xf, Cf, ipiece = _t0_piece(xe, Ce, X, H, N)
-    res_piece = {"t0_piece_is_first_effect_frac": float(np.mean(ipiece == 0))}
+    res_piece = {}
     kl = linefit.to_kinematic_line(xf)
     Jk = np.zeros((ntrk, 5, 5))
     eps = np.array([1e-3, 1e-3, 1e-6, 1e-6, 1e-3])
@@ -260,6 +268,15 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
                               "frac_within_0p1": float(np.mean(np.abs(pull[m]) < 0.1)),
                               "frac_within_1": float(np.mean(np.abs(pull[m]) < 1.0))}
         res[f"{k}_err_ratio_q50"] = float(np.median(np.sqrt(Ck[ok, i, i]) / ref["kl_" + k + "err"][ok]))
+    pulls = {}
+    for k in KL:
+        dv = kl[k] - ref["kl_" + k]
+        if k == "phi0":
+            dv = (dv + np.pi) % (2 * np.pi) - np.pi
+        pulls[k] = dv / np.where(ref["kl_" + k + "err"] > 0, ref["kl_" + k + "err"], np.nan)
+    np.savez(os.path.join(outdir, "pulls.npz"), good=good, nh=H["valid"].sum(1), nact=H["active"].sum(1),
+             nx=X["valid"].sum(1), nxact=X["stock_active"].sum(1), **pulls,
+             **{"ref_" + k: ref["kl_" + k] for k in KL}, **{"f1_" + k: kl[k] for k in KL})
     cpn = chi2[:, -1] / np.maximum(ndof[:, -1], 1)
     res["chi2ndf_q50"] = {"stock": float(np.median(ref["kl_chi2"] / np.maximum(ref["kl_ndof"], 1))),
                           "f1": float(np.median(cpn[ok]))}
@@ -279,6 +296,24 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     nsig_final = 1.0
     wall, gas = (np.asarray(a) for a in kkmaterial.path_lengths(doca, dvar, dirdot, nsig_final))
     m = xv & X["stock_active"]
+    # hit DOCA at the final F1 pieces vs the stock reference DOCA (geometry and trajectory consistency, no material)
+    from .linefit_jax import _resid_one
+    dj_np = dj
+    def hdoca(x, h):
+        return jax.vmap(lambda xx, hi: _resid_one(xx, {k: v[None] for k, v in hi.items()}, dj_np, None, True)[3][0])(x, h)
+    hk = [k for k in HIT_KEYS if k in Hn]
+    dd = []
+    for s0 in range(0, ntrk, 2048):
+        sl = slice(s0, min(s0 + 2048, ntrk))
+        dd.append(np.asarray(jax.vmap(hdoca)(jnp2.asarray(xe[sl, :N]), {k: jnp2.asarray(Hn[k][sl]) for k in hk})))
+    hd = np.concatenate(dd)
+    hm = H["valid"] & H["active"] & ok[:, None] & np.isfinite(H["stock_rdoca"])
+    ddoca = (hd - H["stock_rdoca"])[hm]
+    res["hit_doca_vs_stock_ref"] = {"n": int(hm.sum()), "q16_50_84_mm": np.quantile(ddoca, [.16, .5, .84]).tolist(),
+                                    "abs_q50_q99_mm": np.quantile(np.abs(ddoca), [.5, .99]).tolist()}
+    np.savez(os.path.join(outdir, "xings.npz"), doca=doca[m], dvar=dvar[m], dirdot=dirdot[m], wall=wall[m], gas=gas[m],
+             kst_wall=X["kst_wall"][m], kst_gas=X["kst_gas"][m], kst_radlen=X["kst_radlen"][m],
+             hashit=(X["hit"] >= 0)[m], trk=np.nonzero(m)[0])
     rw = (wall[m] - X["kst_wall"][m])
     rg = (gas[m] - X["kst_gas"][m])
     res["material_check"] = {"n_crossings": int(m.sum()),
@@ -341,6 +376,14 @@ def _t0_piece(xe, Ce, X, H, N):
         s1 = (pp[:, 2] * uz - np.sum(pp * uu, 1)) / np.maximum(1 - uz * uz, 1e-12)
         k = np.clip(np.sum(s_sorted <= s1[:, None], 1) - 1, 0, None)
         cur = order[np.arange(T), k]
+    # diagnostic: the neighbouring pieces (one crossing earlier / later along the track)
+    isx = (order >= N) & np.isfinite(s_sorted)
+    pos = np.arange(order.shape[1])[None]
+    before = np.where(isx & (pos <= k[:, None]), pos, -1).max(1)          # last crossing at or before k
+    after = np.where(isx & (pos > k[:, None]), pos, 10 ** 9).min(1)       # first crossing after k
+    prev_e = order[np.arange(T), np.clip(before - 1, 0, None)]
+    next_e = order[np.arange(T), np.clip(np.where(after < 10 ** 9, after, k), 0, order.shape[1] - 1)]
+    _t0_piece.neighbours = (np.where(before > 0, prev_e, cur), np.where(after < 10 ** 9, next_e, cur))
     return xe[np.arange(T), cur], Ce[np.arange(T), cur], cur
 
 

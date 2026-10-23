@@ -3,6 +3,8 @@ rerun, G4 pass from the PrimaryFilter-kept reference), total and per energy-marg
 sqrt(G4-only + fast-only) / G4. Compare with the unpaired 10x deficit against prod_as20 (survivalcheck).
 
     python3 tracker/scripts/paired_budget.py FATECHECK_DIR/fatecheck_events.csv.gz "gen.001400_*.root"
+    python3 tracker/scripts/paired_budget.py "fate_v2_*/fatecheck_events.csv.gz,fate_v16/fatecheck_events.csv.gz" "GENGLOB1,GENGLOB2"
+(comma-separated lists combine several fatecheck runs and gen-table sets)
 """
 import sys
 
@@ -15,9 +17,9 @@ from trkfastsim.analyses.steps import default_gdml
 from trkfastsim.analyses.worldcheck import _column
 
 EDGES = np.array([0, 1, 1.25, 1.5, 2, 3, 5, 1e9])
-ev = pd.read_csv(sys.argv[1])
+ev = pd.concat([pd.read_csv(f) for pat in sys.argv[1].split(",") for f in T.expand([pat])], ignore_index=True)
 ev = ev[ev.fast_pass | ev.g4_pass].copy()
-gen = primary_muons(T.read_many(T.expand([sys.argv[2]]), "gen")).merge(ev[KEY], on=KEY)
+gen = primary_muons(T.read_many(T.expand(sys.argv[2].split(",")), "gen")).merge(ev[KEY], on=KEY)
 gdml = default_gdml()
 geom = geometry.from_gdml(gdml)
 gen["gcm2"], _ = _column(gen, st.load_world(gdml, geom), st.plane_y(geom))
@@ -32,6 +34,7 @@ def line(g, lab):
           f"  (G4-only {go}, fast-only {fo})  diff {b - a:+5d}")
 
 
+print(f"events with a pass in either arm: {len(ev):,}")
 line(ev, "all")
 b = np.clip(np.digitize(ev.margin, EDGES) - 1, 0, len(EDGES) - 2)
 for k in range(len(EDGES) - 1):

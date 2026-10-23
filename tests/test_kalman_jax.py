@@ -17,12 +17,15 @@ def _linear_toy(rng, E=30, noise_every=0):
     ws = np.where(w > 0, w, 1.0)
     r = -(H @ rng.normal(size=5)) + rng.normal(size=(E, 3)) / np.sqrt(ws)
     Q = np.zeros((E, 5, 5))
+    D = np.zeros((E, 5, 2))
+    sv = np.zeros(E)
     if noise_every:
         for j in range(0, E, noise_every):
-            L = rng.normal(size=(5, 2)) * 0.05
-            Q[j] = L @ L.T
+            D[j] = rng.normal(size=(5, 2))
+            sv[j] = 0.05 ** 2
+            Q[j] = sv[j] * D[j] @ D[j].T
     eff = dict(xref=jnp.zeros((E, 5)), H=jnp.asarray(H), r=jnp.asarray(r), w=jnp.asarray(w), mvar=jnp.asarray(1 / ws),
-               Q=jnp.asarray(Q))
+               D=jnp.asarray(D), sv=jnp.asarray(sv))
     P = jnp.eye(5) * 1e-12
     return H, w, r, Q, K.filter_smooth(eff, P, jnp.zeros(5), P, jnp.zeros(5)), eff
 
@@ -54,6 +57,13 @@ def test_filter_with_noise_is_correlated_gls():
     F = Hm.T @ Vi @ Hm
     np.testing.assert_allclose(np.asarray(x)[-1], np.linalg.solve(F, Hm.T @ Vi @ -rm), atol=1e-4)
     np.testing.assert_allclose(np.asarray(C)[-1], np.linalg.inv(F), rtol=1e-5, atol=1e-10)
+
+
+def test_kink_jacobian_closed_form_equals_autodiff():
+    for x in ([120.0, -300.0, 0.3, -0.2, 15.0], [-50.0, 40.0, -1.2, 0.8, 3.0]):
+        for s in (-300.0, 0.0, 450.0):
+            np.testing.assert_allclose(np.asarray(K.kink_jacobian(jnp.array(x), s)),
+                                       np.asarray(K.kink_jacobian_ad(jnp.array(x), s)), atol=1e-10)
 
 
 def test_kink_moves_line_by_lever_arm():

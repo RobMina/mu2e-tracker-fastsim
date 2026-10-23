@@ -96,6 +96,10 @@ def _jnp_tree(dct, keys=None):
 def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, material=True):
     import jax
     import jax.numpy as jnp
+    cache = os.environ.get("F1_JAX_CACHE")
+    if cache:
+        jax.config.update("jax_compilation_cache_dir", cache)
+        jax.config.update("jax_persistent_cache_min_compile_time_secs", 1.0)
     from . import kalman_jax as K, kkmaterial
     from .linefit_jax import DRIFT_KEYS, HIT_KEYS
     os.makedirs(outdir, exist_ok=True)
@@ -115,31 +119,90 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         Xn["valid"] = np.zeros_like(Xn["valid"])
     fixed = {"active": H["active"], "lr": H["lr"], "nulldv": np.ones_like(H["active"])}
 
-    def one(x, h, c, fx):
-        cf, hist, good = K.fit_track(x, h, c, dj, stages, ann, fixed=fx)
-        xing = K.straw_poca_batch(cf["xe"][h["valid"].shape[0]:], c)
+    def one(x, h, c, fx, maxniter):
+        cf, hist, good = K.fit_track(x, h, c, dj, stages, ann, fixed=fx, maxniter=maxniter)
         return cf["xe"][0], cf["Ce"][0], hist[0], hist[1], hist[2], hist[3], good, cf["xe"], cf["Ce"]
 
-    f = jax.jit(jax.vmap(one))
-    outs, t_fit, first = [], 0.0, None
-    for s0 in range(0, ntrk, chunk):
-        sl = slice(s0, min(s0 + chunk, ntrk))
-        n = sl.stop - sl.start
-        padn = chunk - n if ntrk > chunk else 0
+    # two passes, exact: a vmapped while_loop runs every lane until the slowest converges, so one track at MaxNIter
+    # makes the whole batch pay 11 iterations. Pass 1 caps at FAST_NITER; tracks that reached the cap in any stage
+    # are refitted with the stock MaxNIter (10); every other track already stopped before the cap, so its result is
+    # the same as with MaxNIter 10.
+    FAST_NITER = int(os.environ.get("F1_FAST_NITER", "3"))
+    f1 = jax.jit(jax.vmap(lambda x, h, c, fx: one(x, h, c, fx, FAST_NITER)))
+    f10 = jax.jit(jax.vmap(lambda x, h, c, fx: one(x, h, c, fx, 10)))
+
+    def f(*args):
+        t1 = time.perf_counter()
+        o = f1(*args)
+        jax.block_until_ready(o)
+        stats["pass1_s"].append(time.perf_counter() - t1)
+        it = np.diff(np.concatenate([np.zeros((o[5].shape[0], 1)), np.asarray(o[5])], 1), axis=1)
+        redo = np.flatnonzero((it >= FAST_NITER).any(1))
+        stats["redo"] += int(len(redo))
+        if len(redo) == 0:
+            return o
+        nr = max(256, int(2 ** np.ceil(np.log2(len(redo)))))          # few shapes: few compiles
+        sel = np.concatenate([redo, np.repeat(redo[-1:], nr - len(redo))])
+        sub = jax.tree_util.tree_map(lambda a: a[sel], args)
+        t2 = time.perf_counter()
+        o2 = f10(*sub)
+        jax.block_until_ready(o2)
+        stats["pass2_s"].append(time.perf_counter() - t2)
+        return [_put(np.asarray(a), np.asarray(b)[:len(redo)], redo) for a, b in zip(o, o2)]
+
+    stats = {"redo": 0, "pass1_s": [], "pass2_s": []}
+    # size buckets: tracks sorted by (hits, crossings) and padded per chunk to the next power of two (>= 16), so a
+    # few long tracks do not pad every chunk to 94 hits / 212 crossings; one compile per bucket shape
+    nh = Hn["valid"].sum(1)
+    nx = Xn["valid"].sum(1)
+    p2 = lambda n, lo: np.maximum(lo, 2 ** np.ceil(np.log2(np.maximum(n, 1)))).astype(int)
+    key = p2(nh, 32) * 4096 + p2(nx, 64)
+    order = np.lexsort((nx, nh, key))
+    res_x = [None] * 9
+    outs_idx, outs, t_fit, first, shapes, btr = [], [], 0.0, None, {}, {}
+    Nf, Mf = Hn["valid"].shape[1], Xn["valid"].shape[1]
+    # chunks never straddle two buckets; the last chunk of a bucket is padded to a power of two (>= 256) of tracks
+    ks = key[order]
+    starts = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
+    bounds = [(b0, min(b0 + chunk, b1)) for b0, b1 in zip(starts, np.r_[starts[1:], ntrk]) for b0 in range(b0, b1, chunk)]
+    done = 0
+    for s0, s1 in bounds:
+        idx = order[s0:s1]
+        Nb, Mb = min(int(p2(nh[idx].max(), 32)), Nf), min(int(p2(nx[idx].max(), 64)), Mf)
+        n = len(idx)
+        padn = (chunk if n == chunk else max(256, int(2 ** np.ceil(np.log2(n))))) - n
         pad = lambda a: np.concatenate([a, np.repeat(a[-1:], padn, 0)]) if padn else a
-        args = (jnp.asarray(pad(x0[sl])), {k: jnp.asarray(pad(v[sl])) for k, v in Hn.items()},
-                {k: jnp.asarray(pad(v[sl])) for k, v in Xn.items()}, {k: jnp.asarray(pad(v[sl])) for k, v in fixed.items()})
+        args = (jnp.asarray(pad(x0[idx])), {k: jnp.asarray(pad(v[idx][:, :Nb])) for k, v in Hn.items()},
+                {k: jnp.asarray(pad(v[idx][:, :Mb])) for k, v in Xn.items()},
+                {k: jnp.asarray(pad(v[idx][:, :Nb])) for k, v in fixed.items()})
         tt = time.perf_counter()
         o = f(*args)
         jax.block_until_ready(o)
         dt = time.perf_counter() - tt
+        new_shape = (Nb, Mb, n + padn) not in shapes
+        shapes[(Nb, Mb, n + padn)] = 1
+        btr[(Nb, Mb)] = btr.get((Nb, Mb), 0) + n
         if first is None:
             first = dt
-        else:
+        elif not new_shape:
             t_fit += dt
-        outs.append([np.asarray(a)[:n] for a in o])
-        print(f"vr2f1: {sl.stop}/{ntrk} tracks, chunk {dt:.1f} s", flush=True)
-    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce = (np.concatenate([o[i] for o in outs]) for i in range(9))
+        o = [np.asarray(a)[:n] for a in o]
+        # per-effect pieces back to the full padded width (hits N, crossings M) for the analysis below
+        for j in (7, 8):
+            full = np.zeros((n, Nf + Mf) + o[j].shape[2:])
+            full[:, :Nb] = o[j][:, :Nb]
+            full[:, Nf:Nf + Mb] = o[j][:, Nb:]
+            o[j] = full
+        outs.append(o)
+        outs_idx.append(idx)
+        done += n
+        print(f"vr2f1: {done}/{ntrk} tracks, bucket N={Nb} M={Mb} ({n} + {padn} pad), {dt:.2f} s{' (compile)' if new_shape else ''}",
+              flush=True)
+    inv = np.argsort(np.concatenate(outs_idx))
+    timing = {"pass1_s": [round(x, 3) for x in stats["pass1_s"]], "pass2_s": [round(x, 3) for x in stats["pass2_s"]],
+              "refit_with_maxniter10": stats["redo"], "fast_niter": FAST_NITER, "bucket_tracks": {f"{a}x{b}": c for (a, b), c in btr.items()}, "n_compiles": len(shapes),
+              "warm_fit_s": t_fit}
+    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce = (np.concatenate([o[i] for o in outs])[inv] for i in range(9))
     # KinematicLine parameters on the piece holding the t0 point (KalSeed::t0Segment / PiecewiseTrajectory::t0): the
     # POCA to the z axis, s1 along the track; the piece is the smoothed state at the last effect before s1
     N = H["valid"].shape[1]
@@ -154,9 +217,11 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         Jk[:, :, k] = (klv(xf + dx) - klv(xf - dx)) / (2 * eps[k])
     Ck = np.einsum("tij,tjk,tlk->til", Jk, Cf, Jk)
     res = {"input": path, "n_tracks": ntrk, "material": material, "read_s": t_read, "first_chunk_s": first,
-           "warm_tracks_per_s": (ntrk - min(chunk, ntrk)) / t_fit if t_fit > 0 else None, "backend": jax.default_backend(),
+           "timing": timing, "backend": jax.default_backend(),
            **res_piece, "final_status_counts": np.bincount(stat[:, -1], minlength=8).tolist(), "good_frac": float(good.mean()),
-           "iterations_per_stage_q50": np.median(np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1), 0).tolist()}
+           "iterations_per_stage_q50": np.median(np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1), 0).tolist(),
+           "iterations_per_stage_q99": np.quantile(np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1), .99, 0).tolist(),
+           "iterations_per_stage_max": np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1).max(0).tolist()}
     ok = good
     for i, k in enumerate(KL):
         dv = kl[k] - ref["kl_" + k]
@@ -251,3 +316,9 @@ def _t0_piece(xe, Ce, X, H, N):
         k = np.clip(np.sum(s_sorted <= s1[:, None], 1) - 1, 0, None)
         cur = order[np.arange(T), k]
     return xe[np.arange(T), cur], Ce[np.arange(T), cur], cur
+
+
+def _put(a, b, idx):
+    a = a.copy()
+    a[idx] = b
+    return a

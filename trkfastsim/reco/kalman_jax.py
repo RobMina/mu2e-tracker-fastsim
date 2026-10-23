@@ -54,7 +54,26 @@ def kink(x, s, th):
 
 
 def kink_jacobian(x, s):
-    """d(params after kink)/d(th1, th2) at th = 0: [5, 2]."""
+    """d(params after kink)/d(th1, th2) at th = 0: [5, 2], closed form. The kink point q = p0 + u s stays; the
+    direction moves by du = e_k. With t = q_y / u_y (track length from y = 0 to q): a = q_x - u_x t, b = q_z - u_z t,
+    a1 = -u_x / u_y, b1 = -u_z / u_y, t0 = t_q - t / v. Differentiating in u at fixed q:
+    dt = -t du_y / u_y, da = -du_x t - u_x dt, db1 = -(du_z - b1' ...) as below."""
+    p0, u = point_dir(x)
+    e1, e2 = transverse_basis(u)
+    q = p0 + u * s
+    t = q[1] / u[1]
+    E = jnp.stack([e1, e2], 1)                          # [3, 2]
+    dt = -t * E[1] / u[1]
+    da0 = -E[0] * t - u[0] * dt
+    db0 = -E[2] * t - u[2] * dt
+    da1 = -E[0] / u[1] + u[0] * E[1] / u[1] ** 2
+    db1 = -E[2] / u[1] + u[2] * E[1] / u[1] ** 2
+    dt0 = -dt / V
+    return jnp.stack([da0, db0, da1, db1, dt0], 0)
+
+
+def kink_jacobian_ad(x, s):
+    """Reference for kink_jacobian (forward-mode autodiff of kink)."""
     return jax.jacfwd(lambda th: kink(x, s, th))(jnp.zeros(2))
 
 
@@ -88,9 +107,9 @@ def crossing_effects(x, cov, mid, wdir, valid, nsig, varscale, mom=MOM):
     wall, gas = kkmaterial.path_lengths(doca, docavar, c, nsig)
     sv = kkmaterial.scatter_angle_var("straw-wall", mom, wall) + kkmaterial.scatter_angle_var("straw-gas", mom, gas)
     sv = jnp.where(valid, sv * varscale, 0.0)
-    Q = jax.vmap(lambda s, v: crossing_noise(x, s, v))(st, sv)
+    D = jax.vmap(lambda s: kink_jacobian(x, s))(st)
     toff = kkmaterial.STRAW["wrad"]
-    return {"s": st + toff, "Q": Q, "scatvar": sv, "doca": doca, "docavar": docavar, "wall": wall, "gas": gas,
+    return {"s": st + toff, "D": D, "scatvar": sv, "doca": doca, "docavar": docavar, "wall": wall, "gas": gas,
             "dirdot": c}
 
 
@@ -110,12 +129,29 @@ def _solve(W, b):
     return jnp.linalg.solve(W, b)
 
 
-def _add_noise(W, b, Q):
-    """(W, b) -> covariance form, C += Q, back (Material::process; parameters unchanged)."""
-    C = jnp.linalg.inv(W)
-    x = C @ b
-    Wn = jnp.linalg.inv(C + Q)
-    return Wn, Wn @ x
+def _add_noise(W, b, D, sv):
+    """(W, b) after process noise Q = sv D D^T (D [5, 2], rank 2), parameters unchanged (Material::process). Woodbury:
+    W' = W - W D (sv D^T W D + I)^-1 sv D^T W, b' = W' W^-1 b = b - W D (sv D^T W D + I)^-1 sv D^T b; only a 2x2
+    solve, exact at sv = 0."""
+    WD = W @ D
+    S = sv * (D.T @ WD) + jnp.eye(2)
+    det = S[0, 0] * S[1, 1] - S[0, 1] * S[1, 0]
+    Si = jnp.array([[S[1, 1], -S[0, 1]], [-S[1, 0], S[0, 0]]]) / det     # explicit 2x2 inverse: no solver call
+    K_ = Si @ (sv * WD.T)                                                  # [2, 5]
+    return W - WD @ K_, b - WD @ (Si @ (sv * (D.T @ b)))
+
+
+INV = __import__("os").environ.get("F1_INV", "lu")             # lu (jnp.linalg.inv) or chol
+
+
+def spd_inv(M):
+    """Inverse of symmetric positive-definite matrices [..., 5, 5]: LU (default) or Cholesky (F1_INV=chol)."""
+    if INV != "chol":
+        return jnp.linalg.inv(M)
+    L = jnp.linalg.cholesky(0.5 * (M + jnp.swapaxes(M, -1, -2)))
+    I = jnp.broadcast_to(jnp.eye(M.shape[-1]), M.shape)
+    Li = jax.scipy.linalg.solve_triangular(L, I, lower=True)
+    return jnp.swapaxes(Li, -1, -2) @ Li
 
 
 def _hit_info(e):
@@ -125,8 +161,8 @@ def _hit_info(e):
 
 def _predicted_chi2(W, b, e):
     """Chisq of the hit's rows against state (W, b) (ResidualHit::chisq): predicted residual r + H (x - xref), variance
-    mvar + H C H^T (measurement variance not temperature-scaled)."""
-    C = jnp.linalg.inv(W)
+    mvar + H C H^T (measurement variance not temperature-scaled; rows treated separately, as KinKal)."""
+    C = spd_inv(W)
     x = C @ b
     res = e["r"] + e["H"] @ (x - e["xref"])
     var = e["mvar"] + jnp.einsum("ki,ij,kj->k", e["H"], C, e["H"])
@@ -135,37 +171,116 @@ def _predicted_chi2(W, b, e):
 
 
 def filter_smooth(eff, W0f, b0f, W0b, b0b):
-    """One algebraic iteration for one track. W0f/b0f and W0b/b0b: deweighted priors at the front and back
-    (Track::initFitState). Returns per effect the smoothed information (forward through the effect + backward
-    from the next effect: the piece holding the effect), the forward chi2 and ndof (ndof - 5 as Chisq(NParams))."""
+    """One algebraic iteration for one track. eff holds D [E, 5, 2] and sv [E] (crossing noise Q = sv D D^T) instead
+    of Q. The scans only accumulate information; the forward chi2 is evaluated afterwards from the stored
+    pre-effect forward states, in parallel over effects."""
     def fwd(carry, e):
-        W, b, chi2, nd = carry
-        c, n = _predicted_chi2(W, b, e)
+        W, b = carry
+        pre = (W, b)
         dW, db = _hit_info(e)
-        W, b = W + dW, b + db
-        W, b = _add_noise(W, b, e["Q"])
-        return (W, b, chi2 + c, nd + n), (W, b)
+        W, b = _add_noise(W + dW, b + db, e["D"], e["sv"])
+        return (W, b), (pre, (W, b))
 
     def bwd(carry, e):
         W, b = carry
-        out = (W, b)                                   # downstream information, before this effect
-        W, b = _add_noise(W, b, e["Q"])
+        out = (W, b)
+        W, b = _add_noise(W, b, e["D"], e["sv"])
         dW, db = _hit_info(e)
         return (W + dW, b + db), out
 
-    (_, _, chi2, nd), (Wf, bf) = jax.lax.scan(fwd, (W0f, b0f, 0.0, 0), eff)
-    (Wbf, bbf), (Wb, bb) = jax.lax.scan(bwd, (W0b, b0b), eff, reverse=True)
-    Ws, bs = Wf + Wb, bf + bb
-    return {"W": Ws, "b": bs, "chi2": chi2, "ndof": nd - 5, "Wfront": Wbf, "bfront": bbf}
+    _, ((Wp, bp), (Wf, bf)) = jax.lax.scan(fwd, (W0f, b0f), eff, unroll=UNROLL)
+    (Wbf, bbf), (Wb, bb) = jax.lax.scan(bwd, (W0b, b0b), eff, reverse=True, unroll=UNROLL)
+    c, n = jax.vmap(_predicted_chi2)(Wp, bp, eff)
+    return {"W": Wf + Wb, "b": bf + bb, "chi2": jnp.sum(c), "ndof": jnp.sum(n) - 5, "Wfront": Wbf, "bfront": bbf}
+
+
+# Parallel-in-time version (Sarkka and Garcia-Fernandez, IEEE TAC 66 (2021) 299): each effect is an element
+# (A, b, C, eta, J) of the conditional p(x_{k+1} | x_k, y_k) = N(A x_k + b, C) and the likelihood p(y_k | x_k) in
+# information form; the combination is associative, so lax.associative_scan gives every filtered state in log2(E)
+# levels instead of E sequential steps. Same results as filter_smooth (tests).
+
+def _sym(M):
+    return 0.5 * (M + jnp.swapaxes(M, -1, -2))
+
+
+def _combine(ei, ej):
+    """Associative operator, ei before ej (batched over leading axes)."""
+    Ai, bi, Ci, ei_, Ji = ei
+    Aj, bj, Cj, ej_, Jj = ej
+    I = jnp.eye(5)
+    M = I + Ci @ Jj
+    Xa = jnp.linalg.solve(M, jnp.concatenate([Ai, (bi + (Ci @ ej_[..., None])[..., 0])[..., None], Ci], -1))
+    A = Aj @ Xa[..., :5]
+    b = (Aj @ Xa[..., 5:6])[..., 0] + bj
+    C = _sym(Aj @ Xa[..., 6:] @ jnp.swapaxes(Aj, -1, -2) + Cj)
+    Nm = I + Jj @ Ci
+    Ya = jnp.linalg.solve(Nm, jnp.concatenate([(ej_ - (Jj @ bi[..., None])[..., 0])[..., None], Jj], -1))
+    AiT = jnp.swapaxes(Ai, -1, -2)
+    eta = (AiT @ Ya[..., :1])[..., 0] + ei_
+    J = _sym(AiT @ Ya[..., 1:] @ Ai + Ji)
+    return A, b, C, eta, J
+
+
+def _elements(Jm, eta, Q, P0, m0, J0, eta0, Q0):
+    """Elements for effects 1..E-1 (measurement then noise) and element 0 (prior + measurement 0 + noise 0)."""
+    E = Jm.shape[0]
+    A = jnp.broadcast_to(jnp.eye(5), (E, 5, 5))
+    b = jnp.zeros((E, 5))
+    Pp = jnp.linalg.inv(jnp.linalg.inv(P0) + J0)
+    mp = Pp @ (jnp.linalg.solve(P0, m0) + eta0)
+    A = A.at[0].set(jnp.zeros((5, 5)))
+    b = b.at[0].set(mp)
+    C = Q.at[0].set(_sym(Pp + Q0))
+    eta = eta.at[0].set(jnp.zeros(5))
+    Jm = Jm.at[0].set(jnp.zeros((5, 5)))
+    return A, b, C, eta, Jm
+
+
+def filter_smooth_par(eff, Cf0, xf0, Cb0, xb0):
+    """As filter_smooth, from covariance-form priors (front Cf0/xf0, back Cb0/xb0), parallel in time."""
+    E = eff["H"].shape[0]
+    Jm, eta = jax.vmap(_hit_info)(eff)
+    Q = eff["sv"][:, None, None] * jnp.einsum("eia,eja->eij", eff["D"], eff["D"])
+    # forward: element k maps x_k -> x_{k+1}; output k = filtered state after effect k (after its noise)
+    fe = _elements(Jm, eta, Q, Cf0, xf0, Jm[0], eta[0], Q[0])
+    _, bF, CF, _, _ = jax.lax.associative_scan(_combine, fe)
+    # predicted chi2: state before effect k = output k-1 (prior for k = 0)
+    bpre = jnp.concatenate([xf0[None], bF[:-1]])
+    Cpre = jnp.concatenate([Cf0[None], CF[:-1]])
+
+    def chi(x, C, e):
+        res = e["r"] + e["H"] @ (x - e["xref"])
+        var = e["mvar"] + jnp.einsum("ki,ij,kj->k", e["H"], C, e["H"])
+        act = e["w"] > 0
+        return jnp.sum(jnp.where(act, res * res / jnp.where(act, var, 1.0), 0.0)), jnp.sum(act)
+    c, n = jax.vmap(chi)(bpre, Cpre, eff)
+    # backward on z_m = x_{E-m}: element m measures z_m (effect E-m; prior for m = 0), then noise Q_{E-m-1};
+    # output m = predictive at z_{m+1} = x_{E-m-1}; the downstream information of effect k (on x_{k+1}) is output
+    # E-k-2, and the back prior itself for k = E-1
+    Jr, er, Qr = Jm[::-1], eta[::-1], Q[::-1]                      # index m -> effect E-1-m
+    Jb = jnp.concatenate([jnp.zeros((1, 5, 5)), Jr[:-1]])          # element m measures effect E-m
+    eb = jnp.concatenate([jnp.zeros((1, 5)), er[:-1]])
+    be = _elements(Jb, eb, Qr, Cb0, xb0, jnp.zeros((5, 5)), jnp.zeros(5), Qr[0])
+    _, bB, CB, _, _ = jax.lax.associative_scan(_combine, be)
+    xdown = jnp.concatenate([bB[:E - 1][::-1], xb0[None]])
+    Cdown = jnp.concatenate([CB[:E - 1][::-1], Cb0[None]])
+    # output E-k-2 is the prediction after Q_{k+1}, before hit k+1: add hit k+1 (information form)
+    WF = jnp.linalg.inv(CF)
+    WP = jnp.linalg.inv(Cdown)
+    Jn = jnp.concatenate([Jm[1:], jnp.zeros((1, 5, 5))])
+    en = jnp.concatenate([eta[1:], jnp.zeros((1, 5))])
+    W = WF + WP + Jn
+    bvec = jnp.einsum("eij,ej->ei", WF, bF) + jnp.einsum("eij,ej->ei", WP, xdown) + en
+    return {"W": W, "b": bvec, "chi2": jnp.sum(c), "ndof": jnp.sum(n) - 5}
 
 
 def smoothed(fs, eff):
     """Parameters and covariance of each effect's piece, and the unbiased parameters of each hit (Hit::
     unbiasedParameters: the piece weight minus the hit's own weight)."""
-    C = jnp.linalg.inv(fs["W"])
+    C = spd_inv(fs["W"])
     x = jnp.einsum("eij,ej->ei", C, fs["b"])
     dW, db = jax.vmap(_hit_info)(eff)
-    Cu = jnp.linalg.inv(fs["W"] - dW)
+    Cu = spd_inv(fs["W"] - dW)
     xu = jnp.einsum("eij,ej->ei", Cu, fs["b"] - db)
     return x, C, xu, Cu
 
@@ -183,6 +298,10 @@ from . import driftann  # noqa: E402
 from .linefit_jax import _resid_one  # noqa: E402
 
 MAXDVAR = 2.4 * 2.4 / 3.0              # DriftInfo::maxdvar_
+# sequential lax.scan filter by default (measured faster on CPU and on an A100 slice); F1_SEQUENTIAL=0 selects
+# the associative-scan version
+PARALLEL = __import__("os").environ.get("F1_SEQUENTIAL", "1") != "1"
+UNROLL = int(__import__("os").environ.get("F1_UNROLL", "8"))      # scan steps fused per loop iteration
 CONVERGED, UNCONVERGED, LOWNDOF, GAPDIV, PARDIV, CHIDIV, FAILED = 0, 1, 2, 3, 4, 5, 7
 
 
@@ -307,11 +426,15 @@ def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dw
     eff = {"xref": xe, "H": jnp.concatenate([Hj, jnp.zeros((M, 3, 5))]),
            "r": jnp.concatenate([r, jnp.zeros((M, 3))]), "w": jnp.concatenate([w, jnp.zeros((M, 3))]),
            "mvar": jnp.concatenate([mvar, jnp.ones((M, 3))]),
-           "Q": jnp.concatenate([jnp.zeros((N, 5, 5)), jnp.where(inb[:, None, None], ce["Q"], 0.0)])}
+           "D": jnp.concatenate([jnp.zeros((N, 5, 2)), ce["D"]]),
+           "sv": jnp.concatenate([jnp.zeros(N), jnp.where(inb, ce["scatvar"], 0.0)])}
     effs = {k: v[order] for k, v in eff.items()}
     dw = dwt / varscale
-    Wf, Wb = jnp.linalg.inv(prior["Cf"] * dw), jnp.linalg.inv(prior["Cb"] * dw)
-    fs = filter_smooth(effs, Wf, Wf @ prior["xf"], Wb, Wb @ prior["xb"])
+    if PARALLEL:
+        fs = filter_smooth_par(effs, prior["Cf"] * dw, prior["xf"], prior["Cb"] * dw, prior["xb"])
+    else:
+        Wf, Wb = jnp.linalg.inv(prior["Cf"] * dw), jnp.linalg.inv(prior["Cb"] * dw)
+        fs = filter_smooth(effs, Wf, Wf @ prior["xf"], Wb, Wb @ prior["xb"])
     x, C, xu, Cu = smoothed(fs, effs)
     # pieces: a new piece starts at each in-bounds crossing; gap = position jump at the crossing time
     isx = jnp.concatenate([jnp.zeros(N, bool), inb])[order]
@@ -410,7 +533,7 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
 
         def cond(ic):
             it, cc = ic
-            return (it == 0) | ((cc["status"] == UNCONVERGED) & (it <= maxniter))
+            return (it == 0) | ((cc["status"] == UNCONVERGED) & (it < maxniter))      # Track::canIterate: iter_ < maxniter_
 
         cs = dict(c, st=st2, dvar=dvar, xact=xact)
         _, cn = jax.lax.while_loop(cond, body, (jnp.array(0), cs))

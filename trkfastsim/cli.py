@@ -11,6 +11,7 @@ from .analyses import (buildlib, elosscheck, fatecheck, libplacecheck, msccheck,
 from .analyses import geomcheck
 from .analyses import interiorcensus
 from .analyses import seedcheck
+from .analyses import rangecheck
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -31,6 +32,7 @@ ANALYSES = {
     "tv2compare": (tv2compare.run, "T-V2/T-V3: stock digi+reco+EventNtuple on fast vs G4 steps (yield, hits, chi2, residuals at TT_Outer; digis with --hits)"),
     "secdiag": (secdiag.run, "why fewer non-muon track hits: secondary steps by place, shared-straw timing, track hits by straw content, fast vs G4"),
     "libplacecheck": (libplacecheck.run, "placement of non-muon steps in their straws (along-wire offset, wire distance), fast vs G4"),
+    "rangecheck": (rangecheck.run, "energy loss near range-out in thick slabs: G4 slabs vs the interior loss model (transmission, exit KE)"),
     "seedcheck": (seedcheck.run, "is geomcheck's seeded interior-scattering excess real? seed at the ring tops / plane / tracker envelope, all events and the CRV-term subset"),
     "interiorcensus": (interiorcensus.run, "tracker-interior material per volume group: fast shells vs G4 trajectory loss, plane to first straw, and mass vs GDML"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
@@ -77,6 +79,8 @@ def build_parser():
                             help="do not write the surfsteps tree (tracker VD crossings of the primary muon)")
             sp.add_argument("--interior-msc-cal", action=argparse.BooleanOptionalAction, default=False,
                             help="stage C: G4-slab width calibration of the support-structure scattering (steps.INTERIOR_MSC_CAL)")
+            sp.add_argument("--lever-moments", action="store_true",
+                            help="stage C: interior kink lever arms from the support material's own moments (default: segment midpoint)")
             sp.add_argument("--band-spread", action="store_true",
                             help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
         if name == "geomcheck":
@@ -85,10 +89,15 @@ def build_parser():
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables (with trajpts)")
             sp.add_argument("--seed", type=int, default=1, help="base seed of the fast steps run")
             sp.add_argument("--no-tubes", action="store_true", help="skip the tube/polycone column along the G4 paths")
+        if name == "rangecheck":
+            sp.add_argument("--nmu", type=int, default=30000, help="fast muons per point")
+            sp.add_argument("--seed", type=int, default=1)
         if name == "seedcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--crv", nargs="+", required=True, metavar="ROOT", help="G4 reference CrvStep tables (crvsteps.*.root)")
             sp.add_argument("--seed", type=int, default=1)
+            sp.add_argument("--lever-moments", action="store_true",
+                            help="interior kinks with the material's own lever-arm moments (TrackerInterior.transport lever_moments)")
         if name == "interiorcensus":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--nsub", type=int, default=8, help="phi samples per sector interval (as TrackerInterior)")

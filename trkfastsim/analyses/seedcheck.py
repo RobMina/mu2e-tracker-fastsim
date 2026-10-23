@@ -75,25 +75,45 @@ def chord_seeds(g4_paths, ev, y_pl):
 
 
 def _g4_first_dir(g4_paths, pm, ev):
-    """Unit momentum of each event's first (in time) primary-muon StrawGasStep [n_ev, 3] (NaN where none)."""
+    """Unit momentum [n_ev, 3] and entry point (Mu2e frame) [n_ev, 3] of each event's first (in time) primary-muon
+    StrawGasStep (NaN where none)."""
     s = T.read_many(g4_paths, "sgsteps").merge(pm, on=KEY + ["sp"]).merge(ev[KEY + ["iev"]], on=KEY)
     f = s.sort_values(["iev", "t"]).drop_duplicates("iev")
     out = np.full((len(ev), 3), np.nan)
+    pos = np.full((len(ev), 3), np.nan)
     v = f[["px", "py", "pz"]].to_numpy(float)
     out[f.iev.to_numpy()] = v / np.linalg.norm(v, axis=1)[:, None]
+    pos[f.iev.to_numpy()] = geometry.to_mu2e(f[["x0", "y0", "z0"]].to_numpy(float))
+    return out, pos
+
+
+def _g4_end(g4_paths, pm, ev, geom, pad=50.0):
+    """Per event: G4 primary muon stopped (end kinetic energy < 1 MeV) inside the straw panels' box (+ pad)."""
+    pa = T.read_many(g4_paths, "particles", KEY + ["key", "ex", "ey", "ez", "epx", "epy", "epz"]).rename(columns={"key": "sp"})
+    e = pa.merge(pm, on=KEY + ["sp"]).merge(ev[KEY + ["iev"]], on=KEY)
+    lo, hi = crossings.panel_boxes(geom)
+    x = e[["ex", "ey", "ez"]].to_numpy(float)
+    inside = np.all(x > lo.min(0) - pad, axis=1) & np.all(x < hi.max(0) + pad, axis=1)
+    ke = _ke_of_p(np.linalg.norm(e[["epx", "epy", "epz"]].to_numpy(float), axis=1))
+    out = np.zeros(len(ev), bool)
+    out[e.iev.to_numpy()] = inside & (ke < 1.0)
     return out
 
 
-def seeded(rng, interior, geom, o, u, p, start="as_is"):
+def seeded(rng, interior, geom, o, u, p, start="as_is", **transport_kw):
     """Fast interior + straws from seeds (o, u, p). start "top": move plane seeds back to the ring tops (geomcheck).
     Returns per seed: fast good-step count, straight-line straw count, straight-line support x/X0 to the first straw,
-    fast direction at the first straw (NaN if none)."""
+    fast direction at the first straw (NaN if none), fast first-straw entry point (Mu2e frame, NaN if none), lowest
+    fast |p| over the recorded crossings (NaN if none). transport_kw go to TrackerInterior.transport."""
     n = len(o)
     alive = p > 1.0
     oi = st._back_to_interior_top(o, u, np.zeros(n), alive, interior, geom)[0] if start == "top" else o
     sel = np.flatnonzero(alive)
-    tr_ = interior.transport(rng, oi[sel], u[sel], p[sel], geom)
+    tr_ = interior.transport(rng, oi[sel], u[sel], p[sel], geom, **transport_kw)
     pk = _p_of_ke(_ke_of_p(p[sel][tr_["it"]]) - tr_["lost"])
+    pmin = np.full(n, np.inf)
+    np.minimum.at(pmin, sel[tr_["it"]], pk)
+    pmin[~np.isfinite(pmin)] = np.nan
     n_seed = np.zeros(n, int)
     np.add.at(n_seed, sel[tr_["it"][pk > T.FILTER_MIN_MOM]], 1)
     xs = crossings.straw_crossings(oi, u, geom)
@@ -106,10 +126,12 @@ def seeded(rng, interior, geom, o, u, p, start="as_is"):
     xx0 = sum((c / eloss.radiation_length_mm(materials.get(k)) for k, c in col.items()),
               np.zeros(n))
     vf = np.full((n, 3), np.nan)
+    xf = np.full((n, 3), np.nan)
     if len(tr_["it"]):
         first = np.r_[True, tr_["it"][1:] != tr_["it"][:-1]]
         vf[sel[tr_["it"][first]]] = tr_["dir"][first]
-    return n_seed, n_st, xx0, vf
+        xf[sel[tr_["it"][first]]] = tr_["pos0"][first]
+    return n_seed, n_st, xx0, vf, xf, pmin
 
 
 def projected_over_theta0(v, u, p, xx0):
@@ -122,6 +144,45 @@ def projected_over_theta0(v, u, p, xx0):
     v = v / np.linalg.norm(v, axis=1)[:, None]
     c = np.einsum("ij,ij->i", v, u)
     return np.c_[np.einsum("ij,ij->i", v, e1) / c, np.einsum("ij,ij->i", v, e2) / c] / th0[:, None]
+
+
+def transverse_offset(x, o, u):
+    """Offset [n, 2] of points x from the seed lines (o, u) in the two transverse directions of projected_over_theta0."""
+    ref = np.where(np.abs(u[:, [0]]) < 0.9, np.array([[1.0, 0, 0]]), np.array([[0, 0, 1.0]]))
+    e1 = np.cross(u, ref)
+    e1 /= np.linalg.norm(e1, axis=1)[:, None]
+    e2 = np.cross(u, e1)
+    w = x - o
+    return np.c_[np.einsum("ij,ij->i", w, e1), np.einsum("ij,ij->i", w, e2)]
+
+
+def offset_table(df):
+    """Robust width and q90 of the first-straw entry offset from the seed line [mm], per x/X0 and |p| bin, G4 vs fast."""
+    rows = []
+    for a, b in XX0_BINS:
+        for plo, phi in P_BINS:
+            m = ((df.xx0 >= a) & (df.xx0 < b) & (df.p_seed >= plo) & (df.p_seed < phi)
+                 & np.isfinite(df[["dg1", "dg2", "df1", "df2"]]).all(axis=1)).to_numpy()
+            if m.sum() < MIN_N:
+                continue
+            g, f = _rs(df.loc[m, ["dg1", "dg2"]].to_numpy()), _rs(df.loc[m, ["df1", "df2"]].to_numpy())
+            rows.append({"xx0": [a, b], "p": [plo, phi], "n": int(m.sum()), "g4_sigma_q90": list(g),
+                         "fast_sigma_q90": list(f), "g4_over_fast_sigma": round(g[0] / f[0], 3) if f[0] else None})
+    return rows
+
+
+def fate_table(df):
+    """G4-only events (G4 passes, seeded fast fails) by cause: straight line also fails; fast reached < FILTER_MIN_MOM
+    (ranged out, or its steps stop counting); G4's own muon stopped in the tracker; the rest (scattered off the straws)."""
+    g = df[df.g4_pass & ~df.seed_pass]
+    slow = g.fast_pmin < T.FILTER_MIN_MOM * 1.5
+    return {"n": int(len(g)), "straight_fails": int((~g.straight_pass).sum()),
+            "fast_slow_pmin_lt_75": int((g.straight_pass & slow).sum()),
+            "fast_no_crossing": int((g.straight_pass & g.fast_pmin.isna()).sum()),
+            "other": int((g.straight_pass & ~slow & g.fast_pmin.notna()).sum()),
+            "g4_muon_stopped_in_tracker": int(g.g4_stop.sum()),
+            "all_g4_pass_g4_stopped": int((df.g4_pass & df.g4_stop).sum()),
+            "fast_only_n": int((df.seed_pass & ~df.g4_pass).sum())}
 
 
 def _rs(r):
@@ -162,7 +223,7 @@ def count_table(df):
     return {"total": tot, "by_p_seed": rows}
 
 
-def run(inputs, outdir, crv=None, gdml=None, seed=1, **kw):
+def run(inputs, outdir, crv=None, gdml=None, seed=1, lever_moments=False, **kw):
     if not crv:
         raise SystemExit("seedcheck G4SGSTEPS --crv G4CRVSTEPS")
     from .steps import default_gdml
@@ -180,7 +241,8 @@ def run(inputs, outdir, crv=None, gdml=None, seed=1, **kw):
     ev["ngood_g4"] = ev.nmax.fillna(0).astype(int)
     ev = ev.sort_values("iev").reset_index(drop=True)
     pm = _primaries(g4_paths)
-    v_g4 = _g4_first_dir(g4_paths, pm, ev)
+    v_g4, x_g4 = _g4_first_dir(g4_paths, pm, ev)
+    g4_stop = _g4_end(g4_paths, pm, ev, geom)
     filt = {"events": int(len(ev)), "trk": int(ev.g4_pass.sum()), "crv": int(ev.crv_pass.sum()),
             "trk_and_crv": int((ev.g4_pass & ev.crv_pass).sum()), "neither": int((~ev.g4_pass & ~ev.crv_pass).sum())}
     ec, oc, uc, pc = chord_seeds(g4_paths, ev, y_pl)
@@ -193,7 +255,8 @@ def run(inputs, outdir, crv=None, gdml=None, seed=1, **kw):
            "variants": {}}
     frames = []
     for i, (name, (e, o, u, p, start)) in enumerate(variants.items()):
-        n_seed, n_st, xx0, vf = seeded(np.random.default_rng([int(seed), 77, i]), interior, geom, o, u, p, start)
+        tkw = {"lever_moments": True} if lever_moments else {}
+        n_seed, n_st, xx0, vf, xf, pmin = seeded(np.random.default_rng([int(seed), 77, i]), interior, geom, o, u, p, start, **tkw)
         df = ev.iloc[e][KEY + ["iev", "g4_pass", "crv_pass", "ngood_g4"]].reset_index(drop=True)
         df["variant"], df["p_seed"], df["xx0"], df["n_seed"], df["n_straight"] = name, p, xx0, n_seed, n_st
         df["seed_pass"] = n_seed >= T.FILTER_MIN_TRK_STEPS
@@ -201,7 +264,10 @@ def run(inputs, outdir, crv=None, gdml=None, seed=1, **kw):
         rg = projected_over_theta0(v_g4[e], u, p, xx0)
         rf = projected_over_theta0(vf, u, p, xx0)
         df[["rg1", "rg2"]], df[["rf1", "rf2"]] = rg, rf
-        out["variants"][name] = {sub: {"counts": count_table(d), "deflection_over_theta0": width_table(d)}
+        df[["dg1", "dg2"]], df[["df1", "df2"]] = transverse_offset(x_g4[e], o, u), transverse_offset(xf, o, u)
+        df["g4_stop"], df["fast_pmin"] = g4_stop[e], pmin
+        out["variants"][name] = {sub: {"counts": count_table(d), "deflection_over_theta0": width_table(d),
+                                       "first_straw_offset_mm": offset_table(d), "g4_only_fate": fate_table(d)}
                                  for sub, d in (("all", df), ("crv", df[df.crv_pass]))}
         frames.append(df)
     # the chord artefact on the G4 side: angle between the plane chord and the envelope point direction (same events)
@@ -231,3 +297,7 @@ def _print(out):
             print("   deflection seed -> first straw over Highland theta0: robust sigma, |.| q90 (Gauss 1, 1.645)")
             for w in r["deflection_over_theta0"]:
                 print(f"   {w}")
+            print("   first-straw entry offset from the seed line [mm]: robust sigma, |.| q90")
+            for w in r["first_straw_offset_mm"]:
+                print(f"   {w}")
+            print(f"   G4-only fate: {r['g4_only_fate']}")

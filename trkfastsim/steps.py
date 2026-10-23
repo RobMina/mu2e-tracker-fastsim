@@ -108,13 +108,20 @@ class InteriorColumn:
     def __len__(self):
         return len(self.coax) + (len(self.calo) if self.calo is not None else 0)
 
-    def column(self, o, d, t_max, nsub=16):
-        out = self.coax.column(o, d, t_max, nsub=nsub)
+    def column(self, o, d, t_max, nsub=16, moments=False):
+        """Length per material; moments=True: (length, int s ds, int s^2 ds) per material (s from o along d)."""
+        out = self.coax.column(o, d, t_max, nsub=nsub, moments=moments)
+        if moments:
+            out = {m: np.array(v) for m, v in out.items()}
         if self.calo is not None and len(o):
-            for m, c in self.calo.column(o, d, np.asarray(t_max, float) * np.ones(len(o))).items():
-                v = out.setdefault(m, np.zeros(len(o)))
-                v += c
-        return out
+            for m, c in self.calo.column(o, d, np.asarray(t_max, float) * np.ones(len(o)), moments=moments).items():
+                if moments:
+                    v = out.setdefault(m, np.zeros((3, len(o))))
+                    v += np.asarray(c)
+                else:
+                    v = out.setdefault(m, np.zeros(len(o)))
+                    v += c
+        return {m: tuple(v) for m, v in out.items()} if moments else out
 
 
 class TrackerInterior:
@@ -186,7 +193,7 @@ class TrackerInterior:
         return out, stats
 
     def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
-                  max_iter=400, stats=None, msc_cal=None):
+                  max_iter=400, stats=None, msc_cal=None, lever_moments=False):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
@@ -198,6 +205,8 @@ class TrackerInterior:
         (slab_loss) and applies from this straw on. Scattering: rows are grouped from the pass origin until their summed
         x/X0 reaches kink_xx0 or a row holds support material; the group kinks at the entry of that row's straw with
         the correlated (angle, displacement) Gaussian, Highland with the log term on the cumulative in-tracker x/X0
+        (lever arms of the support material at its segment's midpoint, or with lever_moments=True at the material's own
+        first and second moments along the track, x/X0-weighted; random numbers and lengths are the same either way)
         (transport.highland_var_increment), each piece at its own lever arm (support and air at the segment midpoint,
         straw material at its chord midpoint), plus the single-scattering tail on the group's nuclear chi_c^2 if
         `tail`: per material on nuclei (each with its form factor) and on atomic electrons (up to ME_OVER_MMU), above
@@ -254,13 +263,21 @@ class TrackerInterior:
             # the back-off segment in front of a restarted muon's first straw was counted in the pass before
             seg = np.where(first & restarted[it], 0.0, np.clip(s_in - prev, 0.0, None))
             # support structure in the segment before each straw
-            col = self.shells.column(o[it] + d[it] * prev[:, None], d[it], seg, nsub=self.nsub)
+            col = self.shells.column(o[it] + d[it] * prev[:, None], d[it], seg, nsub=self.nsub, moments=lever_moments)
+            if lever_moments:
+                mom = {m: v for m, v in col.items() if v[0].any()}
+                col = {m: v[0] for m, v in mom.items()}
             col = {m: c for m, c in col.items() if c.any()}
             solid = np.zeros(nr)
             x_sup = np.zeros(nr)
+            sm1, sm2 = np.zeros(nr), np.zeros(nr)    # x/X0-weighted int s ds, int s^2 ds of the support (s from prev)
             for m, c in col.items():
                 solid += c
-                x_sup += c / eloss.radiation_length_mm(materials.get(m))
+                x0m = eloss.radiation_length_mm(materials.get(m))
+                x_sup += c / x0m
+                if lever_moments:
+                    sm1 += mom[m][1] / x0m
+                    sm2 += mom[m][2] / x0m
             # thin material: air in the segment, the straw's walls (both sides) and gas
             gas = s_out - s_in
             ua = np.sqrt(np.clip(1 - np.einsum("ij,ij->i", d[it], geom.dir[js]) ** 2, 1e-12, None))
@@ -328,11 +345,19 @@ class TrackerInterior:
             # lever arms to the kink point: support and air at the segment midpoint, straw material at its chord midpoint
             h_seg = s_k[gk] - (prev[member] + 0.5 * seg[member])
             h_str = s_k[gk] - h_mid_str[member]
-            xs_m = x_sup[member] + x_air[member]
             xt_m = x_str[member]
             X = np.bincount(gk, xrow[member], minlength=len(km))
-            S1 = np.bincount(gk, xs_m * h_seg + xt_m * h_str, minlength=len(km))
-            S2 = np.bincount(gk, xs_m * h_seg ** 2 + xt_m * h_str ** 2, minlength=len(km))
+            if lever_moments:
+                skp = s_k[gk] - prev[member]          # kink point from the segment start; h = skp - s over the material
+                xa = x_air[member]
+                sup1 = x_sup[member] * skp - sm1[member]
+                sup2 = x_sup[member] * skp ** 2 - 2 * skp * sm1[member] + sm2[member]
+                S1 = np.bincount(gk, sup1 + xa * h_seg + xt_m * h_str, minlength=len(km))
+                S2 = np.bincount(gk, sup2 + xa * h_seg ** 2 + xt_m * h_str ** 2, minlength=len(km))
+            else:
+                xs_m = x_sup[member] + x_air[member]
+                S1 = np.bincount(gk, xs_m * h_seg + xt_m * h_str, minlength=len(km))
+                S2 = np.bincount(gk, xs_m * h_seg ** 2 + xt_m * h_str ** 2, minlength=len(km))
             w1, w2 = S1 / np.maximum(X, 1e-30), S2 / np.maximum(X, 1e-30)
             p_k = _p_of(tk_start[km] - lost[km] - cum[kr])
             V = tr.highland_var_increment(p_k, xcum[km], xcum[km] + X)
@@ -788,7 +813,7 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
 
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
-               kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None):
+               kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
@@ -798,7 +823,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     stays straight inside the tracker (loss only). msc_tail (default on): the single-scattering tail on the Gaussian core, in
     the world column above the plane (stage C) and in the interior; tail_k: tail threshold in units of theta0 (None =
     where the tail density crosses the Gaussian); kink_xx0: x/X0 of straw material between in-tracker kinks;
-    interior_msc_cal: support-scattering calibration (TrackerInterior.transport msc_cal; None = off)."""
+    interior_msc_cal: support-scattering calibration (TrackerInterior.transport msc_cal; None = off); lever_moments:
+    support lever arms from the material's own moments (TrackerInterior.transport; default midpoint)."""
     make_steps.path_vertices = None   # set below only by the interior transport of this call
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
@@ -820,7 +846,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     if interior is not None and interior_msc:
         sel = np.flatnonzero(alive)
         tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0,
-                                 msc_cal=interior_msc_cal)
+                                 msc_cal=interior_msc_cal, lever_moments=lever_moments)
         make_steps.interior_stats = interior.last_stats
         make_steps.path_vertices = _path_vertices(mu, sel, o, d, p_start, t_off, p0_all=np.sqrt(
             mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy(), kinks=interior.last_kinks)

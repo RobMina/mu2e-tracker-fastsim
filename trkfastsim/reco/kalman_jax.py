@@ -358,9 +358,10 @@ def in_detector(xe, s_hit, active, N):
     return jnp.all(ok | ~active)
 
 
-def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10):
+def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
     """Full schedule for one track. h: padded hit dict with 'valid'; crs: mid, wdir, valid, hit (index or -1).
-    stages: dict of per-stage arrays (see stock_stages). Returns final pieces, states, status per stage."""
+    stages: dict of per-stage arrays (see stock_stages). fixed: optional dict active, lr, nulldv [N] that replaces the
+    updaters in every stage (fit-only comparisons on stock hit states). Returns final pieces, states, status per stage."""
     N, M = h["valid"].shape[0], crs["valid"].shape[0]
     C0 = seed_covariance(x0)
     xe = jnp.tile(x0, (N + M, 1))
@@ -379,6 +380,12 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10):
         stop = c["stop"] | gate_fail
         good_seed = c["good_seed"] & ~(sg["gate"] & gate_fail)
         st2, dvar, _ = update_states(c["st"], c["xu"], c["Cu"], h, d, sg, ann)
+        if fixed is not None:
+            st2 = dict(st2, active=fixed["active"] & h["valid"], lr=fixed["lr"], nulldv=fixed["nulldv"])
+            _, _, rdu, dTu, _, _, _, _ = hit_geometry(c["xu"], c["Cu"], h, d)
+            sd, ud = jnp.interp(dTu, d["dt"], d["sderr"]), jnp.interp(dTu, d["dt"], d["uderr"])
+            rdp = jnp.maximum(rdu, 0.0)
+            dvar = jnp.where(st2["lr"] != 0, sd * sd, jnp.where(st2["nulldv"], rdp * rdp + ud * ud, MAXDVAR))
         # KKStrawXing::updateState(first): active_ = |DOCA at the reference| < SXU maxdoca, or its hit is active
         _, dref, _ = straw_poca_batch(c["xe"][N:], crs)
         hact = jnp.where(crs["hit"] >= 0, st2["active"][jnp.maximum(crs["hit"], 0)], False)

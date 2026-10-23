@@ -3,6 +3,7 @@
   conditions  StrawHitTableDumper conditions tree -> text (JSON) conditions file for the hit reco
   vr3         T-VR3 (statistical): full fast chain from digis (hit reco, combo-free SimpleTimeCluster + LineFinder,
               F2 JAX fit with its own hit states) vs stock KKLine on the same events: yield, hits, chi2, parameters
+  vr2f1       T-VR2 (F1): kalman_jax full stock schedule on the stock seed, hit states and straw crossings vs KKLine
   vr2         T-VR2 (F2): batched Gauss-Newton line fit on the stock seed, hit list and drift states vs stock KKLine
   vr1b        T-VR1b: SimpleTimeCluster + LineFinder ports vs the stock clusters and seeds (dump_tracks_* tables)
   vr1         T-VR1: dumped StrawDigis -> numpy makeSH + makePH vs the stock hits in the same tables
@@ -430,6 +431,14 @@ def main(argv=None):
     f2.add_argument("--no-long", action="store_true", help="drop the longitudinal (time-division) residual")
     f2.add_argument("--drift-dt", action="store_true", help="let drift radii constrain t0 (KKSHFlag DriftDt; stock: off)")
     f2.add_argument("--jax", action="store_true", help="fit with the JAX twin (exact Jacobian, vmapped); timing is warm")
+    g = sub.add_parser("vr2f1")
+    g.add_argument("input")
+    g.add_argument("--conditions", required=True)
+    g.add_argument("--settings", default="mc", choices=["mc", "data"])
+    g.add_argument("--max-tracks", type=int, default=None)
+    g.add_argument("--chunk", type=int, default=512)
+    g.add_argument("--no-material", action="store_true", help="switch the straw crossings off (F2-equivalent model)")
+    g.add_argument("--outdir", default="plots/reco-vr2f1")
     v3 = sub.add_parser("vr3")
     v3.add_argument("inputs", nargs="+")
     v3.add_argument("--conditions", required=True)
@@ -437,6 +446,9 @@ def main(argv=None):
     v3.add_argument("--niter", type=int, default=4)
     v3.add_argument("--outdir", default="plots/reco-vr3")
     a = p.parse_args(argv)
+    if a.cmd == "vr2f1":
+        from . import vr_f1
+        return vr_f1.run(a.input, a.outdir, a.conditions, a.settings, a.max_tracks, a.chunk, not a.no_material)
     if a.cmd == "vr3":
         return vr3(a.inputs, a.outdir, a.conditions, a.settings, a.niter)
     if a.cmd == "vr2":

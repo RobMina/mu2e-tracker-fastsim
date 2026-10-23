@@ -81,6 +81,8 @@ def build_parser():
                             help="stage C: G4-slab width calibration of the support-structure scattering (steps.INTERIOR_MSC_CAL)")
             sp.add_argument("--lever-moments", action="store_true",
                             help="stage C: interior kink lever arms from the support material's own moments (default: segment midpoint)")
+            sp.add_argument("--no-calo", action="store_true",
+                            help="stage C: leave the calorimeter disk out of the interior (diagnostic)")
             sp.add_argument("--kink-sup-xx0", type=float, default=0.25,
                             help="stage C: split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
             sp.add_argument("--band-spread", action="store_true",

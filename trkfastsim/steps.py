@@ -102,6 +102,9 @@ class InteriorColumn:
 
     def __init__(self, shells, calo=None):
         self.coax, self.calo = shells, calo
+        if calo is not None:                     # box of all calorimeter pieces: segments outside skip its column
+            self.calo_lo = np.min([ps.lo.min(0) for _, ps in calo.sets], axis=0)
+            self.calo_hi = np.max([ps.hi.max(0) for _, ps in calo.sets], axis=0)
 
     def __getattr__(self, k):
         return getattr(self.coax, k)
@@ -115,13 +118,17 @@ class InteriorColumn:
         if moments:
             out = {m: np.array(v) for m, v in out.items()}
         if self.calo is not None and len(o):
-            for m, c in self.calo.column(o, d, np.asarray(t_max, float) * np.ones(len(o)), moments=moments).items():
-                if moments:
-                    v = out.setdefault(m, np.zeros((3, len(o))))
-                    v += np.asarray(c)
-                else:
-                    v = out.setdefault(m, np.zeros(len(o)))
-                    v += c
+            t = np.asarray(t_max, float) * np.ones(len(o))
+            b = o + d * t[:, None]
+            near = np.flatnonzero(np.all(np.maximum(o, b) >= self.calo_lo, axis=1) & np.all(np.minimum(o, b) <= self.calo_hi, axis=1))
+            if len(near):
+                for m, c in self.calo.column(o[near], d[near], t[near], moments=moments).items():
+                    if moments:
+                        v = out.setdefault(m, np.zeros((3, len(o))))
+                        v[:, near] += np.asarray(c)
+                    else:
+                        v = out.setdefault(m, np.zeros(len(o)))
+                        v[near] += c
         return {m: tuple(v) for m, v in out.items()} if moments else out
 
 
@@ -174,18 +181,19 @@ class TrackerInterior:
 
     def _split_length(self, o, d, seg, target):
         """Shortest of SPLIT_PROBES equal fractions of each segment holding at least `target` x/X0 of support (so the
-        first kink of a split segment always holds material); the whole segment if no fraction does."""
-        best = seg.copy()
-        found = np.zeros(len(seg), bool)
-        for k in range(1, self.SPLIT_PROBES):
-            L = seg * k / self.SPLIT_PROBES
-            x = self._support_sums(self._support(o, d, L, False)[0], {}, len(seg))[1]
-            hit = ~found & (x >= target)
-            best[hit] = L[hit]
-            found |= hit
-            if found.all():
-                break
-        return best
+        first kink of a split segment always holds material); the whole segment if no fraction does. Bisection over
+        the fraction index (the support x/X0 grows with the length), log2(SPLIT_PROBES) column calls."""
+        lo = np.zeros(len(seg), np.int64)                       # largest k known to hold < target (0: nothing)
+        hi = np.full(len(seg), self.SPLIT_PROBES, np.int64)     # smallest k known to hold >= target (or the whole)
+        while np.any(hi - lo > 1):
+            act = np.flatnonzero(hi - lo > 1)
+            mid = (lo[act] + hi[act]) // 2
+            L = seg[act] * mid / self.SPLIT_PROBES
+            x = self._support_sums(self._support(o[act], d[act], L, False)[0], {}, len(act))[1]
+            ok = x >= target[act]
+            hi[act[ok]] = mid[ok]
+            lo[act[~ok]] = mid[~ok]
+        return seg * hi / self.SPLIT_PROBES
 
     @staticmethod
     def _support_sums(col, mom, nr):

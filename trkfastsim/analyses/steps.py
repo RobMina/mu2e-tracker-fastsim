@@ -33,11 +33,11 @@ def default_gdml():
 
 def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, tag="",
         sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True, kink_xx0=st.KINK_XX0,
-        tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, **kw):
+        tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom) if stage == "C" else None
-    interior = st.TrackerInterior(gdml, geom) if stage == "C" and not no_interior else None
+    interior = st.TrackerInterior(gdml, geom, calo=not no_calo) if stage == "C" and not no_interior else None
     if interior is not None:
         if interior_msc_cal and st.INTERIOR_MSC_CAL is None:
             raise SystemExit("--interior-msc-cal: steps.INTERIOR_MSC_CAL is not set")

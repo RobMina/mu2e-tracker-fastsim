@@ -313,7 +313,7 @@ def _defl_highland(g4_paths, gg, e, o, oi, u, p, sel, tr_, interior, geom):
     s1 = np.full(n, np.inf)
     np.minimum.at(s1, xs[:, 0].astype(np.int64), xs[:, 2])
     col = interior.shells.column(oi, u, np.where(np.isfinite(s1), s1, 0.0), nsub=interior.nsub)
-    xx0 = sum((c / eloss.radiation_length_mm(materials.BY_NAME.get(k, materials.ALUMINIUM)) for k, c in col.items()), np.zeros(n))
+    xx0 = sum((c / eloss.radiation_length_mm(materials.get(k)) for k, c in col.items()), np.zeros(n))
     s = T.read_many(g4_paths, "sgsteps")
     pp = T.read_many(g4_paths, "particles", KEY + ["key", "pdg", "ismcprim"]).rename(columns={"key": "sp"})
     s = s.merge(pp[(pp.ismcprim == 1) & (pp.pdg.abs() == 13)][KEY + ["sp"]], on=KEY + ["sp"])

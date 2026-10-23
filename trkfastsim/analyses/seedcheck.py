@@ -103,7 +103,7 @@ def seeded(rng, interior, geom, o, u, p, start="as_is"):
     s1 = np.full(n, np.inf)
     np.minimum.at(s1, it, xs[:, 2])
     col = interior.shells.column(oi, u, np.where(np.isfinite(s1), s1, 0.0), nsub=interior.nsub)
-    xx0 = sum((c / eloss.radiation_length_mm(materials.BY_NAME.get(k, materials.ALUMINIUM)) for k, c in col.items()),
+    xx0 = sum((c / eloss.radiation_length_mm(materials.get(k)) for k, c in col.items()),
               np.zeros(n))
     vf = np.full((n, 3), np.nan)
     if len(tr_["it"]):

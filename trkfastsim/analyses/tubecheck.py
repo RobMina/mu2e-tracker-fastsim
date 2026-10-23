@@ -101,7 +101,7 @@ def run(inputs, outdir, gdml=None, chunk=500, **kw):
     icol = interior.shells.column(oy, d, seg, nsub=interior.nsub)
     ig, imev = np.zeros(len(ev)), np.zeros(len(ev))
     for name, c in icol.items():
-        m = materials.BY_NAME.get(name, materials.ALUMINIUM)
+        m = materials.get(name)
         ig += c * m.rho / 10.0
         imev += eloss.dedx_restricted(m, p, 1e9) * c
     ev["interior_above_gcm2"], ev["interior_above_mev"] = ig, imev

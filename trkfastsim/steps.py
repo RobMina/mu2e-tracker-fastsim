@@ -83,17 +83,46 @@ def load_world(gdml_path, geom):
     return tr.BandedWorld(pieces, np.r_[BAND_EDGES_Y[BAND_EDGES_Y > y_pl], y_pl])
 
 
-INTERIOR_SKIP = ("TrackerStraw", "TrackerWire")   # the straws themselves are handled by crossings/eIon
+INTERIOR_SKIP = ("TrackerStraw", "TrackerWire",   # the straws themselves are handled by crossings/eIon
+                 "CalorimeterMother")             # calorimeter: boxes and boolean solids the shell model cannot hold
 KINK_XX0 = 1e-3      # x/X0 of thin material (straws, gaps) accumulated before the in-tracker transport kinks the track
 KINK_BACKOFF_MM = 0.05   # the in-tracker kink is applied this far before the kink straw's gas entry
 GAP_MATERIAL = None  # medium between straws and support inside the tracker: the GDML's DSVacuum (None = no material)
 
 
+CALO_MOTHER = "CalorimeterMother"
+CALO_CELL_MM = 100.0   # x-z grid cell of the calorimeter pieces
+
+
+class InteriorColumn:
+    """Material column of the tracker interior: the coaxial support shells plus, optionally, the calorimeter disk as
+    signed convex pieces (world.SignedPieceSet: boxes exactly, boolean solids and mother-minus-daughter by sign).
+    Attributes of the shells (groups, c, n_coaxial) are passed through."""
+
+    def __init__(self, shells, calo=None):
+        self.coax, self.calo = shells, calo
+
+    def __getattr__(self, k):
+        return getattr(self.coax, k)
+
+    def __len__(self):
+        return len(self.coax) + (len(self.calo) if self.calo is not None else 0)
+
+    def column(self, o, d, t_max, nsub=16):
+        out = self.coax.column(o, d, t_max, nsub=nsub)
+        if self.calo is not None and len(o):
+            for m, c in self.calo.column(o, d, np.asarray(t_max, float) * np.ones(len(o))).items():
+                v = out.setdefault(m, np.zeros(len(o)))
+                v += c
+        return out
+
+
 class TrackerInterior:
     """The tracker's own support structure (rings, ribs, beams, manifolds, electronics) for the fast transport.
 
-    Built once from the GDML (tube and polycone solids inside the tracker region, without the straws) as coaxial
-    shells about the tracker axis (mu2efastsim.world.CoaxialShells). For each muon crossing it supplies the material
+    Built once from the GDML (tube and polycone solids inside the tracker region, without the straws and the
+    calorimeter) as coaxial shells about the tracker axis (mu2efastsim.world.CoaxialShells); the calorimeter disk in the
+    same region as signed convex pieces (world.signed_subtree, calo=True). A material without constants is an error. For each muon crossing it supplies the material
     column between the plane above the tracker and each straw entry, and the energy lost in it (sliced, sampled with
     the Urban model per material), so |p| drops along the track as in G4. Off: pass interior=None to make_steps (CLI
     --no-interior).
@@ -104,15 +133,26 @@ class TrackerInterior:
     material, and its straw crossings are recomputed from there. loss_to_straws() is the straight-line (loss only) form.
     """
 
-    def __init__(self, gdml_path, geom, nsub=8, pad=300.0):
+    def __init__(self, gdml_path, geom, nsub=8, pad=300.0, calo=True):
         from mu2efastsim import world as world_mod
         lo, hi = crossings.panel_boxes(geom)
         bbox = (lo.min(0) - pad, hi.max(0) + pad)
         tubes = world_mod.load_tubes(gdml_path, bbox=bbox, skip_names=INTERIOR_SKIP)
         tubes = [t for t in tubes if t[0] != "StrawGas"]           # gas manifolds: negligible, not a loss material
-        self.shells = world_mod.CoaxialShells(tubes, axis_point=geometry.DETECTOR_ORIGIN_EXTRACTED)
+        shells = world_mod.CoaxialShells(tubes, axis_point=geometry.DETECTOR_ORIGIN_EXTRACTED)
+        mats = {t[0] for t in tubes}
+        self.calo_skipped = {}
+        if calo:
+            pcs, self.calo_skipped = world_mod.signed_subtree(gdml_path, CALO_MOTHER, bbox=bbox)
+            pcs = [q for q in pcs if q[1] != "StrawGas"]
+            mats |= {q[1] for q in pcs}
+            self.shells = InteriorColumn(shells, world_mod.SignedPieceSet(pcs, cell=CALO_CELL_MM) if pcs else None)
+        else:
+            self.shells = InteriorColumn(shells, None)
         self.nsub = nsub
-        self.unknown = sorted({t[0] for t in tubes} - set(materials.BY_NAME))
+        self.unknown = sorted(mats - set(materials.BY_NAME))
+        if self.unknown:
+            raise KeyError(f"tracker interior materials without constants: {self.unknown} (add them to mu2efastsim.materials)")
 
     def loss_to_straws(self, rng, o, d, p, it, s_in):
         """Energy lost [MeV] in the interior between each muon's origin o (on the plane) and each straw entry.
@@ -134,7 +174,7 @@ class TrackerInterior:
         for name, c in col.items():
             if not c.any():
                 continue
-            mat = materials.BY_NAME.get(name, materials.ALUMINIUM)
+            mat = materials.get(name)
             hit = np.flatnonzero(c > 0)
             lost_seg[hit] += tr.slab_loss(rng, mat, np.maximum(pk[hit], 1.0), c[hit])
             stats[name] = float(c.sum())
@@ -220,7 +260,7 @@ class TrackerInterior:
             x_sup = np.zeros(nr)
             for m, c in col.items():
                 solid += c
-                x_sup += c / eloss.radiation_length_mm(materials.BY_NAME.get(m, materials.ALUMINIUM))
+                x_sup += c / eloss.radiation_length_mm(materials.get(m))
             # thin material: air in the segment, the straw's walls (both sides) and gas
             gas = s_out - s_in
             ua = np.sqrt(np.clip(1 - np.einsum("ij,ij->i", d[it], geom.dir[js]) ** 2, 1e-12, None))
@@ -259,7 +299,7 @@ class TrackerInterior:
             for m, c in col.items():
                 h = np.flatnonzero((c > 0) & upto)
                 if len(h):
-                    lseg[h] += tr.slab_loss(rng, materials.BY_NAME.get(m, materials.ALUMINIUM), np.maximum(pk[h], 1.0), c[h])
+                    lseg[h] += tr.slab_loss(rng, materials.get(m), np.maximum(pk[h], 1.0), c[h])
             cum = np.cumsum(lseg)
             cum = cum - np.r_[0.0, cum][start][grp]
             loss_at = lost[it] + cum
@@ -297,7 +337,7 @@ class TrackerInterior:
             p_k = _p_of(tk_start[km] - lost[km] - cum[kr])
             V = tr.highland_var_increment(p_k, xcum[km], xcum[km] + X)
             if msc_cal is not None:
-                xm = {m: np.bincount(gk, (c / eloss.radiation_length_mm(materials.BY_NAME.get(m, materials.ALUMINIUM)))[member],
+                xm = {m: np.bincount(gk, (c / eloss.radiation_length_mm(materials.get(m)))[member],
                                      minlength=len(km)) for m, c in col.items()}
                 V = V * interior_msc_var_factor(msc_cal, xm, X, p_k)
             dth, dy, a = _kink_core(rng, V, w1, w2)
@@ -305,7 +345,7 @@ class TrackerInterior:
                 pm = p_k[gk]
                 pr = np.maximum(prow[member], 0)
                 own = ~first[member]
-                parts = [(materials.BY_NAME.get(m, materials.ALUMINIUM), c[member]) for m, c in col.items()]
+                parts = [(materials.get(m), c[member]) for m, c in col.items()]
                 parts += [(gapm, lens["air"][member])]
                 parts += [(m, np.where(own, lens[k][pr], 0.0)) for m, k in thin if k != "air"]
                 tt = _group_tail(rng, parts, gk, pm, p_k, a, tail_k)
@@ -374,7 +414,7 @@ def interior_msc_var_factor(cal, xm, X, p):
     for m, x in xm.items():
         if not np.any(x > 0):
             continue
-        s = interior_msc_scale(cal, materials.BY_NAME.get(m, materials.ALUMINIUM), x, p)
+        s = interior_msc_scale(cal, materials.get(m), x, p)
         f += (x / X) * (s * s - 1.0)
     return f
 

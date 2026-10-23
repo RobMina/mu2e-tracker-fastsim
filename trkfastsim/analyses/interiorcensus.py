@@ -39,7 +39,7 @@ def _group(path):
 
 
 def _mat(name):
-    return materials.BY_NAME.get(name, materials.ALUMINIUM)
+    return materials.get(name)
 
 
 def _ke(p):
@@ -61,7 +61,14 @@ def labelled_shells(gdml, geom, nsub_pad=300.0):
     keep = [i for i, t in enumerate(tubes) if t[0] != "StrawGas"]
     lab = [(f"{_group(names[i])}|{tubes[i][0]}",) + tuple(tubes[i][1:]) for i in keep]
     shells = world_mod.CoaxialShells(lab, axis_point=geometry.DETECTOR_ORIGIN_EXTRACTED)
-    return interior, shells, [tubes[i] for i in keep], [names[i] for i in keep]
+    calo = None
+    if interior.shells.calo is not None:
+        lo_, hi_ = lo.min(0) - nsub_pad, hi.max(0) + nsub_pad
+        pcs, _ = world_mod.signed_subtree(gdml, st.CALO_MOTHER, bbox=(lo_, hi_), labels=True)
+        pcs = [q for q in pcs if not q[1].endswith("|StrawGas")]
+        calo = world_mod.SignedPieceSet([(sg, f"{_group(k.split('|')[0])}|{k.split('|')[1]}", P, a, b)
+                                         for sg, k, P, a, b in pcs], cell=st.CALO_CELL_MM)
+    return interior, st.InteriorColumn(shells, calo), [tubes[i] for i in keep], [names[i] for i in keep]
 
 
 def _shell_volume(t):
@@ -172,7 +179,7 @@ def g4_polylines(paths, y_pl):
 
 
 def density_audit(gdml, mats):
-    """Fast density (materials.BY_NAME, else the Al default) against the GDML density for each interior material."""
+    """Fast density (materials.get) against the GDML density for each interior material."""
     root = ET.parse(gdml).getroot()
     rho = {world_mod._strip(m.get("name")): float(m.find("D").get("value"))
            for m in root.find("materials").findall("material") if m.find("D") is not None}

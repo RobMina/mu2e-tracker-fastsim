@@ -41,9 +41,10 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
     if interior is not None:
         if interior_msc_cal and st.INTERIOR_MSC_CAL is None:
             raise SystemExit("--interior-msc-cal: steps.INTERIOR_MSC_CAL is not set")
-        print(f"# tracker interior: {len(interior.shells)} support shells ({interior.shells.n_coaxial} coaxial)"
+        print(f"# tracker interior: {len(interior.shells.coax)} support shells ({interior.shells.n_coaxial} coaxial), "
+              f"{len(interior.shells.calo) if interior.shells.calo is not None else 0} calorimeter pieces"
               + (" ; support msc calibrated (INTERIOR_MSC_CAL)" if interior_msc_cal else "")
-              + (f"; materials without constants (treated as Al): {interior.unknown}" if interior.unknown else ""), flush=True)
+              , flush=True)
     lib = lib_mod.read(library) if library else None
     for i, f in enumerate(tables.expand(inputs)):
         rng = np.random.default_rng([int(seed), i])

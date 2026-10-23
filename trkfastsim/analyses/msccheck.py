@@ -57,7 +57,7 @@ def _support_xx0(df, interior):
     col = interior.shells.column(o, d, df.L.to_numpy(), nsub=interior.nsub)
     x = np.zeros(len(df))
     for m, c in col.items():
-        x += c / eloss.radiation_length_mm(materials.BY_NAME.get(m, materials.ALUMINIUM))
+        x += c / eloss.radiation_length_mm(materials.get(m))
     return x
 
 

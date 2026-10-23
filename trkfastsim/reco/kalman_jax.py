@@ -1,6 +1,10 @@
 """F1: KinKal-like Kalman fit of the extracted (no field) KinematicLine, batched over tracks in JAX.
 
-Parameters x = (a0, b0, a1, b1, t0) as F2 (linefit): line through (a0, 0, b0), direction (a1, -1, b1), t0 at that point.
+Parameters x = (a0, b0, a1, b1, t0, mom) (NP = 6): the F2 line through (a0, 0, b0), direction (a1, -1, b1), t0 at that
+point, plus the momentum [MeV/c] as KinematicLine's 6th parameter (the speed in the time terms follows it). A straw
+crossing kinks the direction (scattering) and lowers the momentum by its energy loss (Moyal mean, kkmaterial.straw_eloss),
+as ElementXing::parameterChange; a ParameterHit constrains the momentum to the seed value (KINEMATICLINE
+ParameterConstraints 1e-4 MeV/c).
 Effects, ordered by their track length s along the direction of motion (time order):
   hits      linearised residual rows of linefit_jax._resid_one (drift or null DOCA, TOT time, longitudinal), weight
             1 / (variance x (1+T)^2), as KinKal ResidualHit::updateWeight;
@@ -19,7 +23,12 @@ from .linefit import C, MMU, MOM
 
 jax.config.update("jax_enable_x64", True)
 
-V = MOM / (MOM ** 2 + MMU ** 2) ** 0.5 * C           # muon speed at the KKLine momentum, mm/ns
+NP = 6
+V = MOM / (MOM ** 2 + MMU ** 2) ** 0.5 * C           # muon speed at the KKLine seed momentum, mm/ns
+
+
+def speed(mom):
+    return mom / jnp.sqrt(mom * mom + MMU * MMU) * C
 
 
 def point_dir(x):
@@ -28,11 +37,11 @@ def point_dir(x):
     return jnp.array([x[0], 0.0, x[1]]), d / jnp.linalg.norm(d)
 
 
-def params_from(p, u, t):
-    """Line through point p with unit direction u (u_y < 0), time t at p -> (a0, b0, a1, b1, t0)."""
+def params_from(p, u, t, mom):
+    """Line through point p with unit direction u (u_y < 0), time t at p, momentum mom -> parameters."""
     s = -p[1] / u[1]                                   # to the y = 0 plane
     q = p + u * s
-    return jnp.array([q[0], q[2], -u[0] / u[1], -u[2] / u[1], t + s / V])
+    return jnp.array([q[0], q[2], -u[0] / u[1], -u[2] / u[1], t + s / speed(mom), mom])
 
 
 def transverse_basis(u):
@@ -44,17 +53,18 @@ def transverse_basis(u):
     return e1, jnp.cross(u, e1)
 
 
-def kink(x, s, th):
-    """Parameters of the line after a kink th = (th1, th2) [rad] at track length s from the reference point."""
+def kink(x, s, th, dmom=0.0):
+    """Parameters after a kink th = (th1, th2) [rad] and a momentum change dmom at track length s (position and time
+    of the crossing point unchanged)."""
     p0, u = point_dir(x)
     e1, e2 = transverse_basis(u)
     un = u + th[0] * e1 + th[1] * e2
     un = un / jnp.linalg.norm(un)
-    return params_from(p0 + u * s, un, x[4] + s / V)
+    return params_from(p0 + u * s, un, x[4] + s / speed(x[5]), x[5] + dmom)
 
 
 def kink_jacobian(x, s):
-    """d(params after kink)/d(th1, th2) at th = 0: [5, 2], closed form. The kink point q = p0 + u s stays; the
+    """d(params after kink)/d(th1, th2, dmom) at 0: [6, 3], closed form. The kink point q = p0 + u s stays; the
     direction moves by du = e_k. With t = q_y / u_y (track length from y = 0 to q): a = q_x - u_x t, b = q_z - u_z t,
     a1 = -u_x / u_y, b1 = -u_z / u_y, t0 = t_q - t / v. Differentiating in u at fixed q:
     dt = -t du_y / u_y, da = -du_x t - u_x dt, db1 = -(du_z - b1' ...) as below."""
@@ -68,19 +78,24 @@ def kink_jacobian(x, s):
     db0 = -E[2] * t - u[2] * dt
     da1 = -E[0] / u[1] + u[0] * E[1] / u[1] ** 2
     db1 = -E[2] / u[1] + u[2] * E[1] / u[1] ** 2
-    dt0 = -dt / V
-    return jnp.stack([da0, db0, da1, db1, dt0], 0)
+    v = speed(x[5])
+    dt0 = -dt / v
+    E3 = jnp.sqrt(x[5] ** 2 + MMU ** 2)
+    dvdp = C * MMU ** 2 / E3 ** 3
+    tcol = jnp.array([0.0, 0.0, 0.0, 0.0, t * dvdp / (v * v), 1.0])      # dmom: t0 = t_q - t / v(mom)
+    ang = jnp.stack([da0, db0, da1, db1, dt0, jnp.zeros(2)], 0)
+    return jnp.concatenate([ang, tcol[:, None]], 1)
 
 
 def kink_jacobian_ad(x, s):
     """Reference for kink_jacobian (forward-mode autodiff of kink)."""
-    return jax.jacfwd(lambda th: kink(x, s, th))(jnp.zeros(2))
+    return jax.jacfwd(lambda z: kink(x, s, z[:2], z[2]))(jnp.zeros(3))
 
 
-def crossing_noise(x, s, scatvar):
-    """Process noise covariance [5, 5] of one crossing with projected angle variance scatvar."""
+def crossing_noise(x, s, scatvar, elvar=0.0):
+    """Process noise covariance [6, 6] of one crossing: projected angle variance scatvar, momentum variance elvar."""
     D = kink_jacobian(x, s)
-    return scatvar * D @ D.T
+    return D @ jnp.diag(jnp.array([scatvar, scatvar, elvar])) @ D.T
 
 
 def straw_poca(x, mid, wdir):
@@ -97,20 +112,24 @@ def straw_poca(x, mid, wdir):
     return st, jnp.sqrt(jnp.sum(delta * delta, -1) + 1e-30), c
 
 
-def crossing_effects(x, cov, mid, wdir, valid, nsig, varscale, mom=MOM):
+def crossing_effects(x, cov, mid, wdir, valid, nsig, varscale, mom=None):
     """Per crossing: track length s (+ toff so it follows its hit), process noise Q [M, 5, 5] and the path/scatter
     values. DOCA variance from the parameter covariance (ClosestApproachData::docaVar); nsig and varscale from the
     StrawXingUpdater of the meta-iteration (scalevar: varscale = (1+T)^2, else 1)."""
+    mom = x[5] if mom is None else mom
     st, doca, c = straw_poca(x, mid, wdir)
-    J = jax.jacfwd(lambda xx: straw_poca(xx, mid, wdir)[1])(x)          # [M, 5]
+    J = jax.jacfwd(lambda xx: straw_poca(xx, mid, wdir)[1])(x)          # [M, NP]
     docavar = jnp.einsum("mi,ij,mj->m", J, cov, J)
     wall, gas = kkmaterial.path_lengths(doca, docavar, c, nsig)
     sv = kkmaterial.scatter_angle_var("straw-wall", mom, wall) + kkmaterial.scatter_angle_var("straw-gas", mom, gas)
     sv = jnp.where(valid, sv * varscale * SCATSCALE, 0.0)
+    dm, dmv = kkmaterial.straw_eloss(wall, gas, mom)
+    dm = jnp.where(valid, dm * ELOSS, 0.0)
+    dmv = jnp.where(valid, dmv * varscale * ELOSS, 0.0)
     D = jax.vmap(lambda s: kink_jacobian(x, s))(st)
     toff = kkmaterial.STRAW["wrad"]
-    return {"s": st + toff, "D": D, "scatvar": sv, "doca": doca, "docavar": docavar, "wall": wall, "gas": gas,
-            "dirdot": c}
+    return {"s": st + toff, "D": D, "scatvar": sv, "dmom": dm, "dmomvar": dmv, "doca": doca, "docavar": docavar,
+            "wall": wall, "gas": gas, "dirdot": c}
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -129,16 +148,18 @@ def _solve(W, b):
     return jnp.linalg.solve(W, b)
 
 
-def _add_noise(W, b, D, sv):
-    """(W, b) after process noise Q = sv D D^T (D [5, 2], rank 2), parameters unchanged (Material::process). Woodbury:
-    W' = W - W D (sv D^T W D + I)^-1 sv D^T W, b' = W' W^-1 b = b - W D (sv D^T W D + I)^-1 sv D^T b; only a 2x2
-    solve, exact at sv = 0."""
-    WD = W @ D
-    S = sv * (D.T @ WD) + jnp.eye(2)
-    det = S[0, 0] * S[1, 1] - S[0, 1] * S[1, 0]
-    Si = jnp.array([[S[1, 1], -S[0, 1]], [-S[1, 0], S[0, 0]]]) / det     # explicit 2x2 inverse: no solver call
-    K_ = Si @ (sv * WD.T)                                                  # [2, 5]
-    return W - WD @ K_, b - WD @ (Si @ (sv * (D.T @ b)))
+
+def _add_noise(W, b, D, sv, dmv=0.0, dmean=None):
+    """(W, b) after the crossing: mean shift dmean [NP] (energy loss) and process noise Q = D diag(sv, sv, dmv) D^T
+    (rank 3), as Material::process. Woodbury with S = I + Qd D^T W D (3x3, closed form)."""
+    if dmean is not None:
+        b = b + W @ dmean                                                  # x -> x + dmean
+    qd = jnp.stack([sv, sv, dmv])
+    WD = W @ D                                                             # [NP, 3]
+    S = jnp.eye(3) + qd[:, None] * (D.T @ WD)
+    Si = _inv3(S)
+    K_ = Si @ (qd[:, None] * WD.T)                                         # [3, NP]
+    return W - WD @ K_, b - WD @ (Si @ (qd * (D.T @ b)))
 
 
 INV = __import__("os").environ.get("F1_INV", "lu")             # lu (jnp.linalg.inv) or chol
@@ -193,20 +214,20 @@ def filter_smooth(eff, W0f, b0f, W0b, b0b):
         W, b = carry
         pre = (W, b)
         dW, db = _hit_info(e)
-        W, b = _add_noise(W + dW, b + db, e["D"], e["sv"])
+        W, b = _add_noise(W + dW, b + db, e["D"], e["sv"], e["dmv"], e["D"][:, 2] * e["dm"])
         return (W, b), (pre, (W, b))
 
     def bwd(carry, e):
         W, b = carry
         out = (W, b)
-        W, b = _add_noise(W, b, e["D"], e["sv"])
+        W, b = _add_noise(W, b, e["D"], e["sv"], e["dmv"], -e["D"][:, 2] * e["dm"])
         dW, db = _hit_info(e)
         return (W + dW, b + db), out
 
     _, ((Wp, bp), (Wf, bf)) = jax.lax.scan(fwd, (W0f, b0f), eff, unroll=UNROLL)
     (Wbf, bbf), (Wb, bb) = jax.lax.scan(bwd, (W0b, b0b), eff, reverse=True, unroll=UNROLL)
     c, n = jax.vmap(_predicted_chi2)(Wp, bp, eff)
-    return {"W": Wf + Wb, "b": bf + bb, "chi2": jnp.sum(c), "ndof": jnp.sum(n) - 5, "Wfront": Wbf, "bfront": bbf}
+    return {"W": Wf + Wb, "b": bf + bb, "chi2": jnp.sum(c), "ndof": jnp.sum(n) - NP, "Wfront": Wbf, "bfront": bbf}
 
 
 # Parallel-in-time version (Sarkka and Garcia-Fernandez, IEEE TAC 66 (2021) 299): each effect is an element
@@ -222,12 +243,12 @@ def _combine(ei, ej):
     """Associative operator, ei before ej (batched over leading axes)."""
     Ai, bi, Ci, ei_, Ji = ei
     Aj, bj, Cj, ej_, Jj = ej
-    I = jnp.eye(5)
+    I = jnp.eye(NP)
     M = I + Ci @ Jj
     Xa = jnp.linalg.solve(M, jnp.concatenate([Ai, (bi + (Ci @ ej_[..., None])[..., 0])[..., None], Ci], -1))
-    A = Aj @ Xa[..., :5]
-    b = (Aj @ Xa[..., 5:6])[..., 0] + bj
-    C = _sym(Aj @ Xa[..., 6:] @ jnp.swapaxes(Aj, -1, -2) + Cj)
+    A = Aj @ Xa[..., :NP]
+    b = (Aj @ Xa[..., NP:NP + 1])[..., 0] + bj
+    C = _sym(Aj @ Xa[..., NP + 1:] @ jnp.swapaxes(Aj, -1, -2) + Cj)
     Nm = I + Jj @ Ci
     Ya = jnp.linalg.solve(Nm, jnp.concatenate([(ej_ - (Jj @ bi[..., None])[..., 0])[..., None], Jj], -1))
     AiT = jnp.swapaxes(Ai, -1, -2)
@@ -239,15 +260,15 @@ def _combine(ei, ej):
 def _elements(Jm, eta, Q, P0, m0, J0, eta0, Q0):
     """Elements for effects 1..E-1 (measurement then noise) and element 0 (prior + measurement 0 + noise 0)."""
     E = Jm.shape[0]
-    A = jnp.broadcast_to(jnp.eye(5), (E, 5, 5))
-    b = jnp.zeros((E, 5))
+    A = jnp.broadcast_to(jnp.eye(NP), (E, NP, NP))
+    b = jnp.zeros((E, NP))
     Pp = jnp.linalg.inv(jnp.linalg.inv(P0) + J0)
     mp = Pp @ (jnp.linalg.solve(P0, m0) + eta0)
-    A = A.at[0].set(jnp.zeros((5, 5)))
+    A = A.at[0].set(jnp.zeros((NP, NP)))
     b = b.at[0].set(mp)
     C = Q.at[0].set(_sym(Pp + Q0))
-    eta = eta.at[0].set(jnp.zeros(5))
-    Jm = Jm.at[0].set(jnp.zeros((5, 5)))
+    eta = eta.at[0].set(jnp.zeros(NP))
+    Jm = Jm.at[0].set(jnp.zeros((NP, NP)))
     return A, b, C, eta, Jm
 
 
@@ -255,7 +276,8 @@ def filter_smooth_par(eff, Cf0, xf0, Cb0, xb0):
     """As filter_smooth, from covariance-form priors (front Cf0/xf0, back Cb0/xb0), parallel in time."""
     E = eff["H"].shape[0]
     Jm, eta = jax.vmap(_hit_info)(eff)
-    Q = eff["sv"][:, None, None] * jnp.einsum("eia,eja->eij", eff["D"], eff["D"])
+    qd = jnp.stack([eff["sv"], eff["sv"], eff["dmv"]], -1)
+    Q = jnp.einsum("eia,ea,eja->eij", eff["D"], qd, eff["D"])            # mean shift not modelled in this variant
     # forward: element k maps x_k -> x_{k+1}; output k = filtered state after effect k (after its noise)
     fe = _elements(Jm, eta, Q, Cf0, xf0, Jm[0], eta[0], Q[0])
     _, bF, CF, _, _ = jax.lax.associative_scan(_combine, fe)
@@ -273,20 +295,20 @@ def filter_smooth_par(eff, Cf0, xf0, Cb0, xb0):
     # output m = predictive at z_{m+1} = x_{E-m-1}; the downstream information of effect k (on x_{k+1}) is output
     # E-k-2, and the back prior itself for k = E-1
     Jr, er, Qr = Jm[::-1], eta[::-1], Q[::-1]                      # index m -> effect E-1-m
-    Jb = jnp.concatenate([jnp.zeros((1, 5, 5)), Jr[:-1]])          # element m measures effect E-m
-    eb = jnp.concatenate([jnp.zeros((1, 5)), er[:-1]])
-    be = _elements(Jb, eb, Qr, Cb0, xb0, jnp.zeros((5, 5)), jnp.zeros(5), Qr[0])
+    Jb = jnp.concatenate([jnp.zeros((1, NP, NP)), Jr[:-1]])          # element m measures effect E-m
+    eb = jnp.concatenate([jnp.zeros((1, NP)), er[:-1]])
+    be = _elements(Jb, eb, Qr, Cb0, xb0, jnp.zeros((NP, NP)), jnp.zeros(NP), Qr[0])
     _, bB, CB, _, _ = jax.lax.associative_scan(_combine, be)
     xdown = jnp.concatenate([bB[:E - 1][::-1], xb0[None]])
     Cdown = jnp.concatenate([CB[:E - 1][::-1], Cb0[None]])
     # output E-k-2 is the prediction after Q_{k+1}, before hit k+1: add hit k+1 (information form)
     WF = spd_inv(CF)
     WP = spd_inv(Cdown)
-    Jn = jnp.concatenate([Jm[1:], jnp.zeros((1, 5, 5))])
-    en = jnp.concatenate([eta[1:], jnp.zeros((1, 5))])
+    Jn = jnp.concatenate([Jm[1:], jnp.zeros((1, NP, NP))])
+    en = jnp.concatenate([eta[1:], jnp.zeros((1, NP))])
     W = WF + WP + Jn
     bvec = jnp.einsum("eij,ej->ei", WF, bF) + jnp.einsum("eij,ej->ei", WP, xdown) + en
-    return {"W": W, "b": bvec, "chi2": jnp.sum(c), "ndof": jnp.sum(n) - 5}
+    return {"W": W, "b": bvec, "chi2": jnp.sum(c), "ndof": jnp.sum(n) - NP}
 
 
 # Covariance-form filter with a crossing-only RTS smoother (default, F1_FILTER=cov). With no field the parameters are
@@ -315,7 +337,7 @@ def _hit_update(x, C, e):
     exact for w = 0 rows (inactive)."""
     sw = jnp.sqrt(e["w"])
     A = sw[:, None] * e["H"]
-    CA = C @ A.T                                         # [5, 3]
+    CA = C @ A.T                                         # [NP, 3]
     Sinv = _inv3(jnp.eye(3) + A @ CA)
     res = e["r"] + e["H"] @ (x - e["xref"])
     xn = x - CA @ (Sinv @ (sw * res))
@@ -335,31 +357,34 @@ def filter_smooth_cov(eff, isx, Cf0, xf0, Cb0, xb0):
         act = e["w"] > 0
         c = jnp.sum(jnp.where(act, res * res / jnp.where(act, var, 1.0), 0.0))
         xh, Ch = _hit_update(x, C, e)
-        Qe = e["sv"] * (e["D"] @ e["D"].T)
-        return (xh, Ch + Qe), (x, C, c, jnp.sum(act))
+        Qe = e["D"] @ jnp.diag(jnp.stack([e["sv"], e["sv"], e["dmv"]])) @ e["D"].T
+        return (xh + e["D"][:, 2] * e["dm"], Ch + Qe), (x, C, c, jnp.sum(act))
 
     (xe_, Ce_), (xpre, Cpre, c, n) = jax.lax.scan(fwd, (xf0, Cf0), eff)
     # back prior as a pseudo-measurement of the last piece
     Wsum = spd_inv(Ce_) + spd_inv(Cb0)
     Cl = spd_inv(Wsum)
     xl = Cl @ (spd_inv(Ce_) @ xe_ + spd_inv(Cb0) @ xb0)
-    return xpre, Cpre, jnp.sum(c), jnp.sum(n) - 5, xl, Cl
+    return xpre, Cpre, jnp.sum(c), jnp.sum(n) - NP, xl, Cl
 
 
-def _rts(xpre_x, Cpre_x, Q_x, xl, Cl):
-    """Backward RTS over crossing slots (pre-crossing forward states, their Q), from the last piece (xl, Cl).
-    Returns pieces [M + 1]: piece j is before crossing j, piece M is the last."""
+def _rts(xpre_x, Cpre_x, Q_x, xl, Cl, dmean_x=None):
+    """Backward RTS over crossing slots (pre-crossing forward states, their Q and mean shift), from the last piece
+    (xl, Cl). Returns pieces [M + 1]: piece j is before crossing j, piece M is the last."""
+    if dmean_x is None:
+        dmean_x = jnp.zeros_like(xpre_x)
+
     def bwd(carry, z):
         xs, Cs = carry
-        xf, Cf, Q = z
+        xf, Cf, Q, dm = z
         Cp = Cf + Q
         G = jnp.linalg.solve(Cp, Cf).T                   # Cf Cp^-1 (symmetric)
-        xn = xf + G @ (xs - xf)
+        xn = xf + G @ (xs - xf - dm)
         Cn = Cf + G @ (Cs - Cp) @ G.T
         Cn = 0.5 * (Cn + Cn.T)
         return (xn, Cn), (xn, Cn)
 
-    _, (xs, Cs) = jax.lax.scan(bwd, (xl, Cl), (xpre_x, Cpre_x, Q_x), reverse=True)
+    _, (xs, Cs) = jax.lax.scan(bwd, (xl, Cl), (xpre_x, Cpre_x, Q_x, dmean_x), reverse=True)
     return jnp.concatenate([xs, xl[None]]), jnp.concatenate([Cs, Cl[None]])
 
 
@@ -407,6 +432,7 @@ FILTER = __import__("os").environ.get("F1_FILTER", "cov")       # cov (RTS over 
 SCATSCALE = float(__import__("os").environ.get("F1_SCATSCALE", "1"))   # diagnostic only: scale on the scattering variance
 FIXED_NULLDV_ALL = __import__("os").environ.get("F1_FIXED_NULLDV", "0") == "1"
 NOHIT_IN_SEED = __import__("os").environ.get("F1_NOHIT_IN_SEED", "0") == "1"   # diagnostic: old behaviour
+REF_AT_TIME = __import__("os").environ.get("F1_REFFRONT", "0") != "1"   # 1: old behaviour (old front piece)
 UNROLL = int(__import__("os").environ.get("F1_UNROLL", "8"))      # scan steps fused per loop iteration
 CONVERGED, UNCONVERGED, LOWNDOF, GAPDIV, PARDIV, CHIDIV, FAILED = 0, 1, 2, 3, 4, 5, 7
 
@@ -419,11 +445,16 @@ def kl_params(x):
     pca = p + u * s1
     sign = jnp.sign(-(pca[0] * u[1] - pca[1] * u[0]))
     sign = jnp.where(sign == 0, 1.0, sign)
-    return jnp.array([sign * jnp.hypot(pca[0], pca[1]), jnp.arctan2(u[1], u[0]), pca[2], jnp.arccos(uz), x[4] + s1 / V])
+    return jnp.array([sign * jnp.hypot(pca[0], pca[1]), jnp.arctan2(u[1], u[0]), pca[2], jnp.arccos(uz),
+                      x[4] + s1 / speed(x[5]), x[5]])
 
 
-def seed_covariance(x0, errors=(15.0, 0.05, 10.0, 0.02, 2.0)):
-    """KINEMATICLINE SeedErrors (d0, phi0, z0, theta, t0; mom is not a fit parameter here) mapped to (a0,b0,a1,b1,t0)."""
+MOM_CONSTRAINT = float(__import__("os").environ.get("F1_MOMCONS", "1e-4"))   # KINEMATICLINE ParameterConstraints (mom)
+ELOSS = float(__import__("os").environ.get("F1_ELOSS", "1"))                  # 0: no energy loss (diagnostic)
+
+
+def seed_covariance(x0, errors=(15.0, 0.05, 10.0, 0.02, 2.0, 1.0)):
+    """KINEMATICLINE SeedErrors (d0, phi0, z0, theta, t0, mom) mapped to (a0, b0, a1, b1, t0, mom)."""
     J = jax.jacfwd(kl_params)(x0)
     Ji = jnp.linalg.inv(J)
     return Ji @ jnp.diag(jnp.asarray(errors) ** 2) @ Ji.T
@@ -515,7 +546,7 @@ def crossing_rows(xref_c, cref_c, crs, nsig, varscale):
 
 def _pos(x, t):
     p, u = point_dir(x)
-    return p + u * V * (t - x[4])
+    return p + u * speed(x[5]) * (t - x[4])
 
 
 def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dwt):
@@ -534,44 +565,66 @@ def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dw
     M = ce["s"].shape[0]
     s_all = jnp.concatenate([jnp.where(h["valid"], s_h, big), jnp.where(inb, ce["s"], big)])
     order = jnp.argsort(s_all)
-    eff = {"xref": xe, "H": jnp.concatenate([Hj, jnp.zeros((M, 3, 5))]),
+    eff = {"xref": xe, "H": jnp.concatenate([Hj, jnp.zeros((M, 3, NP))]),
            "r": jnp.concatenate([r, jnp.zeros((M, 3))]), "w": jnp.concatenate([w, jnp.zeros((M, 3))]),
            "mvar": jnp.concatenate([mvar, jnp.ones((M, 3))]),
-           "D": jnp.concatenate([jnp.zeros((N, 5, 2)), ce["D"]]),
-           "sv": jnp.concatenate([jnp.zeros(N), jnp.where(inb, ce["scatvar"], 0.0)])}
+           "D": jnp.concatenate([jnp.zeros((N, NP, 3)), ce["D"]]),
+           "sv": jnp.concatenate([jnp.zeros(N), jnp.where(inb, ce["scatvar"], 0.0)]),
+           "dm": jnp.concatenate([jnp.zeros(N), jnp.where(inb, ce["dmom"], 0.0)]),
+           "dmv": jnp.concatenate([jnp.zeros(N), jnp.where(inb, ce["dmomvar"], 0.0)])}
+    # momentum ParameterHit (KKFit::makeSeedParamHit at the seed time range mid): residual mom - seed mom, weight
+    # 1 / (sigma^2 (1+T)^2) (ParameterHit::updateState), 1 DOF; linear, so its reference is irrelevant
+    hc = jnp.zeros((1, 3, NP)).at[0, 0, 5].set(1.0)
+    rc = jnp.zeros((1, 3)).at[0, 0].set(xe[0, 5] - hs["mom_seed"])
+    mvc = jnp.ones((1, 3)).at[0, 0].set(MOM_CONSTRAINT ** 2)
+    wc = jnp.zeros((1, 3)).at[0, 0].set(jnp.where(MOM_CONSTRAINT > 0, 1.0 / (MOM_CONSTRAINT ** 2 * varscale), 0.0))
+    eff = {"xref": jnp.concatenate([xe, xe[:1]]), "H": jnp.concatenate([eff["H"], hc]),
+           "r": jnp.concatenate([eff["r"], rc]), "w": jnp.concatenate([eff["w"], wc]),
+           "mvar": jnp.concatenate([eff["mvar"], mvc]), "D": jnp.concatenate([eff["D"], jnp.zeros((1, NP, 3))]),
+           "sv": jnp.concatenate([eff["sv"], jnp.zeros(1)]), "dm": jnp.concatenate([eff["dm"], jnp.zeros(1)]),
+           "dmv": jnp.concatenate([eff["dmv"], jnp.zeros(1)])}
+    s_all = jnp.concatenate([s_all, hs["s_cons"][None]])
+    order = jnp.argsort(s_all)
     effs = {k: v[order] for k, v in eff.items()}
     dw = dwt / varscale
-    isx = jnp.concatenate([jnp.zeros(N, bool), inb])[order]
+    isx = jnp.concatenate([jnp.zeros(N, bool), inb, jnp.zeros(1, bool)])[order]
     if FILTER == "cov":
-        E = N + M
+        E = N + M + 1
         xpre, Cpre, chi2, ndof, xl, Cl = filter_smooth_cov(effs, isx, prior["Cf"] * dw, prior["xf"], prior["Cb"] * dw,
                                                            prior["xb"])
         ar = jnp.arange(E)
         xpos = jnp.argsort(jnp.where(isx, ar, E + ar))[:M]          # crossing slots in order, then padding
         vx = isx[xpos]
-        Qx = jnp.where(vx[:, None, None], effs["sv"][xpos][:, None, None] * effs["D"][xpos] @
-                       jnp.swapaxes(effs["D"][xpos], -1, -2), 0.0)
-        Px, PC = _rts(xpre[xpos], Cpre[xpos], Qx, xl, Cl)             # pieces [M + 1]
+        Dx = effs["D"][xpos]
+        qd = jnp.stack([effs["sv"][xpos], effs["sv"][xpos], effs["dmv"][xpos]], -1)
+        Qx = jnp.where(vx[:, None, None], jnp.einsum("mia,ma,mja->mij", Dx, qd, Dx), 0.0)
+        dmx = jnp.where(vx[:, None], Dx[:, :, 2] * effs["dm"][xpos][:, None], 0.0)
+        # forward states before each crossing slot are taken AFTER that slot's own (empty) hit rows, i.e. xpre is the
+        # state entering the crossing; the RTS prediction across it is x + dmean, C + Q
+        Px, PC = _rts(xpre[xpos], Cpre[xpos], Qx, xl, Cl, dmx)       # pieces [M + 1]
         # piece of every effect by its position along the track (KinKal PCA on the piecewise trajectory): the number
         # of in-bounds crossing boundaries (TOCA + wire radius) at or before it; a crossing sits at its TOCA, i.e. on
         # the piece before its own boundary; crossings outside the bounds or inactive get their local piece too
         toff = kkmaterial.STRAW["wrad"]
         bnd = jnp.sort(jnp.where(inb, ce["s"], big))
-        s_true = jnp.concatenate([s_h, ce["s"] - toff])
+        s_true = jnp.concatenate([s_h, ce["s"] - toff, hs["s_cons"][None]])
         pid_nat = jnp.searchsorted(bnd, s_true, side="right")
         pidx = pid_nat[order]
         xs_, Cs_ = Px[pidx], PC[pidx]
-        tx = effs["xref"][xpos, 4] + s_all[order][xpos] / V
+        tx = effs["xref"][xpos, 4] + s_all[order][xpos] / speed(effs["xref"][xpos, 5])
         gaps = jax.vmap(lambda a, b, t: jnp.linalg.norm(_pos(a, t) - _pos(b, t)))(Px[1:], Px[:-1], tx)
         ngap = jnp.sum(vx)
         avggap = jnp.where(ngap > 0, jnp.sum(jnp.where(vx, gaps, 0.0)) / jnp.maximum(ngap, 1), 0.0)
         inv = jnp.argsort(order)
-        x, C = xs_[inv], Cs_[inv]
+        x, C = xs_[inv][:N + M], Cs_[inv][:N + M]
+        pid_nat = pid_nat[:N + M]
         xu, Cu = unbiased_hits(x[:N], C[:N], Hj, r, xe[:N], w)
         acts = effs["w"].sum(-1) > 0
         first = jnp.argmax(acts)
         last = (E - 1) - jnp.argmax(acts[::-1])
-        return {"x": x, "C": C, "xu": xu, "Cu": Cu, "chi2": chi2, "ndof": ndof,
+        s_sorted = s_all[order]
+        return {"x": x, "C": C, "xu": xu, "Cu": Cu, "chi2": chi2, "ndof": ndof, "s_front": s_sorted[first],
+                "s_back": s_sorted[last],
                 "xfront": xs_[first], "Cfront": Cs_[first], "xback": xs_[last], "Cback": Cs_[last], "avggap": avggap,
                 "s_hit": s_h, "inbounds": inb, "xing": ce, "nact": jnp.sum(act), "pid": pid_nat, "bnd": bnd}
     if PARALLEL:
@@ -581,7 +634,7 @@ def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dw
         fs = filter_smooth(effs, Wf, Wf @ prior["xf"], Wb, Wb @ prior["xb"])
     x, C, xu, Cu = smoothed(fs, effs)
     # pieces: a new piece starts at each in-bounds crossing; gap = position jump at the crossing time
-    tx = effs["xref"][:, 4] + s_all[order] / V
+    tx = effs["xref"][:, 4] + s_all[order] / speed(effs["xref"][:, 5])
     xprev = jnp.concatenate([x[:1], x[:-1]])
     gaps = jax.vmap(lambda a, b, t: jnp.linalg.norm(_pos(a, t) - _pos(b, t)))(x, xprev, tx)
     ngap = jnp.sum(isx)
@@ -589,11 +642,21 @@ def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dw
     first = jnp.argmax(effs["w"].sum(-1) > 0)
     last = (effs["w"].shape[0] - 1) - jnp.argmax((effs["w"].sum(-1) > 0)[::-1])
     inv = jnp.argsort(order)
-    pid = jnp.cumsum(isx)[inv]
+    pid = jnp.cumsum(isx)[inv][:N + M]
     bnd = jnp.sort(jnp.where(inb, ce["s"], big))
-    return {"x": x[inv], "C": C[inv], "xu": xu[inv][:N], "Cu": Cu[inv][:N], "chi2": fs["chi2"], "ndof": fs["ndof"],
+    return {"s_front": s_all[order][first], "s_back": s_all[order][last],
+            "x": x[inv][:N + M], "C": C[inv][:N + M], "xu": xu[inv][:N], "Cu": Cu[inv][:N], "chi2": fs["chi2"], "ndof": fs["ndof"],
             "xfront": x[first], "Cfront": C[first], "xback": x[last], "Cback": C[last], "avggap": avggap,
             "s_hit": s_h, "inbounds": inb, "xing": ce, "nact": jnp.sum(act), "pid": pid, "bnd": bnd}
+
+
+def piece_at(xe, Ce, pid, bnd, s):
+    """Parameters and covariance of the trajectory piece holding track length s (PiecewiseTrajectory::nearestPiece):
+    piece index = number of crossing boundaries at or before s; any effect of that piece carries its parameters."""
+    p = jnp.searchsorted(bnd, s, side="right")
+    cand = pid == p
+    e = jnp.where(jnp.any(cand), jnp.argmax(cand), jnp.argmin(jnp.abs(pid - p)))
+    return xe[e], Ce[e]
 
 
 def set_status(o, ref, prevcpn, it, cfg):
@@ -613,6 +676,7 @@ def set_status(o, ref, prevcpn, it, cfg):
          jnp.where(o["ndof"] < cfg["minndof"], LOWNDOF,
          jnp.where(jnp.abs(dchi) < cfg["conv"], CONVERGED, UNCONVERGED)))))
     st = jnp.where(o["nact"] == 0, LOWNDOF, st)
+    set_status.last = (chif, chib)
     return jnp.where(bad, FAILED, st), cpn
 
 
@@ -631,7 +695,12 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
     stages: dict of per-stage arrays (see stock_stages). fixed: optional dict active, lr, nulldv [N] that replaces the
     updaters in every stage (fit-only comparisons on stock hit states). Returns final pieces, states, status per stage."""
     N, M = h["valid"].shape[0], crs["valid"].shape[0]
+    if x0.shape[0] == 5:
+        x0 = jnp.concatenate([x0, jnp.array([MOM])])
     C0 = seed_covariance(x0)
+    s_seed = straw_poca(x0, h["mid"], h["wdir"])[0]
+    sv_ = h["valid"] & (h["inseed"] if "inseed" in h else True)
+    s_cons = 0.5 * (jnp.min(jnp.where(sv_, s_seed, 1e12)) + jnp.max(jnp.where(sv_, s_seed, -1e12)))
     xe = jnp.tile(x0, (N + M, 1))
     Ce = jnp.tile(C0, (N + M, 1, 1))
     st = {"active": h["valid"], "lr": jnp.zeros(N), "frozen"  # KKStrawHit starts null (active)
@@ -641,7 +710,7 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
               "status": jnp.array(UNCONVERGED), "stop": jnp.array(False), "good_seed": jnp.array(True),
               "chi2": jnp.array(0.0), "ndof": jnp.array(0), "cpn": jnp.array(-1.0), "niter": jnp.array(0),
               "s_hit": jnp.zeros(N), "xact": jnp.zeros(M, bool), "pid": jnp.zeros(N + M, jnp.int32),
-              "bnd": jnp.full(M, 1e12)}
+              "bnd": jnp.full(M, 1e12), "dpmax": jnp.array(0.0), "dmomf": jnp.array(0.0)}
 
     def stage_fn(c, sg):
         # goodFit gate before the extension (and the schedule stops after any unusable status)
@@ -673,13 +742,18 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
             xact = crs["stock_active"]
         vs = (1.0 + sg["T"]) ** 2
         sxs = jnp.where(sg["sx_scale"], vs, 1.0)
-        hs = {"active": st2["active"], "lr": st2["lr"], "dvar": dvar}
+        hs = {"active": st2["active"], "lr": st2["lr"], "dvar": dvar, "s_cons": s_cons, "mom_seed": x0[5]}
         cfg = {k: sg[k] for k in ("conv", "divchi", "pdchisq", "divgap", "minndof")}
 
         def body(ic):
             it, cc = ic
             o = iterate_once(cc["xe"], cc["Ce"], h, crs, d, hs, xact, vs, sg["sx_nsig"], sxs, cc["ref"], dwt)
-            status, cpn = set_status(o, cc["ref"], cc["cpn"], it, cfg)
+            # Track::setStatus compares the new front/back pieces with the OLD trajectory's piece at their times
+            xfo, Cfo = piece_at(cc["xe"], cc["Ce"], cc["pid"], cc["bnd"], o["s_front"])
+            xbo, Cbo = piece_at(cc["xe"], cc["Ce"], cc["pid"], cc["bnd"], o["s_back"])
+            sref = {"xf": xfo, "Cf": Cfo, "xb": xbo, "Cb": Cbo} if REF_AT_TIME else cc["ref"]
+            status, cpn = set_status(o, sref, cc["cpn"], it, cfg)
+            chif, chib = set_status.last
             ok = status < LOWNDOF
             take = lambda a, b: jnp.where(ok, a, b)
             nref = {"xf": take(o["xfront"], cc["ref"]["xf"]), "Cf": take(o["Cfront"], cc["ref"]["Cf"]),
@@ -687,20 +761,22 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
             cn = dict(cc, xe=take(o["x"], cc["xe"]), Ce=take(o["C"], cc["Ce"]), xu=take(o["xu"], cc["xu"]),
                       Cu=take(o["Cu"], cc["Cu"]), ref=nref, status=status, chi2=o["chi2"], ndof=o["ndof"], cpn=cpn,
                       niter=cc["niter"] + 1, s_hit=take(o["s_hit"], cc["s_hit"]),
-                      pid=take(o["pid"].astype(jnp.int32), cc["pid"]), bnd=take(o["bnd"], cc["bnd"]))
+                      pid=take(o["pid"].astype(jnp.int32), cc["pid"]), bnd=take(o["bnd"], cc["bnd"]),
+                      dpmax=jnp.maximum(cc["dpmax"], jnp.maximum(chif, chib)),
+                      dmomf=jnp.where(jnp.maximum(chif, chib) >= cc["dpmax"], o["xfront"][5] - cc["ref"]["xf"][5], cc["dmomf"]))
             return it + 1, cn
 
         def cond(ic):
             it, cc = ic
             return (it == 0) | ((cc["status"] == UNCONVERGED) & (it < maxniter))      # Track::canIterate: iter_ < maxniter_
 
-        cs = dict(c, st=st2, dvar=dvar, xact=xact)
+        cs = dict(c, st=st2, dvar=dvar, xact=xact, dpmax=jnp.array(0.0), dmomf=jnp.array(0.0))
         _, cn = jax.lax.while_loop(cond, body, (jnp.array(0), cs))
         cn["stop"] = stop | (cn["status"] >= LOWNDOF)
         cn["good_seed"] = good_seed
         keep = lambda a, b: jax.tree_util.tree_map(lambda u, v: jnp.where(stop, v, u), a, b)
         out = keep(cn, dict(c, stop=stop, good_seed=good_seed))
-        return out, (out["status"], out["chi2"], out["ndof"], out["niter"])
+        return out, (out["status"], out["chi2"], out["ndof"], out["niter"], cn["dpmax"], cn["dmomf"])
 
     cf, hist = jax.lax.scan(stage_fn, carry0, stages)
     good = (cf["status"] < LOWNDOF) & ~cf["stop"] & in_detector(cf["xe"], cf["s_hit"], cf["st"]["active"], N)

@@ -56,7 +56,7 @@ def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None, fitok_on
     drift = _drift_table(path)
     cols = ["sd_a0", "sd_b0", "sd_a1", "sd_b1", "sd_t0", "kl_status", "kl_chi2", "kl_ndof", "kl_nactive",
             "kh_ind", "kh_ambig", "kh_active", "kh_rdoca", "sd_ind", "kst_sid", "kst_active", "kst_wall", "kst_gas", "kst_radlen"]
-    cols += ["kl_" + k for k in KL] + ["kl_" + k + "err" for k in KL]
+    cols += ["kl_" + k for k in KL] + ["kl_" + k + "err" for k in KL] + ["kl_mom", "kl_momerr"]
     a = uproot.open(path)["trkdump/events"].arrays(cols)
     ev0 = np.searchsorted(sh["ev"], np.arange(d["evkey"].shape[0] + 1), side="left")
     one = (ak.num(a.kl_d0) == 1) & (ak.num(a.sd_a0) == 1)
@@ -157,7 +157,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         cf, hist, good = K.fit_track(x, h, c, dj, stages, ann, fixed=None if own_states else fx, maxniter=maxniter)
         xt0, Ct0, _ = K.t0_piece(cf)
         return (xt0, Ct0, hist[0], hist[1], hist[2], hist[3], good, cf["xe"], cf["Ce"], cf["st"]["active"],
-                cf["st"]["lr"], cf["good_seed"])
+                cf["st"]["lr"], cf["good_seed"], hist[4], hist[5])
 
     # two passes, exact: a vmapped while_loop runs every lane until the slowest converges, so one track at MaxNIter
     # makes the whole batch pay 11 iterations. Pass 1 caps at FAST_NITER; tracks that reached the cap in any stage
@@ -255,7 +255,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         o2 = [np.asarray(a)[:nr] for a in o2]
         k = 0
         for io, redo, _ in items:
-            for j in range(12):
+            for j in range(14):
                 v = o2[j][k:k + len(redo)]
                 if j in (9, 10):
                     full = np.zeros((len(redo), Nf), dtype=v.dtype)
@@ -273,19 +273,18 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
               "pass2_shape": stats.get("pass2_shape"), "total_fit_s": round(sum(stats["pass1_s"]) + sum(stats["pass2_s"]), 3),
               "refit_with_maxniter10": stats["redo"], "fast_niter": FAST_NITER, "bucket_tracks": {f"{a}x{b}": c for (a, b), c in btr.items()}, "n_compiles": len(shapes),
               "warm_fit_s": t_fit}
-    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce, fact, flr, gseed = (np.concatenate([o[i] for o in outs])[inv]
-                                                                     for i in range(12))
+    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce, fact, flr, gseed, dpmax, dmomf = (
+        np.concatenate([o[i] for o in outs])[inv] for i in range(14))
     # KinematicLine parameters on the piece holding the t0 point (KalSeed::t0Segment / PiecewiseTrajectory::t0): the
     # POCA to the z axis, s1 along the track; the piece is the smoothed state at the last effect before s1
     N = H["valid"].shape[1]
     res_piece = {}
-    kl = linefit.to_kinematic_line(xf)
-    Jk = np.zeros((ntrk, 5, 5))
-    eps = np.array([1e-3, 1e-3, 1e-6, 1e-6, 1e-3])
-    klv = lambda xx: np.stack([linefit.to_kinematic_line(xx)[k] for k in KL], 1)
-    for k in range(5):
-        dx = np.zeros(5); dx[k] = eps[k]
-        Jk[:, :, k] = (klv(xf + dx) - klv(xf - dx)) / (2 * eps[k])
+    # KinematicLine (d0, phi0, z0, theta, t0) from the first five parameters; t0 uses the fitted momentum's speed
+    kj = jax.jit(jax.vmap(K.kl_params))
+    klm = np.asarray(kj(jnp.asarray(xf)))
+    kl = {k: klm[:, i] for i, k in enumerate(KL)}
+    kl["mom"] = xf[:, 5]
+    Jk = np.asarray(jax.jit(jax.vmap(jax.jacfwd(K.kl_params)))(jnp.asarray(xf)))[:, :5, :]
     Ck = np.einsum("tij,tjk,tlk->til", Jk, Cf, Jk)
     res = {"input": path, "n_tracks": ntrk, "material": material, "straw_axis": straw_axis or os.environ.get("F1_STRAWAXIS"), "read_s": t_read, "first_chunk_s": first,
            "timing": timing, "backend": jax.default_backend(),
@@ -311,7 +310,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
                  nact_f1=fact.sum(1), nact_stock=(H["active"] & H["valid"]).sum(1), nh=H["valid"].sum(1),
                  ndrift_f1=(fact & (flr != 0)).sum(1), ndrift_stock=(H["active"] & H["valid"] & (H["lr"] != 0)).sum(1),
                  ninseed=(H["inseed"] & H["valid"]).sum(1), stat_all=stat, niter=niter, gseed=gseed,
-                 kl_status=ref["kl_status"].astype(np.int64), event_index=ref["event_index"],
+                 kl_status=ref["kl_status"].astype(np.int64), event_index=ref["event_index"], dpmax=dpmax, dmomf=dmomf,
                  cpn_f1=chi2[:, -1] / np.maximum(ndof[:, -1], 1), cpn_stock=ref["kl_chi2"] / np.maximum(ref["kl_ndof"], 1))
     for i, k in enumerate(KL):
         dv = kl[k] - ref["kl_" + k]
@@ -334,6 +333,9 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
              cpn_stock=ref["kl_chi2"] / np.maximum(ref["kl_ndof"], 1), nh=H["valid"].sum(1), nact=H["active"].sum(1),
              nx=X["valid"].sum(1), nxact=X["stock_active"].sum(1), **pulls,
              **{"ref_" + k: ref["kl_" + k] for k in KL}, **{"f1_" + k: kl[k] for k in KL})
+    res["mom"] = {"f1_q16_50_84": np.quantile(xf[ok, 5], [.16, .5, .84]).tolist(),
+                  "stock_q16_50_84": np.quantile(ref["kl_mom"][ok], [.16, .5, .84]).tolist(),
+                  "f1_minus_stock_q16_50_84": np.quantile(xf[ok, 5] - ref["kl_mom"][ok], [.16, .5, .84]).tolist()}
     cpn = chi2[:, -1] / np.maximum(ndof[:, -1], 1)
     res["chi2ndf_q50"] = {"stock": float(np.median(ref["kl_chi2"] / np.maximum(ref["kl_ndof"], 1))),
                           "f1": float(np.median(cpn[ok]))}
@@ -378,7 +380,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     sa = X["stock_active"]
     # in bounds (between the first and last active hit along the track), positions on the t0 piece line
     def s_along(P):
-        a0, b0, a1, b1 = (xf[:, i] for i in range(4))
+        a0, b0, a1, b1 = (xf[:, i] for i in range(4))   # first four parameters
         p = np.stack([a0, np.zeros_like(a0), b0], 1)
         u = np.stack([a1, -np.ones_like(a1), b1], 1)
         u /= np.linalg.norm(u, axis=1, keepdims=True)

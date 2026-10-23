@@ -118,3 +118,92 @@ def straw_scatter_var(doca, docavar, dirdot, nsig, mom, mass=MMU):
     """Projected scattering variance of one straw crossing (ElementXing::materialEffects: wall + gas summed)."""
     w, g = path_lengths(doca, docavar, dirdot, nsig)
     return scatter_angle_var("straw-wall", mom, w, mass) + scatter_angle_var("straw-gas", mom, g, mass)
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Energy loss (DetMaterial::energyLoss / energyLossVar, IonizationEnergyLossMode 1 = Moyal mean): ionisation constants
+# of the mixtures as MtrPropObj::ComputeIonisationParam / ComputeOtherParams, element constants as
+# ElmPropObj::ComputeIonisationParam (I = 16 Z^0.9 eV, shell-correction polynomials). Muons: no radiation term.
+E_MASS = 0.510998910
+DGEV = 15.3536                         # DetMaterial::_dgev (MeV per g/mm^2 path, Z/A = 1, beta = 1)
+TWOLN10 = 2.0 * np.log(10.0)
+BG2LIM = 0.0169
+_NA = 6.02214076e23
+_HBARC = 197.3269804e-12               # MeV mm
+_RE = 2.8179403262e-12                 # mm
+_STP_T, _T_MAT = 273.15, 273.15 + 20.0  # MaterialsList temperature column 20.0 (C), pressure 1.0 atm
+
+
+def ionisation_constants(name):
+    m = MATERIALS[name]
+    rho = m["density"]                                            # g/cm^3
+    ne_i = {e: _NA * rho * 1e-3 * w / _EL[e][1] * _EL[e][0] for e, w in m["massfrac"].items()}   # electrons / mm^3
+    na_i = {e: _NA * rho * 1e-3 * w / _EL[e][1] for e, w in m["massfrac"].items()}               # atoms / mm^3
+    ne = sum(ne_i.values())
+    I_el = {e: 16.0 * _EL[e][0] ** 0.9 * 1e-6 for e in m["massfrac"]}                           # MeV
+    I = np.exp(sum(ne_i[e] * np.log(I_el[e]) for e in ne_i) / ne)
+    shell = np.zeros(3)
+    for e in na_i:
+        r = I_el[e] / E_MASS
+        r2 = r * r
+        shell += na_i[e] * np.array([(1.10289e5 + 5.14781e8 * r) * r2, (7.93805e3 - 2.22565e7 * r) * r2,
+                                     (-9.92256e1 + 2.10823e5 * r) * r2])
+    shell /= ne
+    C = 1.0 + np.log(I * I / (4 * np.pi * _HBARC ** 2 * _RE * ne))
+    if m["state"] == "solid":
+        icase = 0 if I < 0.1 else 1
+        x0 = 0.2 if C < (3.681, 5.215)[icase] else 0.326 * C - (1.0, 1.5)[icase]
+        x1, mpow = (2.0, 3.0)[icase], 3.0
+    else:
+        climi, x0v, x1v = (10., 10.5, 11., 11.5, 12.25, 13.804), (1.6, 1.7, 1.8, 1.9, 2.0, 2.0), (4.0,) * 5 + (5.0,)
+        icase = 5
+        while icase > 0 and C < climi[icase]:
+            icase -= 1
+        x0, x1, mpow = x0v[icase], x1v[icase], 3.0
+        parcorr = np.log(_STP_T / _T_MAT)                         # log(rho / rho_STP) at 20 C, 1 atm
+        C -= parcorr
+        x0 -= parcorr / TWOLN10
+        x1 -= parcorr / TWOLN10
+    a = TWOLN10 * (C / TWOLN10 - x0) / (x1 - x0) ** mpow
+    delta0 = 2 * np.pi * E_MASS * _RE ** 2 * ne * 10.0 / rho       # MtrPropObj::_dEdxFactor (used as delta0 by DetMaterial)
+    z, aa = effective_za(m["massfrac"])
+    return {"I": I, "C": C, "x0": x0, "x1": x1, "m": mpow, "a": a, "delta0": delta0, "shell": shell, "za": z / aa,
+            "density": rho / 1000.0}
+
+
+_IC = {k: ionisation_constants(k) for k in MATERIALS}
+
+
+def _density_correction(c, bg2):
+    x = jnp.log(bg2) / TWOLN10
+    low = jnp.where(c["delta0"] > 0, c["delta0"] * 10.0 ** (2 * (x - c["x0"])), 0.0)
+    high = TWOLN10 * x - c["C"] + jnp.where(x < c["x1"], c["a"] * jnp.maximum(c["x1"] - x, 0.0) ** c["m"], 0.0)
+    return jnp.where(x < c["x0"], low, high)
+
+
+def _shell_correction(c, bg2):
+    return sum(c["shell"][k] / bg2 ** (k + 1) for k in range(3))      # bg2 > BG2LIM for every muon of interest
+
+
+def energy_loss(name, mom, pathlen, mass=MMU):
+    """DetMaterial::energyLoss (Moyal mean, NEGATIVE energy change, MeV) and its variance (Moyal rms^2)."""
+    c = _IC[name]
+    E = jnp.sqrt(mom * mom + mass * mass)
+    beta = mom / E
+    gamma = E / mass
+    beta2, bg2 = beta * beta, (beta * gamma) ** 2
+    xi = DGEV * c["za"] * c["density"] * jnp.abs(pathlen) / beta2
+    xis = jnp.where(xi > 0, xi, 1.0)
+    dp = (jnp.log(2.0 * E_MASS * bg2 / c["I"]) + jnp.log(xis / c["I"]) - beta2 + 0.200
+          - _density_correction(c, bg2) - _shell_correction(c, bg2)) * -xi
+    mean = -(jnp.abs(dp) + xi * (0.57721566490153286 + np.log(2.0)))
+    var = (np.pi / np.sqrt(2.0) * xi) ** 2
+    return jnp.where(xi > 0, mean, 0.0), var
+
+
+def straw_eloss(wall, gas, mom, mass=MMU):
+    """ElementXing::materialEffects for one straw: momentum change dmom = dE E/p (negative) and its variance."""
+    e1, v1 = energy_loss("straw-wall", mom, wall, mass)
+    e2, v2 = energy_loss("straw-gas", mom, gas, mass)
+    dmdE = jnp.sqrt(mom * mom + mass * mass) / mom
+    return (e1 + e2) * dmdE, (v1 + v2) * dmdE * dmdE

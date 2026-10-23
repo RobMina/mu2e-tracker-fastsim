@@ -55,7 +55,7 @@ DRIFT_KEYS = ("dt", "rdrift", "sderr", "uderr")
 
 def _resid_one(x, h, d, rd_frozen, drift_dt):
     """Residual blocks [N, 3] for one track; rd_frozen is used for the drift radius when not drift_dt."""
-    a0, b0, a1, b1, t0 = x
+    a0, b0, a1, b1, t0 = x[0], x[1], x[2], x[3], x[4]
     p0 = jnp.array([a0, 0.0, b0])
     dvec = jnp.array([a1, -1.0, b1])
     u = dvec / jnp.linalg.norm(dvec)
@@ -71,7 +71,7 @@ def _resid_one(x, h, d, rd_frozen, drift_dt):
     lsign = jnp.sign(jnp.sum(jnp.cross(sdir, jnp.broadcast_to(u, sdir.shape)) * delta, -1))
     lsign = jnp.where(lsign == 0, 1.0, lsign)
     doca = jnp.sqrt(jnp.sum(delta * delta, -1) + 1e-30) * lsign
-    v = MOM / jnp.hypot(MOM, MMU) * C
+    v = (x[5] / jnp.hypot(x[5], MMU) if x.shape[0] > 5 else MOM / jnp.hypot(MOM, MMU)) * C   # F1: momentum is x[5]
     dT = h["tmeas"] - (h["hlen"] - h["esign"] * sw) / h["vsig"] - (t0 + st / v)
     rd_live = jnp.interp(dT, d["dt"], d["rdrift"])
     rdrift = rd_live if drift_dt else rd_frozen
@@ -173,7 +173,7 @@ def _hitgeom(x, h, d, cov):
     _, dT, rd_live, doca = _resid_one(x, h, d, None, True)
     J = jax.jacfwd(lambda xx: _resid_one(xx, h, d, None, True)[3])(x)
     docavar = jnp.einsum("ni,ij,nj->n", J, cov, J)
-    a0, b0, a1, b1, _ = x
+    a0, b0, a1, b1 = x[0], x[1], x[2], x[3]
     p0 = jnp.array([a0, 0.0, b0]); u = jnp.array([a1, -1.0, b1]); u = u / jnp.linalg.norm(u)
     m, w = h["mid"], h["wdir"]
     c = w @ u

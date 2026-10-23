@@ -438,6 +438,8 @@ def main(argv=None):
     g.add_argument("--max-tracks", type=int, default=None)
     g.add_argument("--chunk", type=int, default=512)
     g.add_argument("--no-material", action="store_true", help="switch the straw crossings off (F2-equivalent model)")
+    g.add_argument("--straw-axis", default=None, help="TrkAlignStraw table (dbTool print-run --content): crossings use the "
+                   "straw axis (KKStrawXing strawLine) rebuilt from the aligned wire ends, not the wire")
     g.add_argument("--outdir", default="plots/reco-vr2f1")
     v3 = sub.add_parser("vr3")
     v3.add_argument("inputs", nargs="+")
@@ -448,7 +450,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     if a.cmd == "vr2f1":
         from . import vr_f1
-        return vr_f1.run(a.input, a.outdir, a.conditions, a.settings, a.max_tracks, a.chunk, not a.no_material)
+        return vr_f1.run(a.input, a.outdir, a.conditions, a.settings, a.max_tracks, a.chunk, not a.no_material, a.straw_axis)
     if a.cmd == "vr3":
         return vr3(a.inputs, a.outdir, a.conditions, a.settings, a.niter)
     if a.cmd == "vr2":

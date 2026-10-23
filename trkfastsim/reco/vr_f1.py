@@ -30,7 +30,21 @@ def _pad(rows_trk, vals, ntrk, fill):
     return out, cnt
 
 
-def read_inputs(path, cond, settings, max_tracks=None):
+def _straw_axes(path, cond, table):
+    """Straw axes for the crossings (strawaxis.straw_axes) from the dump's aligned wire ends + TrkAlignStraw."""
+    from . import strawaxis
+    c = uproot.open(path)["trkdump/conditions"].arrays(["sid", "wcalx", "wcaly", "wcalz", "whvx", "whvy", "whvz"],
+                                                       library="np")
+    sid = c["sid"][0].astype(np.int64)
+    us = hitreco.unique_straw(sid)
+    S = len(cond["straw"]["midx"])
+    wc, wh = np.zeros((S, 3)), np.zeros((S, 3))
+    wc[us] = np.stack([c["wcalx"][0], c["wcaly"][0], c["wcalz"][0]], 1)
+    wh[us] = np.stack([c["whvx"][0], c["whvy"][0], c["whvz"][0]], 1)
+    return strawaxis.straw_axes(cond["straw"], wc, wh, strawaxis.read_trkalignstraw(table))
+
+
+def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None):
     """One dump file -> per-track seed, padded hits (linefit.build_hits) with stock states, padded crossings, stock
     reference values. Only events with one seed and one KKLine fit, and only FitOK fits."""
     d = hitreco.read_digis([path])
@@ -71,8 +85,12 @@ def read_inputs(path, cond, settings, max_tracks=None):
     ctrk = np.repeat(np.arange(ntrk), ns)
     us = hitreco.unique_straw(flat("kst_sid").astype(np.int64))
     stc = cond["straw"]
-    mid = np.stack([stc["midx"][us], stc["midy"][us], stc["midz"][us]], 1)
-    wdir = np.stack([stc["dirx"][us], stc["diry"][us], stc["dirz"][us]], 1)
+    if straw_axis:
+        smid, sdir = _straw_axes(path, cond, straw_axis)
+        mid, wdir = smid[us], sdir[us]
+    else:
+        mid = np.stack([stc["midx"][us], stc["midy"][us], stc["midz"][us]], 1)
+        wdir = np.stack([stc["dirx"][us], stc["diry"][us], stc["dirz"][us]], 1)
     X = {}
     X["mid"], cnt = _pad(ctrk, mid, ntrk, 0.0)
     X["wdir"], _ = _pad(ctrk, wdir, ntrk, 0.0)
@@ -96,7 +114,7 @@ def _jnp_tree(dct, keys=None):
     return {k: jnp.asarray(v) for k, v in dct.items() if keys is None or k in keys}
 
 
-def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, material=True):
+def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, material=True, straw_axis=None):
     import jax
     import jax.numpy as jnp
     cache = os.environ.get("F1_JAX_CACHE")
@@ -108,7 +126,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     os.makedirs(outdir, exist_ok=True)
     cond = hitreco.load_conditions(conditions)
     t0 = time.perf_counter()
-    x0, H, X, ref, drift, ntrk = read_inputs(path, cond, settings, max_tracks)
+    x0, H, X, ref, drift, ntrk = read_inputs(path, cond, settings, max_tracks, straw_axis or os.environ.get("F1_STRAWAXIS"))
     t_read = time.perf_counter() - t0
     dj = {k: jnp.asarray(np.asarray(drift[k], np.float64)) for k in DRIFT_KEYS}
     ann = K.load_anns()
@@ -250,7 +268,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         dx = np.zeros(5); dx[k] = eps[k]
         Jk[:, :, k] = (klv(xf + dx) - klv(xf - dx)) / (2 * eps[k])
     Ck = np.einsum("tij,tjk,tlk->til", Jk, Cf, Jk)
-    res = {"input": path, "n_tracks": ntrk, "material": material, "read_s": t_read, "first_chunk_s": first,
+    res = {"input": path, "n_tracks": ntrk, "material": material, "straw_axis": straw_axis or os.environ.get("F1_STRAWAXIS"), "read_s": t_read, "first_chunk_s": first,
            "timing": timing, "backend": jax.default_backend(),
            **res_piece, "final_status_counts": np.bincount(stat[:, -1], minlength=8).tolist(), "good_frac": float(good.mean()),
            "iterations_per_stage_q50": np.median(np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1), 0).tolist(),

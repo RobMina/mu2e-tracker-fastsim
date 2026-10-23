@@ -405,6 +405,7 @@ MAXDVAR = 2.4 * 2.4 / 3.0              # DriftInfo::maxdvar_
 PARALLEL = __import__("os").environ.get("F1_SEQUENTIAL", "1") != "1"
 FILTER = __import__("os").environ.get("F1_FILTER", "cov")       # cov (RTS over crossings) or info (two-filter)
 SCATSCALE = float(__import__("os").environ.get("F1_SCATSCALE", "1"))   # diagnostic only: scale on the scattering variance
+FIXED_NULLDV_ALL = __import__("os").environ.get("F1_FIXED_NULLDV", "0") == "1"
 UNROLL = int(__import__("os").environ.get("F1_UNROLL", "8"))      # scan steps fused per loop iteration
 CONVERGED, UNCONVERGED, LOWNDOF, GAPDIV, PARDIV, CHIDIV, FAILED = 0, 1, 2, 3, 4, 5, 7
 
@@ -648,7 +649,10 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
         good_seed = c["good_seed"] & ~(sg["gate"] & gate_fail)
         st2, dvar, _ = update_states(c["st"], c["xu"], c["Cu"], h, d, sg, ann)
         if fixed is not None:
-            st2 = dict(st2, active=fixed["active"] & h["valid"], lr=fixed["lr"], nulldv=fixed["nulldv"])
+            # null hits take the variance of the stage's flag (NullDriftVar only from the 3rd CHDRIFTEXT stage), unless
+            # F1_FIXED_NULLDV=1 (NullDriftVar in every stage, the earlier diagnostic)
+            ndv = fixed["nulldv"] & (sg["cad_nulldv"] | FIXED_NULLDV_ALL)
+            st2 = dict(st2, active=fixed["active"] & h["valid"], lr=fixed["lr"], nulldv=ndv)
             _, _, rdu, dTu, _, _, _, _ = hit_geometry(c["xu"], c["Cu"], h, d)
             sd, ud = jnp.interp(dTu, d["dt"], d["sderr"]), jnp.interp(dTu, d["dt"], d["uderr"])
             rdp = jnp.maximum(rdu, 0.0)

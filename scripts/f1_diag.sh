@@ -19,6 +19,8 @@ for v in ${VARIANTS:-base xstock noscat}; do
     scat05) run scat05 F1_SCATSCALE=0.5 ;;
     pstock) run pstock F1_PATHS=stock F1_XACT=stock ;;
     scat07) run scat07 F1_SCATSCALE=0.7 ;;
+    saxis) run saxis F1_STRAWAXIS=$D/align/TrkAlignStraw.csv ;;
+    saxis_pstock) run saxis_pstock F1_STRAWAXIS=$D/align/TrkAlignStraw.csv F1_PATHS=stock F1_XACT=stock ;;
     tight) run tight F1_CONVSCALE=0.001 F1_MAXNITER=40 ;;
     scat14) run scat14 F1_SCATSCALE=1.4 ;;
   esac

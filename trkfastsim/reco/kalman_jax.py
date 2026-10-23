@@ -168,3 +168,89 @@ def smoothed(fs, eff):
     Cu = jnp.linalg.inv(fs["W"] - dW)
     xu = jnp.einsum("eij,ej->ei", Cu, fs["b"] - db)
     return x, C, xu, Cu
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Part 3a: effects from the current reference pieces, and one algebraic iteration (Track::iterate) with fixed states.
+# Effects are kept in natural order (N hits then M crossings); each carries the parameters and covariance of the
+# piece it belonged to after the previous iteration (its reference). Sorted by track length inside the iteration.
+from .linefit_jax import _resid_one  # noqa: E402
+
+MAXDVAR = 2.4 * 2.4 / 3.0                          # DriftInfo::maxdvar_ (null hits without the NullDriftVar flag)
+
+
+def _one_hit(h, i):
+    return {k: v[i:i + 1] for k, v in h.items()}
+
+
+def hit_rows(xref_h, h, d):
+    """Per hit at its own reference: residual rows r [N, 3], Jacobian H [N, 3, 5] with the drift radius frozen (no
+    DriftDt, dDdT = 0), deltaT [N], live rDrift [N], DOCA [N] and track length s [N] of the POCA to the wire."""
+    def one(x, hi):
+        r, dT, rd, doca = _resid_one(x, hi, d, None, True)
+        rf = jax.lax.stop_gradient(rd)
+        J = jax.jacfwd(lambda xx: _resid_one(xx, hi, d, rf, False)[0])(x)
+        s = straw_poca(x, hi["mid"], hi["wdir"])[0]
+        return r[0], J[0], dT[0], rd[0], doca[0], s[0]
+    hs = {k: v[:, None] for k, v in h.items()}
+    return jax.vmap(one)(xref_h, hs)
+
+
+def drift_variance(h, d, dT, nulldriftvar):
+    """KKStrawHit::updateWHS dVar_: drift hits sderr(dT)^2; null hits rDrift^2 + uderr^2 with the NullDriftVar flag,
+    else DriftInfo::maxdvar_."""
+    sd = jnp.interp(dT, d["dt"], d["sderr"])
+    ud = jnp.interp(dT, d["dt"], d["uderr"])
+    rd = jnp.maximum(0.0, jnp.interp(dT, d["dt"], d["rdrift"]))
+    return jnp.where(h["lr"] != 0, sd * sd, jnp.where(nulldriftvar, rd * rd + ud * ud, MAXDVAR))
+
+
+def crossing_rows(xref_c, cref_c, crs, nsig, varscale):
+    """Per crossing at its own reference piece: s, Q [M, 5, 5], DOCA, paths."""
+    def one(x, C, mid, wdir):
+        e = crossing_effects(x, C, mid[None], wdir[None], jnp.array([True]), nsig, varscale)
+        return {k: v[0] for k, v in e.items()}
+    return jax.vmap(one)(xref_c, cref_c, crs["mid"], crs["wdir"])
+
+
+def iterate_once(xe, Ce, h, crs, d, hstate, xact, cfg, prior):
+    """One Track::iterate for one track.
+    xe [E, 5], Ce [E, 5, 5]: reference parameters/covariance per effect (E = N + M, natural order).
+    hstate: dict active [N], lr [N], dvar [N] (frozen at the meta-iteration's state update).
+    xact [M]: crossing active (KKStrawXing::active: |DOCA| < SXU maxdoca at the update, or its hit active).
+    cfg: dict varscale, nsig, sxscale (varscale applied to crossings if the SXU scales with temperature).
+    prior: dict xf, Cf, xb, Cb (front/back pieces of the previous fit) deweighted here by dwt / varscale.
+    Returns the new per-effect pieces (natural order), chi2, ndof, front/back new parameters and validity."""
+    N = h["active"].shape[0]
+    hh = dict(h, active=hstate["active"], lr=hstate["lr"])
+    r, Hj, dT, rd, doca, s_h = hit_rows(xe[:N], hh, d)
+    vs = cfg["varscale"]
+    mvar = jnp.stack([hstate["dvar"], h["tvar"], h["uvar"]], -1)
+    act = hstate["active"]
+    w = jnp.where(act[:, None], 1.0 / (mvar * vs), 0.0)
+    ce = crossing_rows(xe[N:], Ce[N:], crs, cfg["nsig"], cfg["sxscale"])
+    # bounds: only effects between the first and last active hit are processed (Track::setBounds)
+    big = 1e12
+    smin = jnp.min(jnp.where(act, s_h, big))
+    smax = jnp.max(jnp.where(act, s_h, -big))
+    inb = (ce["s"] > smin) & (ce["s"] < smax) & xact & crs["valid"]
+    M = ce["s"].shape[0]
+    s_all = jnp.concatenate([s_h, jnp.where(inb, ce["s"], big)])
+    order = jnp.argsort(s_all)
+    eff = {"xref": xe, "H": jnp.concatenate([Hj, jnp.zeros((M, 3, 5))]),
+           "r": jnp.concatenate([r, jnp.zeros((M, 3))]), "w": jnp.concatenate([w, jnp.zeros((M, 3))]),
+           "mvar": jnp.concatenate([mvar, jnp.ones((M, 3))]),
+           "Q": jnp.concatenate([jnp.zeros((N, 5, 5)), jnp.where(inb[:, None, None], ce["Q"], 0.0)])}
+    effs = {k: v[order] for k, v in eff.items()}
+    dw = cfg["dwt"] / vs
+    Wf = jnp.linalg.inv(prior["Cf"] * dw)
+    Wb = jnp.linalg.inv(prior["Cb"] * dw)
+    fs = filter_smooth(effs, Wf, Wf @ prior["xf"], Wb, Wb @ prior["xb"])
+    x, C, xu, Cu = smoothed(fs, effs)
+    inv = jnp.argsort(order)
+    Cfront = jnp.linalg.inv(fs["Wfront"])
+    out = {"x": x[inv], "C": C[inv], "xu": xu[inv][:N], "Cu": Cu[inv][:N], "chi2": fs["chi2"], "ndof": fs["ndof"],
+           "xfront": Cfront @ fs["bfront"], "Cfront": Cfront, "xback": x[-1], "Cback": C[-1],
+           "nactive_hits": jnp.sum(act), "s_hit": s_h, "dT": dT, "rdrift": rd, "doca": doca, "xing_inbounds": inb,
+           "xing": ce, "order": order}
+    return out

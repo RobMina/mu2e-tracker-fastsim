@@ -433,6 +433,7 @@ SCATSCALE = float(__import__("os").environ.get("F1_SCATSCALE", "1"))   # diagnos
 FIXED_NULLDV_ALL = __import__("os").environ.get("F1_FIXED_NULLDV", "0") == "1"
 NOHIT_IN_SEED = __import__("os").environ.get("F1_NOHIT_IN_SEED", "0") == "1"   # diagnostic: old behaviour
 REF_AT_TIME = __import__("os").environ.get("F1_REFFRONT", "0") != "1"   # 1: old behaviour (old front piece)
+KL_TEST = __import__("os").environ.get("F1_KLTEST", "1") == "1"   # parameter-change test in KinematicLine parameters
 UNROLL = int(__import__("os").environ.get("F1_UNROLL", "8"))      # scan steps fused per loop iteration
 CONVERGED, UNCONVERGED, LOWNDOF, GAPDIV, PARDIV, CHIDIV, FAILED = 0, 1, 2, 3, 4, 5, 7
 
@@ -664,10 +665,22 @@ def set_status(o, ref, prevcpn, it, cfg):
     change (only from the 2nd iteration of a meta-iteration), ndof, convergence."""
     bad = jnp.any(jnp.diagonal(o["Cfront"]) < 0) | jnp.any(jnp.diagonal(o["Cback"]) < 0) | \
         ~jnp.all(jnp.isfinite(o["x"]))
-    dpf = o["xfront"] - ref["xf"]
-    dpb = o["xback"] - ref["xb"]
-    chif = dpf @ jnp.linalg.solve(ref["Cf"], dpf)
-    chib = dpb @ jnp.linalg.solve(ref["Cb"], dpb)
+    if KL_TEST:
+        # KinKal evaluates the parameter change in the KinematicLine parameters (d0, phi0, z0, theta, t0, mom); the
+        # map from ours is non-linear (d0 and phi0 at the POCA to the z axis), and the reference covariance of nearly
+        # vertical cosmics is close to singular, so the test is evaluated there, not in (a0, b0, a1, b1, t0, mom)
+        def kl_chi2(xn, xr, Cr):
+            Jr = jax.jacfwd(kl_params)(xr)
+            dk = kl_params(xn) - kl_params(xr)
+            dk = dk.at[1].set((dk[1] + jnp.pi) % (2 * jnp.pi) - jnp.pi)
+            return dk @ jnp.linalg.solve(Jr @ Cr @ Jr.T, dk)
+        chif = kl_chi2(o["xfront"], ref["xf"], ref["Cf"])
+        chib = kl_chi2(o["xback"], ref["xb"], ref["Cb"])
+    else:
+        dpf = o["xfront"] - ref["xf"]
+        dpb = o["xback"] - ref["xb"]
+        chif = dpf @ jnp.linalg.solve(ref["Cf"], dpf)
+        chib = dpb @ jnp.linalg.solve(ref["Cb"], dpb)
     cpn = jnp.where(o["ndof"] > 0, o["chi2"] / jnp.maximum(o["ndof"], 1), -1.0)
     dchi = jnp.where(it > 0, cpn - prevcpn, cfg["conv"] + 1e-4)
     st = jnp.where(o["avggap"] > cfg["divgap"], GAPDIV,

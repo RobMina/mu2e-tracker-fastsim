@@ -338,6 +338,20 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     allx = X["valid"] & ok[:, None]
     ours = (np.abs(doca_all) < 2.5) | hact_x
     sa = X["stock_active"]
+    # in bounds (between the first and last active hit along the track), positions on the t0 piece line
+    def s_along(P):
+        a0, b0, a1, b1 = (xf[:, i] for i in range(4))
+        p = np.stack([a0, np.zeros_like(a0), b0], 1)
+        u = np.stack([a1, -np.ones_like(a1), b1], 1)
+        u /= np.linalg.norm(u, axis=1, keepdims=True)
+        return np.einsum("tni,ti->tn", P - p[:, None], u)
+    sh_ = np.where(H["valid"] & H["active"], s_along(H["mid"]), np.nan)
+    sx_ = s_along(X["mid"])
+    inb_x = (sx_ > np.nanmin(sh_, 1)[:, None]) & (sx_ < np.nanmax(sh_, 1)[:, None])
+    mis = (ours != sa) & allx
+    res["crossing_activity_mismatch_inbounds"] = {"mismatches": int(mis.sum()), "in_bounds": int((mis & inb_x).sum()),
+                                                  "in_bounds_doca_q16_50_84": np.quantile(np.abs(doca_all)[mis & inb_x], [.16, .5, .84]).tolist()
+                                                  if (mis & inb_x).any() else None}
     so = ~ours & sa & allx
     res["crossing_activity_stock_only_split"] = {"with_hit": int((so & hhx).sum()), "no_hit": int((so & ~hhx).sum()),
                                                  "with_inactive_hit": int((so & hhx & ~hact_x).sum())}

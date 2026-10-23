@@ -124,3 +124,29 @@ def test_full_schedule_converges_on_toy_tracks():
     assert np.all(np.asarray(hist[0]) == K.CONVERGED)
     sig = np.sqrt(np.diag(np.asarray(cf["Ce"][0])))
     assert np.all(np.abs(np.asarray(cf["xe"][0]) - xt) / sig < 4)
+
+
+def test_covariance_filter_equals_information_filter():
+    xt, h, hj, cj, d, dj = _toy_track(3)
+    N = len(h["lr"])
+    x0 = jnp.asarray(xt + np.array([1.0, -1.0, 0.003, 0.002, 0.5]))
+    C0 = K.seed_covariance(x0)
+    xe, Ce = jnp.tile(x0, (2 * N, 1)), jnp.tile(C0, (2 * N, 1, 1))
+    hs = {"active": hj["active"], "lr": hj["lr"], "dvar": jnp.full(N, 0.15 ** 2)}
+    pr = {"xf": x0, "Cf": C0, "xb": x0, "Cb": C0}
+    out, keep = {}, K.FILTER
+    try:
+        for mode in ("info", "cov"):
+            K.FILTER = mode
+            a = K.iterate_once(xe, Ce, hj, cj, dj, hs, jnp.ones(N, bool), 4.0, 1.0, 50.0, pr, 1e6)
+            out[mode] = K.iterate_once(a["x"], a["C"], hj, cj, dj, hs, jnp.ones(N, bool), 4.0, 1.0, 50.0,
+                                       {"xf": a["xfront"], "Cf": a["Cfront"], "xb": a["xback"], "Cb": a["Cback"]}, 1e6)
+    finally:
+        K.FILTER = keep
+    A, B = out["info"], out["cov"]
+    for k, c in (("x", "C"), ("xu", "Cu")):
+        sig = np.sqrt(np.diagonal(np.asarray(A[c]), axis1=1, axis2=2))
+        assert np.max(np.abs(np.asarray(A[k]) - np.asarray(B[k])) / sig) < 1e-6
+        np.testing.assert_allclose(np.asarray(B[c]), np.asarray(A[c]), rtol=1e-6, atol=1e-12)
+    assert float(B["chi2"]) == pytest.approx(float(A["chi2"]), rel=1e-9)
+    assert float(B["avggap"]) == pytest.approx(float(A["avggap"]), rel=1e-6, abs=1e-9)

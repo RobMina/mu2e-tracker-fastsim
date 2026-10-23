@@ -144,8 +144,23 @@ def _add_noise(W, b, D, sv):
 INV = __import__("os").environ.get("F1_INV", "lu")             # lu (jnp.linalg.inv) or chol
 
 
+def gj_inv(M):
+    """Unrolled Gauss-Jordan inverse of [..., n, n] matrices without pivoting (SPD inputs), elementwise jnp ops only,
+    so XLA fuses it with the surrounding code instead of calling a batched LU kernel."""
+    n = M.shape[-1]
+    A = jnp.concatenate([M, jnp.broadcast_to(jnp.eye(n, dtype=M.dtype), M.shape)], -1)
+    for k in range(n):
+        piv = A[..., k:k + 1, :] / A[..., k:k + 1, k:k + 1]
+        A = A - A[..., :, k:k + 1] * piv
+        A = jnp.concatenate([A[..., :k, :], piv, A[..., k + 1:, :]], -2)
+    return A[..., n:]
+
+
 def spd_inv(M):
-    """Inverse of symmetric positive-definite matrices [..., 5, 5]: LU (default) or Cholesky (F1_INV=chol)."""
+    """Inverse of symmetric positive-definite matrices [..., 5, 5]: LU (default), unrolled Gauss-Jordan (F1_INV=gj) or
+    Cholesky (F1_INV=chol)."""
+    if INV == "gj":
+        return gj_inv(M)
     if INV != "chol":
         return jnp.linalg.inv(M)
     L = jnp.linalg.cholesky(0.5 * (M + jnp.swapaxes(M, -1, -2)))
@@ -265,13 +280,100 @@ def filter_smooth_par(eff, Cf0, xf0, Cb0, xb0):
     xdown = jnp.concatenate([bB[:E - 1][::-1], xb0[None]])
     Cdown = jnp.concatenate([CB[:E - 1][::-1], Cb0[None]])
     # output E-k-2 is the prediction after Q_{k+1}, before hit k+1: add hit k+1 (information form)
-    WF = jnp.linalg.inv(CF)
-    WP = jnp.linalg.inv(Cdown)
+    WF = spd_inv(CF)
+    WP = spd_inv(Cdown)
     Jn = jnp.concatenate([Jm[1:], jnp.zeros((1, 5, 5))])
     en = jnp.concatenate([eta[1:], jnp.zeros((1, 5))])
     W = WF + WP + Jn
     bvec = jnp.einsum("eij,ej->ei", WF, bF) + jnp.einsum("eij,ej->ei", WP, xdown) + en
     return {"W": W, "b": bvec, "chi2": jnp.sum(c), "ndof": jnp.sum(n) - 5}
+
+
+# Covariance-form filter with a crossing-only RTS smoother (default, F1_FILTER=cov). With no field the parameters are
+# global, so the smoothed line is constant between crossings: piece p = effects after crossing p-1 up to crossing p.
+# Forward: hits are 3-row updates (closed-form 3x3 inverse), crossings add Q (no inverse). The back prior enters as a
+# pseudo-measurement of the last piece, which makes the result equal to KinKal's forward + backward combination.
+# Backward: Rauch-Tung-Striebel over the crossing slots only. Unbiased hit parameters: 3x3 downdate of the piece.
+
+def _inv3(S):
+    """Closed-form inverse of [..., 3, 3] matrices (adjugate / determinant)."""
+    a, b, c = S[..., 0, 0], S[..., 0, 1], S[..., 0, 2]
+    d, e, f = S[..., 1, 0], S[..., 1, 1], S[..., 1, 2]
+    g, h, i = S[..., 2, 0], S[..., 2, 1], S[..., 2, 2]
+    A = e * i - f * h
+    B = -(d * i - f * g)
+    Cc = d * h - e * g
+    det = a * A + b * B + c * Cc
+    adj = jnp.stack([jnp.stack([A, -(b * i - c * h), b * f - c * e], -1),
+                     jnp.stack([B, a * i - c * g, -(a * f - c * d)], -1),
+                     jnp.stack([Cc, -(a * h - b * g), a * e - b * d], -1)], -2)
+    return adj / det[..., None, None]
+
+
+def _hit_update(x, C, e):
+    """Gauss-Newton update of (x, C) by one hit's rows: x' = x - C A^T (I + A C A^T)^-1 sqrt(w) res(x), A = sqrt(w) H;
+    exact for w = 0 rows (inactive)."""
+    sw = jnp.sqrt(e["w"])
+    A = sw[:, None] * e["H"]
+    CA = C @ A.T                                         # [5, 3]
+    Sinv = _inv3(jnp.eye(3) + A @ CA)
+    res = e["r"] + e["H"] @ (x - e["xref"])
+    xn = x - CA @ (Sinv @ (sw * res))
+    Cn = C - CA @ Sinv @ CA.T
+    return xn, 0.5 * (Cn + Cn.T)
+
+
+def filter_smooth_cov(eff, isx, Cf0, xf0, Cb0, xb0):
+    """One algebraic iteration in covariance form. isx [E]: effect is a crossing slot (sorted order). Returns the
+    piece of each effect (x, C), forward chi2/ndof, and the pre-crossing states needed for gaps."""
+    E = isx.shape[0]
+
+    def fwd(carry, e):
+        x, C = carry
+        res = e["r"] + e["H"] @ (x - e["xref"])
+        var = e["mvar"] + jnp.einsum("ki,ij,kj->k", e["H"], C, e["H"])
+        act = e["w"] > 0
+        c = jnp.sum(jnp.where(act, res * res / jnp.where(act, var, 1.0), 0.0))
+        xh, Ch = _hit_update(x, C, e)
+        Qe = e["sv"] * (e["D"] @ e["D"].T)
+        return (xh, Ch + Qe), (x, C, c, jnp.sum(act))
+
+    (xe_, Ce_), (xpre, Cpre, c, n) = jax.lax.scan(fwd, (xf0, Cf0), eff)
+    # back prior as a pseudo-measurement of the last piece
+    Wsum = spd_inv(Ce_) + spd_inv(Cb0)
+    Cl = spd_inv(Wsum)
+    xl = Cl @ (spd_inv(Ce_) @ xe_ + spd_inv(Cb0) @ xb0)
+    return xpre, Cpre, jnp.sum(c), jnp.sum(n) - 5, xl, Cl
+
+
+def _rts(xpre_x, Cpre_x, Q_x, xl, Cl):
+    """Backward RTS over crossing slots (pre-crossing forward states, their Q), from the last piece (xl, Cl).
+    Returns pieces [M + 1]: piece j is before crossing j, piece M is the last."""
+    def bwd(carry, z):
+        xs, Cs = carry
+        xf, Cf, Q = z
+        Cp = Cf + Q
+        G = jnp.linalg.solve(Cp, Cf).T                   # Cf Cp^-1 (symmetric)
+        xn = xf + G @ (xs - xf)
+        Cn = Cf + G @ (Cs - Cp) @ G.T
+        Cn = 0.5 * (Cn + Cn.T)
+        return (xn, Cn), (xn, Cn)
+
+    _, (xs, Cs) = jax.lax.scan(bwd, (xl, Cl), (xpre_x, Cpre_x, Q_x), reverse=True)
+    return jnp.concatenate([xs, xl[None]]), jnp.concatenate([Cs, Cl[None]])
+
+
+def unbiased_hits(x, C, H, r, xref, w):
+    """Per hit: parameters without the hit's own rows, from its piece (x, C): C_u = C + C A^T (I - A C A^T)^-1 A C,
+    x_u = x + C_u H^T w res(x)."""
+    sw = jnp.sqrt(w)
+    A = sw[..., :, None] * H
+    CA = C @ jnp.swapaxes(A, -1, -2)
+    Si = _inv3(jnp.eye(3) - A @ CA)
+    Cu = C + CA @ Si @ jnp.swapaxes(CA, -1, -2)
+    res = r + (H @ (x - xref)[..., None])[..., 0]
+    xu = x + (Cu @ (jnp.swapaxes(H, -1, -2) @ (w * res)[..., None]))[..., 0]
+    return xu, 0.5 * (Cu + jnp.swapaxes(Cu, -1, -2))
 
 
 def smoothed(fs, eff):
@@ -301,6 +403,7 @@ MAXDVAR = 2.4 * 2.4 / 3.0              # DriftInfo::maxdvar_
 # sequential lax.scan filter by default (measured faster on CPU and on an A100 slice); F1_SEQUENTIAL=0 selects
 # the associative-scan version
 PARALLEL = __import__("os").environ.get("F1_SEQUENTIAL", "1") != "1"
+FILTER = __import__("os").environ.get("F1_FILTER", "cov")       # cov (RTS over crossings) or info (two-filter)
 UNROLL = int(__import__("os").environ.get("F1_UNROLL", "8"))      # scan steps fused per loop iteration
 CONVERGED, UNCONVERGED, LOWNDOF, GAPDIV, PARDIV, CHIDIV, FAILED = 0, 1, 2, 3, 4, 5, 7
 
@@ -430,14 +533,39 @@ def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dw
            "sv": jnp.concatenate([jnp.zeros(N), jnp.where(inb, ce["scatvar"], 0.0)])}
     effs = {k: v[order] for k, v in eff.items()}
     dw = dwt / varscale
+    isx = jnp.concatenate([jnp.zeros(N, bool), inb])[order]
+    if FILTER == "cov":
+        E = N + M
+        xpre, Cpre, chi2, ndof, xl, Cl = filter_smooth_cov(effs, isx, prior["Cf"] * dw, prior["xf"], prior["Cb"] * dw,
+                                                           prior["xb"])
+        ar = jnp.arange(E)
+        xpos = jnp.argsort(jnp.where(isx, ar, E + ar))[:M]          # crossing slots in order, then padding
+        vx = isx[xpos]
+        Qx = jnp.where(vx[:, None, None], effs["sv"][xpos][:, None, None] * effs["D"][xpos] @
+                       jnp.swapaxes(effs["D"][xpos], -1, -2), 0.0)
+        Px, PC = _rts(xpre[xpos], Cpre[xpos], Qx, xl, Cl)             # pieces [M + 1]
+        pidx = jnp.cumsum(isx)                                         # piece of each sorted effect
+        xs_, Cs_ = Px[pidx], PC[pidx]
+        tx = effs["xref"][xpos, 4] + s_all[order][xpos] / V
+        gaps = jax.vmap(lambda a, b, t: jnp.linalg.norm(_pos(a, t) - _pos(b, t)))(Px[1:], Px[:-1], tx)
+        ngap = jnp.sum(vx)
+        avggap = jnp.where(ngap > 0, jnp.sum(jnp.where(vx, gaps, 0.0)) / jnp.maximum(ngap, 1), 0.0)
+        inv = jnp.argsort(order)
+        x, C = xs_[inv], Cs_[inv]
+        xu, Cu = unbiased_hits(x[:N], C[:N], Hj, r, xe[:N], w)
+        acts = effs["w"].sum(-1) > 0
+        first = jnp.argmax(acts)
+        last = (E - 1) - jnp.argmax(acts[::-1])
+        return {"x": x, "C": C, "xu": xu, "Cu": Cu, "chi2": chi2, "ndof": ndof,
+                "xfront": xs_[first], "Cfront": Cs_[first], "xback": xs_[last], "Cback": Cs_[last], "avggap": avggap,
+                "s_hit": s_h, "inbounds": inb, "xing": ce, "nact": jnp.sum(act)}
     if PARALLEL:
         fs = filter_smooth_par(effs, prior["Cf"] * dw, prior["xf"], prior["Cb"] * dw, prior["xb"])
     else:
-        Wf, Wb = jnp.linalg.inv(prior["Cf"] * dw), jnp.linalg.inv(prior["Cb"] * dw)
+        Wf, Wb = spd_inv(prior["Cf"] * dw), spd_inv(prior["Cb"] * dw)
         fs = filter_smooth(effs, Wf, Wf @ prior["xf"], Wb, Wb @ prior["xb"])
     x, C, xu, Cu = smoothed(fs, effs)
     # pieces: a new piece starts at each in-bounds crossing; gap = position jump at the crossing time
-    isx = jnp.concatenate([jnp.zeros(N, bool), inb])[order]
     tx = effs["xref"][:, 4] + s_all[order] / V
     xprev = jnp.concatenate([x[:1], x[:-1]])
     gaps = jax.vmap(lambda a, b, t: jnp.linalg.norm(_pos(a, t) - _pos(b, t)))(x, xprev, tx)

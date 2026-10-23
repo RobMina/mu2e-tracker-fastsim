@@ -132,23 +132,14 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     f10 = jax.jit(jax.vmap(lambda x, h, c, fx: one(x, h, c, fx, 10)))
 
     def f(*args):
+        """Pass 1 only; returns outputs and the chunk-local indices that reached the cap (refitted later, all
+        chunks of a bucket shape together)."""
         t1 = time.perf_counter()
         o = f1(*args)
         jax.block_until_ready(o)
         stats["pass1_s"].append(time.perf_counter() - t1)
         it = np.diff(np.concatenate([np.zeros((o[5].shape[0], 1)), np.asarray(o[5])], 1), axis=1)
-        redo = np.flatnonzero((it >= FAST_NITER).any(1))
-        stats["redo"] += int(len(redo))
-        if len(redo) == 0:
-            return o
-        nr = max(256, int(2 ** np.ceil(np.log2(len(redo)))))          # few shapes: few compiles
-        sel = np.concatenate([redo, np.repeat(redo[-1:], nr - len(redo))])
-        sub = jax.tree_util.tree_map(lambda a: a[sel], args)
-        t2 = time.perf_counter()
-        o2 = f10(*sub)
-        jax.block_until_ready(o2)
-        stats["pass2_s"].append(time.perf_counter() - t2)
-        return [_put(np.asarray(a), np.asarray(b)[:len(redo)], redo) for a, b in zip(o, o2)]
+        return o, np.flatnonzero((it >= FAST_NITER).any(1))
 
     stats = {"redo": 0, "pass1_s": [], "pass2_s": []}
     # size buckets: tracks sorted by (hits, crossings) and padded per chunk to the next power of two (>= 16), so a
@@ -156,11 +147,12 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     nh = Hn["valid"].sum(1)
     nx = Xn["valid"].sum(1)
     p2 = lambda n, lo: np.maximum(lo, 2 ** np.ceil(np.log2(np.maximum(n, 1)))).astype(int)
-    key = p2(nh, 32) * 4096 + p2(nx, 64)
+    Nf, Mf = Hn["valid"].shape[1], Xn["valid"].shape[1]
+    NMAIN, MMAIN = int(os.environ.get("F1_MAIN_HITS", "32")), int(os.environ.get("F1_MAIN_XINGS", "64"))
+    key = ((nh > NMAIN) | (nx > MMAIN)).astype(int)                 # 0 main bucket, 1 overflow
     order = np.lexsort((nx, nh, key))
     res_x = [None] * 9
-    outs_idx, outs, t_fit, first, shapes, btr = [], [], 0.0, None, {}, {}
-    Nf, Mf = Hn["valid"].shape[1], Xn["valid"].shape[1]
+    outs_idx, outs, t_fit, first, shapes, btr, pend = [], [], 0.0, None, {}, {}, {}
     # chunks never straddle two buckets; the last chunk of a bucket is padded to a power of two (>= 256) of tracks
     ks = key[order]
     starts = np.flatnonzero(np.r_[True, ks[1:] != ks[:-1]])
@@ -168,7 +160,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     done = 0
     for s0, s1 in bounds:
         idx = order[s0:s1]
-        Nb, Mb = min(int(p2(nh[idx].max(), 32)), Nf), min(int(p2(nx[idx].max(), 64)), Mf)
+        Nb, Mb = (NMAIN, MMAIN) if key[idx[0]] == 0 else (Nf, Mf)
         n = len(idx)
         padn = (chunk if n == chunk else max(256, int(2 ** np.ceil(np.log2(n))))) - n
         pad = lambda a: np.concatenate([a, np.repeat(a[-1:], padn, 0)]) if padn else a
@@ -176,9 +168,11 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
                 {k: jnp.asarray(pad(v[idx][:, :Mb])) for k, v in Xn.items()},
                 {k: jnp.asarray(pad(v[idx][:, :Nb])) for k, v in fixed.items()})
         tt = time.perf_counter()
-        o = f(*args)
-        jax.block_until_ready(o)
+        o, redo = f(*args)
         dt = time.perf_counter() - tt
+        redo = redo[redo < n]
+        if len(redo):
+            pend.setdefault("all", []).append((len(outs), redo, idx[redo]))
         new_shape = (Nb, Mb, n + padn) not in shapes
         shapes[(Nb, Mb, n + padn)] = 1
         btr[(Nb, Mb)] = btr.get((Nb, Mb), 0) + n
@@ -186,7 +180,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
             first = dt
         elif not new_shape:
             t_fit += dt
-        o = [np.asarray(a)[:n] for a in o]
+        o = [np.asarray(a)[:n].copy() for a in o]
         # per-effect pieces back to the full padded width (hits N, crossings M) for the analysis below
         for j in (7, 8):
             full = np.zeros((n, Nf + Mf) + o[j].shape[2:])
@@ -198,8 +192,38 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         done += n
         print(f"vr2f1: {done}/{ntrk} tracks, bucket N={Nb} M={Mb} ({n} + {padn} pad), {dt:.2f} s{' (compile)' if new_shape else ''}",
               flush=True)
+    # pass 2: every capped track refitted at MaxNIter 10 in one call at the widest shape needed (padded tracks repeat
+    # the last one); results written back into each chunk's outputs
+    for _, items in pend.items():
+        gidx = np.concatenate([it_[2] for it_ in items])
+        nr = len(gidx)
+        stats["redo"] += nr
+        Nb = int(min(Nf, max(NMAIN, p2(nh[gidx].max(), 32)))) if nr else NMAIN
+        Mb = int(min(Mf, max(MMAIN, p2(nx[gidx].max(), 64)))) if nr else MMAIN
+        npad = max(256, int(2 ** np.ceil(np.log2(nr)))) - nr
+        sel = np.concatenate([gidx, np.repeat(gidx[-1:], npad)])
+        args = (jnp.asarray(x0[sel]), {k: jnp.asarray(v[sel][:, :Nb]) for k, v in Hn.items()},
+                {k: jnp.asarray(v[sel][:, :Mb]) for k, v in Xn.items()}, {k: jnp.asarray(v[sel][:, :Nb]) for k, v in fixed.items()})
+        t2 = time.perf_counter()
+        o2 = f10(*args)
+        jax.block_until_ready(o2)
+        stats["pass2_s"].append(round(time.perf_counter() - t2, 3))
+        stats["pass2_shape"] = [Nb, Mb, nr + npad]
+        o2 = [np.asarray(a)[:nr] for a in o2]
+        k = 0
+        for io, redo, _ in items:
+            for j in range(9):
+                v = o2[j][k:k + len(redo)]
+                if j in (7, 8):
+                    full = np.zeros((len(redo), Nf + Mf) + v.shape[2:])
+                    full[:, :Nb] = v[:, :Nb]
+                    full[:, Nf:Nf + Mb] = v[:, Nb:]
+                    v = full
+                outs[io][j][redo] = v
+            k += len(redo)
     inv = np.argsort(np.concatenate(outs_idx))
-    timing = {"pass1_s": [round(x, 3) for x in stats["pass1_s"]], "pass2_s": [round(x, 3) for x in stats["pass2_s"]],
+    timing = {"pass1_s": [round(x, 3) for x in stats["pass1_s"]], "pass2_s": stats["pass2_s"],
+              "pass2_shape": stats.get("pass2_shape"), "total_fit_s": round(sum(stats["pass1_s"]) + sum(stats["pass2_s"]), 3),
               "refit_with_maxniter10": stats["redo"], "fast_niter": FAST_NITER, "bucket_tracks": {f"{a}x{b}": c for (a, b), c in btr.items()}, "n_compiles": len(shapes),
               "warm_fit_s": t_fit}
     xf, Cf, stat, chi2, ndof, niter, good, xe, Ce = (np.concatenate([o[i] for o in outs])[inv] for i in range(9))

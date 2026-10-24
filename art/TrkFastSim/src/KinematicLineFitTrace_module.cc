@@ -268,15 +268,17 @@ namespace mu2e {
           // per iteration of the last meta-iteration of this stage: MaxNIter 1..n (n = iterations stock used); the
           // earlier meta-iterations keep the stock MaxNIter, so their result is unchanged
           if (!periter_) continue;
-          int nit = 0;
-          for (auto const& h : trk->history()) if ((int)h.miter_ == trk->fitStatus().miter_) nit = std::max(nit, (int)h.iter_ + 1);
-          for (int m = 1; m < nit; ++m) {
+          unsigned nit = 0;
+          unsigned const lastmeta = trk->fitStatus().miter_;
+          for (auto const& h : trk->history())
+            if (h.miter_ == lastmeta) nit = std::max(nit, h.iter_ + 1);
+          for (unsigned m = 1; m < nit; ++m) {
             Config c = extcfgs_[k];
             c.maxniter_ = m;   // applies to every meta-iteration of the extension: only valid if the earlier ones
                                // converged within m iterations; recorded per row so the reader can check
             auto t2 = build(config_);
             kkfit_.extendTrack(c, *kkbf_, *tracker, *strawresponse, chcol, *calo_h, cc_H, *t2);
-            maxit_ = m;
+            maxit_ = static_cast<int>(m);
             record(*t2, iseed, seedcfgs_.size() + k, true);
           }
         }

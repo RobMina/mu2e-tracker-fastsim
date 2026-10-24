@@ -155,6 +155,9 @@ def build_parser():
             sp.add_argument("--hits", nargs="+", default=None, metavar="ROOT", help="fast-arm StrawHitTableDumper tables")
             sp.add_argument("--hits-ref", nargs="+", default=None, metavar="ROOT", help="G4-arm StrawHitTableDumper tables")
             sp.add_argument("--tot-breakdown", action="store_true", help="track-hit TOT/edep by true relation and true path length")
+        if name == "msccheck":
+            sp.add_argument("--spans", default=None, metavar="M,...",
+                            help="span mode: beta p theta over spans of M good steps (e.g. 1,4,10,20) instead of pairs")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")
             sp.add_argument("--merge", action="store_true", help="inputs are --emit JSONs: sum and report")

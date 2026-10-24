@@ -12,7 +12,15 @@ plus single scattering); the support class tests the support model. The G4 pairs
 located (plane, radius from the tracker axis, support x/X0 between them) in msccheck_g4_tail.csv, to find material the
 fast model lacks.
 
-    msccheck FAST.root [...] --compare G4.root [...] --gdml mu2e_extracted_v04.gdml --outdir DIR
+    msccheck FAST.root [...] --compare G4.root [...] --gdml mu2e_extracted_v04.gdml --outdir DIR [--spans 1,4,10,20]
+
+Span mode (--spans M,...): the fast interior kinks once per KINK_XX0 of straw material (~10 straws), so consecutive
+pairs compare lumps of different size (fast median exactly 0). Per span of M good steps of the same muon (step k to
+k + M, time order, straw-only: support x/X0 on the chord < 1e-5), the space angle between the step momenta in units
+of beta p theta [MeV] (the Highland scale; both arms cross the same straws, so the fast/G4 ratio at fixed M needs no
+x/X0). Reported per M and |p| bin (mean |p| of the two steps): counts, median, q90, q99 and the fast/G4 ratios of
+median and q90. A fast/G4 ratio near 1 at high |p| that rises below 500 MeV/c points at the low-beta width; a ratio
+near 1 everywhere at M >= 10 clears the in-straw width.
 """
 import os
 
@@ -78,13 +86,77 @@ def _table(f, g):
     return out
 
 
-def run(inputs, outdir, compare=None, gdml=None, **kw):
+def _spans(paths, ms):
+    """Straw-step spans of M good primary-muon steps (tracker-term muons): mean |p|, beta, space angle, chord."""
+    s = T.read_many(paths, "sgsteps")
+    p = T.read_many(paths, "particles", T.KEY + ["key", "pdg", "ismcprim"]).rename(columns={"key": "sp"})
+    s = s.merge(p, on=T.KEY + ["sp"], how="inner")
+    s = s[(s.ismcprim == 1) & (s.pdg.abs() == 13)]
+    f = T.trk_filter(s)
+    s = s[T.good_steps(s)]
+    s = s.merge(f[f.pass_trk].reset_index()[T.KEY], on=T.KEY).sort_values(T.KEY + ["sp", "t"]).reset_index(drop=True)
+    key = s[T.KEY + ["sp"]].to_numpy(np.int64)
+    pv = s[["px", "py", "pz"]].to_numpy(float)
+    pn = np.linalg.norm(pv, axis=1)
+    x0 = geometry.to_mu2e(s[["x0", "y0", "z0"]].to_numpy(float))
+    out = []
+    for m in ms:
+        if m >= len(s):
+            continue
+        a = np.flatnonzero(np.all(key[m:] == key[:-m], axis=1))
+        b = a + m
+        c = np.clip(np.einsum("ij,ij->i", pv[a], pv[b]) / np.maximum(pn[a] * pn[b], 1e-12), -1, 1)
+        pm = 0.5 * (pn[a] + pn[b])
+        seg = x0[b] - x0[a]
+        L = np.linalg.norm(seg, axis=1)
+        out.append(pd.DataFrame({"m": m, "p": pm, "beta": pm / np.hypot(pm, eloss.MMU), "theta": np.arccos(c), "L": L,
+                                 "ox": x0[a, 0], "oy": x0[a, 1], "oz": x0[a, 2],
+                                 "dx": seg[:, 0] / np.maximum(L, 1e-9), "dy": seg[:, 1] / np.maximum(L, 1e-9),
+                                 "dz": seg[:, 2] / np.maximum(L, 1e-9)}))
+    return pd.concat(out, ignore_index=True)
+
+
+def _span_table(f, g, ms):
+    out = {}
+    for m in ms:
+        for lo, hi in zip(P_EDGES[:-1], P_EDGES[1:]):
+            row = {}
+            for lab, df in (("fast", f), ("g4", g)):
+                k = (df.m == m) & (df.xsup < SUPPORT_XX0_MIN) & (df.p >= lo) & (df.p < hi)
+                v = (df.beta * df.p * df.theta)[k].to_numpy()
+                row[lab] = {"n": int(k.sum())}
+                if len(v) >= 50:
+                    row[lab].update({f"q{q}": float(np.quantile(v, q / 100)) for q in (50, 90, 99)})
+            if "q50" in row["fast"] and "q50" in row["g4"]:
+                row["ratio_q50"] = row["fast"]["q50"] / max(row["g4"]["q50"], 1e-12)
+                row["ratio_q90"] = row["fast"]["q90"] / max(row["g4"]["q90"], 1e-12)
+            out[f"m{m} {int(lo)}-{int(min(hi, 1e6))}"] = row
+    return out
+
+
+def run_spans(inputs, outdir, compare, interior, ms):
+    f, g = _spans(T.expand(inputs), ms), _spans(T.expand(compare), ms)
+    for df in (f, g):
+        df["xsup"] = _support_xx0(df, interior)
+    out = {"spans": {"fast": int(len(f)), "g4": int(len(g))}, "beta_p_theta_MeV": _span_table(f, g, ms)}
+    for k, v in out["beta_p_theta_MeV"].items():
+        a, b = v["fast"], v["g4"]
+        if "ratio_q50" in v:
+            print(f"{k:18s} n {a['n']:7d}/{b['n']:7d}  q50 {a['q50']:.3f}/{b['q50']:.3f} ({v['ratio_q50']:.3f})"
+                  f"  q90 {a['q90']:.3f}/{b['q90']:.3f} ({v['ratio_q90']:.3f})  q99 {a['q99']:.2f}/{b['q99']:.2f}")
+    os.makedirs(outdir, exist_ok=True)
+    plots.write_json(outdir, "msccheck_spans.json", out)
+
+
+def run(inputs, outdir, compare=None, gdml=None, spans=None, **kw):
     if not compare:
         raise SystemExit("msccheck FAST --compare G4REF")
     from .steps import default_gdml
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     interior = st.TrackerInterior(gdml, geom)
+    if spans:
+        return run_spans(inputs, outdir, compare, interior, [int(x) for x in str(spans).split(",") if x.strip()])
     f, g = _pairs(T.expand(inputs)), _pairs(T.expand(compare))
     for df in (f, g):
         df["xsup"] = _support_xx0(df, interior)

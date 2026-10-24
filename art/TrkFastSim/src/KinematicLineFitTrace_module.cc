@@ -75,6 +75,7 @@ namespace mu2e {
       fhicl::OptionalTable<Mu2eKinKal::KKExtrapConfig> extrapSettings {Name("ExtrapolationSettings")};   // accepted, unused
       fhicl::OptionalAtom<std::string> fitDirection {Name("FitDirection"), Comment("unused here")};
       fhicl::Atom<int> maxSeeds {Name("MaxSeedsPerEvent"), Comment("trace at most this many seeds per event"), 4};
+      fhicl::Atom<bool> perIter {Name("PerIteration"), Comment("also trace each iteration of every stage (MaxNIter 1..n of the last meta-iteration)"), false};
     };
 
   public:
@@ -102,13 +103,17 @@ namespace mu2e {
     double mass_ = 0;
     int charge_ = 0;
     int maxseeds_;
+    bool periter_;
     std::unique_ptr<KKBField> kkbf_;
     Config config_, exconfig_;
     std::vector<Config> seedcfgs_, extcfgs_;
     // output
     TTree* tr_ = nullptr;
     int run_ = 0, subrun_ = 0, event_ = 0, iseed_ = 0, stage_ = 0, status_ = 0, miter_ = 0, iter_ = 0, ndof_ = 0;
-    int goodseed_ = 0, nxact_ = 0, nxing_ = 0;
+    int goodseed_ = 0, nxact_ = 0, nxing_ = 0, maxit_ = -1;
+    std::vector<float> pf_, pb_, cf_, cb_;          // front/back piece parameters [6] and covariance [36]
+    std::vector<int> ihist_, sthist_;               // full status history: meta-iteration, iteration, status
+    std::vector<float> chist_;
     float chi2_ = 0, momf_ = 0, momb_ = 0, momfvar_ = 0;
     std::vector<int> shind_, state_, frozen_, algo_;
     std::vector<float> qbkg_, qsign_, qdrift_, doca_;
@@ -122,6 +127,7 @@ namespace mu2e {
     fpart_(static_cast<PDGCode::type>(settings().modSettings().fitParticle())),
     kkfit_(settings().mu2eSettings()),
     maxseeds_(settings().maxSeeds()),
+    periter_(settings().perIter()),
     config_(Mu2eKinKal::makeConfig(settings().fitSettings())),
     exconfig_(Mu2eKinKal::makeConfig(settings().extSettings())) {
     for (auto const& tag : settings().modSettings().seedCollections())
@@ -154,6 +160,8 @@ namespace mu2e {
     tr_->Branch("shind", &shind_); tr_->Branch("state", &state_); tr_->Branch("frozen", &frozen_);
     tr_->Branch("algo", &algo_); tr_->Branch("qbkg", &qbkg_); tr_->Branch("qsign", &qsign_);
     tr_->Branch("qdrift", &qdrift_); tr_->Branch("doca", &doca_);
+    tr_->Branch("maxit", &maxit_); tr_->Branch("pf", &pf_); tr_->Branch("pb", &pb_); tr_->Branch("cf", &cf_);
+    tr_->Branch("cb", &cb_); tr_->Branch("hmiter", &ihist_); tr_->Branch("hstatus", &sthist_); tr_->Branch("hchi2", &chist_);
   }
 
   void KinematicLineFitTrace::beginRun(art::Run const&) {
@@ -190,6 +198,18 @@ namespace mu2e {
     auto const& front = trk.fitTraj().front();
     momf_ = front.mom(); momfvar_ = front.params().covariance()(KTRAJ::mom_, KTRAJ::mom_);
     momb_ = trk.fitTraj().back().mom();
+    auto const& back = trk.fitTraj().back();
+    for (auto* v : {&pf_, &pb_, &cf_, &cb_, &chist_}) v->clear();
+    ihist_.clear(); sthist_.clear();
+    for (size_t i = 0; i < KinKal::NParams(); ++i) {
+      pf_.push_back(front.params().parameters()[i]); pb_.push_back(back.params().parameters()[i]);
+      for (size_t j = 0; j < KinKal::NParams(); ++j) {
+        cf_.push_back(front.params().covariance()(i, j)); cb_.push_back(back.params().covariance()(i, j));
+      }
+    }
+    for (auto const& h : trk.history()) {
+      ihist_.push_back(1000 * h.miter_ + h.iter_); sthist_.push_back(h.status_); chist_.push_back(h.chisq_.chisq());
+    }
     for (auto* v : {&shind_, &state_, &frozen_, &algo_}) v->clear();
     for (auto* v : {&qbkg_, &qsign_, &qdrift_, &doca_}) v->clear();
     for (auto const& sh : trk.strawHits()) {
@@ -234,15 +254,31 @@ namespace mu2e {
           return std::make_unique<KKTRK>(cfg, *kkbf_, seedtraj, fpart_, kkfit_.strawHitClusterer(), sh, sx, ch, ph);
         };
         for (size_t k = 0; k < seedcfgs_.size(); ++k) {
+          maxit_ = -1;
           auto trk = build(seedcfgs_[k]);
           record(*trk, iseed, k, true);
         }
         auto full = build(config_);
         if (!goodFit(*full)) continue;   // stock: no extension
         for (size_t k = 0; k < extcfgs_.size(); ++k) {
+          maxit_ = -1;
           auto trk = build(config_);
           kkfit_.extendTrack(extcfgs_[k], *kkbf_, *tracker, *strawresponse, chcol, *calo_h, cc_H, *trk);
           record(*trk, iseed, seedcfgs_.size() + k, true);
+          // per iteration of the last meta-iteration of this stage: MaxNIter 1..n (n = iterations stock used); the
+          // earlier meta-iterations keep the stock MaxNIter, so their result is unchanged
+          if (!periter_) continue;
+          int nit = 0;
+          for (auto const& h : trk->history()) if ((int)h.miter_ == trk->fitStatus().miter_) nit = std::max(nit, (int)h.iter_ + 1);
+          for (int m = 1; m < nit; ++m) {
+            Config c = extcfgs_[k];
+            c.maxniter_ = m;   // applies to every meta-iteration of the extension: only valid if the earlier ones
+                               // converged within m iterations; recorded per row so the reader can check
+            auto t2 = build(config_);
+            kkfit_.extendTrack(c, *kkbf_, *tracker, *strawresponse, chcol, *calo_h, cc_H, *t2);
+            maxit_ = m;
+            record(*t2, iseed, seedcfgs_.size() + k, true);
+          }
         }
       }
     }

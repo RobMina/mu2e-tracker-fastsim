@@ -1,0 +1,5 @@
+# trace_kkline_mc.fcl with per-iteration rows (KinematicLineFitTrace PerIteration): for every extension stage, the
+# stage rerun with MaxNIter 1..n-1 as well, so the front/back parameters and covariance after each iteration are kept.
+#include "TrkFastSim/fcl/trace_kkline_mc.fcl"
+physics.analyzers.kktrace.PerIteration : true
+services.TFileService.fileName : "trace_kkline_mc_iter.root"

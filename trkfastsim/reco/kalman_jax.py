@@ -789,7 +789,8 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
         cn["good_seed"] = good_seed
         keep = lambda a, b: jax.tree_util.tree_map(lambda u, v: jnp.where(stop, v, u), a, b)
         out = keep(cn, dict(c, stop=stop, good_seed=good_seed))
-        return out, (out["status"], out["chi2"], out["ndof"], out["niter"], cn["dpmax"], cn["dmomf"])
+        return out, (out["status"], out["chi2"], out["ndof"], out["niter"], cn["dpmax"], cn["dmomf"],
+                     out["st"]["active"], out["st"]["lr"])
 
     cf, hist = jax.lax.scan(stage_fn, carry0, stages)
     good = (cf["status"] < LOWNDOF) & ~cf["stop"] & in_detector(cf["xe"], cf["s_hit"], cf["st"]["active"], N)

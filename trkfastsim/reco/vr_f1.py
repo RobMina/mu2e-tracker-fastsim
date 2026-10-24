@@ -77,6 +77,7 @@ def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None, fitok_on
     act = flat("kh_active").astype(bool)
     H = linefit.build_hits(trk, shi, lr, act, sh, cond, ntrk)
     H["valid"] = H["sh"] >= 0
+    H["shloc"], _ = _pad(trk, flat("kh_ind").astype(np.int64), ntrk, -1)          # makeSH index within the event
     # hits of the LineFinder seed (the rest were added by the extension, KKFit::addStrawHits)
     inseed = ak.to_numpy(ak.flatten(ak.Array([np.isin(np.asarray(k), np.asarray(sd)) for k, sd in zip(b.kh_ind, b.sd_ind)])))
     H["inseed"], _ = _pad(trk, inseed.astype(bool), ntrk, False)
@@ -110,6 +111,8 @@ def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None, fitok_on
     X["hit"] = np.where(eq.any(-1), eq.argmax(-1), -1)
     x0 = linefit.seed_params(*(ref[k] for k in ("sd_a0", "sd_b0", "sd_a1", "sd_b1", "sd_t0")))
     ref["event_index"] = ie
+    se = uproot.open(path)["trkdump/events"].arrays(["subrun", "event"], library="np")
+    ref["subrun"], ref["event"] = se["subrun"][ie], se["event"][ie]
     return x0, H, X, ref, drift, int(len(ie))
 
 
@@ -157,7 +160,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         cf, hist, good = K.fit_track(x, h, c, dj, stages, ann, fixed=None if own_states else fx, maxniter=maxniter)
         xt0, Ct0, _ = K.t0_piece(cf)
         return (xt0, Ct0, hist[0], hist[1], hist[2], hist[3], good, cf["xe"], cf["Ce"], cf["st"]["active"],
-                cf["st"]["lr"], cf["good_seed"], hist[4], hist[5])
+                cf["st"]["lr"], cf["good_seed"], hist[4], hist[5], hist[6], hist[7])
 
     # two passes, exact: a vmapped while_loop runs every lane until the slowest converges, so one track at MaxNIter
     # makes the whole batch pay 11 iterations. Pass 1 caps at FAST_NITER; tracks that reached the cap in any stage
@@ -225,6 +228,10 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
             full = np.zeros((n, Nf), dtype=o[j].dtype)
             full[:, :Nb] = o[j]
             o[j] = full
+        for j in (14, 15):
+            full = np.zeros((n, o[j].shape[1], Nf), dtype=o[j].dtype)
+            full[:, :, :Nb] = o[j]
+            o[j] = full
         for j in (7, 8):
             full = np.zeros((n, Nf + Mf) + o[j].shape[2:])
             full[:, :Nb] = o[j][:, :Nb]
@@ -255,11 +262,15 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         o2 = [np.asarray(a)[:nr] for a in o2]
         k = 0
         for io, redo, _ in items:
-            for j in range(14):
+            for j in range(16):
                 v = o2[j][k:k + len(redo)]
                 if j in (9, 10):
                     full = np.zeros((len(redo), Nf), dtype=v.dtype)
                     full[:, :Nb] = v
+                    v = full
+                if j in (14, 15):
+                    full = np.zeros((len(redo), v.shape[1], Nf), dtype=v.dtype)
+                    full[:, :, :Nb] = v
                     v = full
                 if j in (7, 8):
                     full = np.zeros((len(redo), Nf + Mf) + v.shape[2:])
@@ -273,8 +284,8 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
               "pass2_shape": stats.get("pass2_shape"), "total_fit_s": round(sum(stats["pass1_s"]) + sum(stats["pass2_s"]), 3),
               "refit_with_maxniter10": stats["redo"], "fast_niter": FAST_NITER, "bucket_tracks": {f"{a}x{b}": c for (a, b), c in btr.items()}, "n_compiles": len(shapes),
               "warm_fit_s": t_fit}
-    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce, fact, flr, gseed, dpmax, dmomf = (
-        np.concatenate([o[i] for o in outs])[inv] for i in range(14))
+    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce, fact, flr, gseed, dpmax, dmomf, sact, slr = (
+        np.concatenate([o[i] for o in outs])[inv] for i in range(16))
     # KinematicLine parameters on the piece holding the t0 point (KalSeed::t0Segment / PiecewiseTrajectory::t0): the
     # POCA to the z axis, s1 along the track; the piece is the smoothed state at the last effect before s1
     N = H["valid"].shape[1]
@@ -311,6 +322,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
                  ndrift_f1=(fact & (flr != 0)).sum(1), ndrift_stock=(H["active"] & H["valid"] & (H["lr"] != 0)).sum(1),
                  ninseed=(H["inseed"] & H["valid"]).sum(1), stat_all=stat, niter=niter, gseed=gseed,
                  kl_status=ref["kl_status"].astype(np.int64), event_index=ref["event_index"], dpmax=dpmax, dmomf=dmomf,
+                 stage_active=sact, stage_lr=slr.astype(np.int8), shloc=H["shloc"], subrun=ref["subrun"], event=ref["event"],
                  cpn_f1=chi2[:, -1] / np.maximum(ndof[:, -1], 1), cpn_stock=ref["kl_chi2"] / np.maximum(ref["kl_ndof"], 1))
     for i, k in enumerate(KL):
         dv = kl[k] - ref["kl_" + k]

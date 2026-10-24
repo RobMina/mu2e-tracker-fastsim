@@ -3,7 +3,8 @@ share aimed at the straw footprint in G4 and in the fast arm, split into the two
 the generated line itself aimed at the footprint (no scattering), and the share the scattering moves in vs out
 (fast aimed but line not, line aimed but fast not), with G4's corresponding numbers relative to the same line.
 
-    python3 tracker/scripts/aim_split.py "arr_v2_*/arrivalcheck_events.csv.gz"
+    python3 tracker/scripts/aim_split.py "arr_v2_*/arrivalcheck_events.csv.gz" [--crv "crvsteps glob"]
+(--crv: only events whose G4 CrvSteps pass the production CRV term, so G4 kept them independently of the tracker)
 """
 import sys
 
@@ -16,6 +17,9 @@ from trkfastsim.analyses.steps import default_gdml
 from trkfastsim.analyses.worldcheck import _miss_distance
 
 ev = pd.concat([pd.read_csv(f) for f in T.expand([sys.argv[1]])], ignore_index=True)
+if "--crv" in sys.argv:
+    from trkfastsim.analyses.seedcheck import crv_pass_from
+    ev = ev.merge(crv_pass_from(T.read_many(T.expand([sys.argv[sys.argv.index("--crv") + 1]]), "steps")), on=T.KEY)
 ev = ev[ev.f_near].reset_index(drop=True)
 geom = geometry.from_gdml(default_gdml())
 y_pl = st.plane_y(geom)

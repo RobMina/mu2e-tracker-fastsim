@@ -1,0 +1,7 @@
+# trace_kkline_mc_iter.fcl with the parameter-change test disabled (DivergenceDeltaParams 1e30 in the seed fit and the
+# extension), so the iteration where stock reports ParamsDiverged is accepted and its trajectory recorded: compared with
+# the stock trace it gives the parameter jump that the test rejected.
+#include "TrkFastSim/fcl/trace_kkline_mc_iter.fcl"
+physics.analyzers.kktrace.FitSettings.DivergenceDeltaParams : 1e30
+physics.analyzers.kktrace.ExtensionSettings.DivergenceDeltaParams : 1e30
+services.TFileService.fileName : "trace_kkline_mc_iter_nopd.root"

@@ -690,6 +690,7 @@ def set_status(o, ref, prevcpn, it, cfg):
          jnp.where(jnp.abs(dchi) < cfg["conv"], CONVERGED, UNCONVERGED)))))
     st = jnp.where(o["nact"] == 0, LOWNDOF, st)
     set_status.last = (chif, chib)
+    set_status.momterm = ((o["xfront"][5] - ref["xf"][5]) ** 2 / ref["Cf"][5, 5], jnp.sqrt(ref["Cf"][5, 5]))
     return jnp.where(bad, FAILED, st), cpn
 
 
@@ -723,7 +724,8 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
               "status": jnp.array(UNCONVERGED), "stop": jnp.array(False), "good_seed": jnp.array(True),
               "chi2": jnp.array(0.0), "ndof": jnp.array(0), "cpn": jnp.array(-1.0), "niter": jnp.array(0),
               "s_hit": jnp.zeros(N), "xact": jnp.zeros(M, bool), "pid": jnp.zeros(N + M, jnp.int32),
-              "bnd": jnp.full(M, 1e12), "dpmax": jnp.array(0.0), "dmomf": jnp.array(0.0)}
+              "bnd": jnp.full(M, 1e12), "dpmax": jnp.array(0.0), "dmomf": jnp.array(0.0),
+              "smref": jnp.array(0.0), "mterm": jnp.array(0.0)}
 
     def stage_fn(c, sg):
         # goodFit gate before the extension (and the schedule stops after any unusable status)
@@ -767,6 +769,7 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
             sref = {"xf": xfo, "Cf": Cfo, "xb": xbo, "Cb": Cbo} if REF_AT_TIME else cc["ref"]
             status, cpn = set_status(o, sref, cc["cpn"], it, cfg)
             chif, chib = set_status.last
+            mterm, smref = set_status.momterm
             ok = status < LOWNDOF
             take = lambda a, b: jnp.where(ok, a, b)
             nref = {"xf": take(o["xfront"], cc["ref"]["xf"]), "Cf": take(o["Cfront"], cc["ref"]["Cf"]),
@@ -776,21 +779,25 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
                       niter=cc["niter"] + 1, s_hit=take(o["s_hit"], cc["s_hit"]),
                       pid=take(o["pid"].astype(jnp.int32), cc["pid"]), bnd=take(o["bnd"], cc["bnd"]),
                       dpmax=jnp.maximum(cc["dpmax"], jnp.maximum(chif, chib)),
-                      dmomf=jnp.where(jnp.maximum(chif, chib) >= cc["dpmax"], o["xfront"][5] - cc["ref"]["xf"][5], cc["dmomf"]))
+                      dmomf=jnp.where(jnp.maximum(chif, chib) >= cc["dpmax"], o["xfront"][5] - sref["xf"][5], cc["dmomf"]),
+                      smref=jnp.where(jnp.maximum(chif, chib) >= cc["dpmax"], smref, cc["smref"]),
+                      mterm=jnp.where(jnp.maximum(chif, chib) >= cc["dpmax"], mterm, cc["mterm"]))
             return it + 1, cn
 
         def cond(ic):
             it, cc = ic
             return (it == 0) | ((cc["status"] == UNCONVERGED) & (it < maxniter))      # Track::canIterate: iter_ < maxniter_
 
-        cs = dict(c, st=st2, dvar=dvar, xact=xact, dpmax=jnp.array(0.0), dmomf=jnp.array(0.0))
+        cs = dict(c, st=st2, dvar=dvar, xact=xact, dpmax=jnp.array(0.0), dmomf=jnp.array(0.0), smref=jnp.array(0.0),
+                  mterm=jnp.array(0.0))
         _, cn = jax.lax.while_loop(cond, body, (jnp.array(0), cs))
         cn["stop"] = stop | (cn["status"] >= LOWNDOF)
         cn["good_seed"] = good_seed
         keep = lambda a, b: jax.tree_util.tree_map(lambda u, v: jnp.where(stop, v, u), a, b)
         out = keep(cn, dict(c, stop=stop, good_seed=good_seed))
         return out, (out["status"], out["chi2"], out["ndof"], out["niter"], cn["dpmax"], cn["dmomf"],
-                     out["st"]["active"], out["st"]["lr"])
+                     out["st"]["active"], out["st"]["lr"], cn["smref"], cn["mterm"],
+                     jnp.sqrt(out["ref"]["Cf"][5, 5]), out["ref"]["xf"][5] - out["ref"]["xb"][5])
 
     cf, hist = jax.lax.scan(stage_fn, carry0, stages)
     good = (cf["status"] < LOWNDOF) & ~cf["stop"] & in_detector(cf["xe"], cf["s_hit"], cf["st"]["active"], N)

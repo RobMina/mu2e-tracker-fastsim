@@ -1,0 +1,12 @@
+# Stage-by-stage trace of stock KKLine (KinematicLineFitTrace) on kkts_extrap_v04 dig files: hit reco + time cluster +
+# LineFinder as dump_tracks_mc.fcl, then the trace analyzer configured with the KKLine tables of the same job.
+#include "TrkFastSim/fcl/dump_tracks_mc.fcl"
+physics.analyzers.kktrace : {
+  @table::physics.producers.KKLine
+  module_type : KinematicLineFitTrace
+  MaxSeedsPerEvent : 1
+}
+physics.analyzers.kktrace.KKFitSettings.UseCaloCluster : false
+physics.RecoPath : [ PBTFSD, makeSH, makePH, makeSTH, flagPH, SimpleTimeCluster, LineFinder, KKLine ]
+physics.DumpPath : [ trkdump, kktrace ]
+services.TFileService.fileName : "trace_kkline_mc.root"

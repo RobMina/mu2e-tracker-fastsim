@@ -322,6 +322,8 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
                  ndrift_f1=(fact & (flr != 0)).sum(1), ndrift_stock=(H["active"] & H["valid"] & (H["lr"] != 0)).sum(1),
                  ninseed=(H["inseed"] & H["valid"]).sum(1), stat_all=stat, niter=niter, gseed=gseed,
                  kl_status=ref["kl_status"].astype(np.int64), event_index=ref["event_index"], dpmax=dpmax, dmomf=dmomf,
+                 Ck_front=np.einsum("tij,tjk,tlk->til", np.asarray(jax.jit(jax.vmap(jax.jacfwd(K.kl_params)))(jnp.asarray(xf))),
+                                    Cf, np.asarray(jax.jit(jax.vmap(jax.jacfwd(K.kl_params)))(jnp.asarray(xf)))),
                  mhist=mhist, shist=shist, smref=smref, mterm=mterm, smomf=smomf, dmfb=dmfb, stage_active=sact, stage_lr=slr.astype(np.int8), shloc=H["shloc"], subrun=ref["subrun"], event=ref["event"],
                  cpn_f1=chi2[:, -1] / np.maximum(ndof[:, -1], 1), cpn_stock=ref["kl_chi2"] / np.maximum(ref["kl_ndof"], 1))
     for i, k in enumerate(KL):

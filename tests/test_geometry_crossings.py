@@ -185,9 +185,11 @@ def test_interior_transport_scatters_in_straws_and_air():
     from trkfastsim import steps as S
     interior = _plate_interior(10.0)
     ys = np.linspace(95.0, -95.0, 10)                 # ten layers inside the shell's hole (r < 100)
-    g = _layers(ys, pitch=4.0)
+    # 41 straws per layer (+-82 mm, the tracks start at z = 0 and deflect < 10 mm) and 5,000 tracks: the 401-straw,
+    # 20,000-track version held every (track, straw) candidate in memory and was OOM-killed at 10 GB on a GPVM
+    g = _layers(ys, n=41, pitch=4.0)
     g.wall_rmax, g.metal_t = R + 0.015, 5e-5
-    n = 20_000
+    n = 5_000
     o = np.tile([0.0, 99.0, 0.0], (n, 1))
     d = np.tile([0.0, -1.0, 0.0], (n, 1))
     p = np.full(n, 300.0)

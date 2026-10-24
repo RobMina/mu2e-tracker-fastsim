@@ -87,8 +87,8 @@ def build_parser():
                             help="stage C: interior kink lever arms from the support material's own moments (default: segment midpoint)")
             sp.add_argument("--no-calo", action="store_true",
                             help="stage C: leave the calorimeter disk out of the interior (diagnostic)")
-            sp.add_argument("--exit-scatter", action="store_true",
-                            help="stage C: scatter the material behind the last straw into the path for the tracker VD (surfsteps) exit crossings")
+            sp.add_argument("--exit-scatter", action=argparse.BooleanOptionalAction, default=True,
+                            help="stage C: scatter the material behind the last straw into the path for the tracker VD (surfsteps) exit crossings (default on; --no-exit-scatter)")
             sp.add_argument("--world-mods", default=None,
                             help="stage C: named world modification (trkfastsim.worldmods, e.g. issue2017) for geometry sensitivity runs")
             sp.add_argument("--kink-sup-xx0", type=float, default=0.25,
@@ -120,6 +120,8 @@ def build_parser():
                             help="interior kinks with the material's own lever-arm moments (TrackerInterior.transport lever_moments)")
             sp.add_argument("--kink-sup-xx0", type=float, default=0.25,
                             help="split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
+            sp.add_argument("--kink-p-mean", action="store_true",
+                            help="interior kinks scatter at the mean of the group's entry and exit |p| (default exit |p|)")
         if name == "interiorcensus":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--nsub", type=int, default=8, help="phi samples per sector interval (as TrackerInterior)")

@@ -226,11 +226,14 @@ class TrackerInterior:
         xc = xcum.copy()
         trav = np.zeros(n)
         out = []
-        act = np.flatnonzero(p > 1.0)
+        # stop where the straight line leaves the tracker VD envelope (TT_OutSurf r and TT_Front/Back z, detector frame):
+        # material beyond the exit crossing does not change it, and scattering there only grows the displacement
+        length = np.minimum(np.full(n, float(length)), _envelope_exit(o, d) + ENVELOPE_PAD_MM)
+        act = np.flatnonzero((p > 1.0) & (length > 1.0))
         for _ in range(64):
             if not len(act):
                 break
-            left = length - trav[act]
+            left = length[act] - trav[act]
             col, _ = self._support(o[act], d[act], left, False)
             solid, x_sup, _, _ = self._support_sums(col, {}, len(act))
             go = x_sup > 1e-6
@@ -241,8 +244,8 @@ class TrackerInterior:
             col = {m: c[go] for m, c in col.items()}
             target = np.minimum(x_sup, KINK_SUP_XX0)
             seg = self._split_length(o[act], d[act], left, target)
-            col, _ = self._support(o[act], d[act], seg, False)
-            _, X, _, _ = self._support_sums(col, {}, len(act))
+            col, mom = self._support(o[act], d[act], seg, True)
+            _, X, m1, m2 = self._support_sums(col, mom, len(act))
             tk = np.sqrt(p[act] ** 2 + eloss.MMU ** 2) - eloss.MMU
             lost = np.zeros(len(act))
             for m, c in col.items():
@@ -255,13 +258,25 @@ class TrackerInterior:
             # piece would otherwise scatter at |p| -> 0 (radian deflections); stopped muons end at the kink point
             pm = 0.5 * (p[act] + pk)
             V = tr.highland_var_increment(np.maximum(pm, 1.0), xc[act], xc[act] + X)
-            w1, w2 = 0.5 * seg, seg ** 2 / 3.0
+            # lever arms from the material's own x/X0-weighted moments (h = seg - s to the kink at the piece's end): the
+            # piece often has empty space before its material, where a uniform-material lever arm overstates dy
+            Xs = np.maximum(X, 1e-30)
+            w1 = np.clip(seg - m1 / Xs, 0.0, seg)
+            w2 = np.clip(seg ** 2 - 2 * seg * m1 / Xs + m2 / Xs, w1 ** 2, seg ** 2)
             dth, dy, a = _kink_core(rng, V, w1, w2)
             if tail:
                 parts = [(materials.get(m), c) for m, c in col.items()]
                 tt = _group_tail(rng, parts, np.arange(len(act)), np.maximum(pm, 1.0), np.maximum(pm, 1.0), a, tail_k)
                 dth += tt
                 dy += tt * w1[:, None]
+            # the projected-angle sum of Gaussian core and single scatters is a small-angle form: cap the space angle of
+            # one piece at EXIT_KINK_MAX (a muon at < 150 MeV/c could otherwise turn by > 1 rad in 0.25 X0)
+            th = np.hypot(dth[:, 0], dth[:, 1])
+            big = th > EXIT_KINK_MAX
+            if big.any():
+                f = (EXIT_KINK_MAX / th[big])[:, None]
+                dth[big] *= f
+                dy[big] *= f
             dth[~alive], dy[~alive] = 0.0, 0.0            # a muon that stops in this piece does not leave it
             end = o[act] + d[act] * seg[:, None]
             pos, dn = _kink(end, d[act], dth, dy)
@@ -270,7 +285,7 @@ class TrackerInterior:
             o[act], d[act], p[act] = pos, dn, pk
             xc[act] += X
             trav[act] += seg
-            act = act[alive & (trav[act] < length - 1.0)]
+            act = act[alive & (trav[act] < length[act] - 1.0)]
         if not out:
             z3 = np.zeros((0, 3))
             return {"it": np.zeros(0, np.int64), "end": z3, "pos": z3, "dir": z3, "path": np.zeros(0), "p": np.zeros(0)}
@@ -308,7 +323,8 @@ class TrackerInterior:
         return out, stats
 
     def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
-                  max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0):
+                  max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
+                  kink_p_mean=False):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
@@ -480,20 +496,23 @@ class TrackerInterior:
                 S2 = np.bincount(gk, xs_m * h_seg ** 2 + xt_m * h_str ** 2, minlength=len(km))
             w1, w2 = S1 / np.maximum(X, 1e-30), S2 / np.maximum(X, 1e-30)
             p_k = _p_of(tk_start[km] - lost[km] - cum[kr])
-            V = tr.highland_var_increment(p_k, xcum[km], xcum[km] + X)
+            # scattering |p| of the group: its exit |p| (default) or, with KINK_P_MEAN, the mean of entry and exit |p|
+            # (a slow muon losing much of its energy in the group otherwise scatters as if it had the exit |p| throughout)
+            p_sc = 0.5 * (_p_of(tk_start[km] - lost[km]) + p_k) if kink_p_mean else p_k
+            V = tr.highland_var_increment(p_sc, xcum[km], xcum[km] + X)
             if msc_cal is not None:
                 xm = {m: np.bincount(gk, (c / eloss.radiation_length_mm(materials.get(m)))[member],
                                      minlength=len(km)) for m, c in col.items()}
                 V = V * interior_msc_var_factor(msc_cal, xm, X, p_k)
             dth, dy, a = _kink_core(rng, V, w1, w2)
             if tail:
-                pm = p_k[gk]
+                pm = p_sc[gk]
                 pr = np.maximum(prow[member], 0)
                 own = ~first[member]
                 parts = [(materials.get(m), c[member]) for m, c in col.items()]
                 parts += [(gapm, lens["air"][member])]
                 parts += [(m, np.where(own, lens[k][pr], 0.0)) for m, k in thin if k != "air"]
-                tt = _group_tail(rng, parts, gk, pm, p_k, a, tail_k)
+                tt = _group_tail(rng, parts, gk, pm, p_sc, a, tail_k)
                 st["tail_scatters"] += int((tt != 0).any(1).sum())
                 dth += tt
                 dy += tt * w1[:, None]
@@ -564,6 +583,28 @@ def interior_msc_var_factor(cal, xm, X, p):
         s = interior_msc_scale(cal, materials.get(m), x, p)
         f += (x / X) * (s * s - 1.0)
     return f
+
+
+ENVELOPE_PAD_MM = 0.0   # exit_scatter stops this far beyond the tracker VD envelope
+EXIT_KINK_MAX = 0.6     # rad: largest space angle of one exit_scatter kink (G4 exit deflections q99.9 ~ 0.6 rad)
+
+
+def _envelope_exit(o, d):
+    """Path length [mm] from o (Mu2e frame) along d to where the line leaves the tracker VD envelope: the cylinder
+    r = surfaces.R_OUT about the detector z axis, capped by the planes z = Z_FRONT and z = Z_BACK (detector frame);
+    0 if o is already outside."""
+    from . import surfaces as S
+    x = geometry.to_detector(o)
+    A = d[:, 0] ** 2 + d[:, 1] ** 2
+    B = 2 * (x[:, 0] * d[:, 0] + x[:, 1] * d[:, 1])
+    C = x[:, 0] ** 2 + x[:, 1] ** 2 - S.R_OUT ** 2
+    disc = np.clip(B * B - 4 * A * C, 0, None)
+    t_cyl = np.where(A > 1e-15, (-B + np.sqrt(disc)) / (2 * np.maximum(A, 1e-15)), np.inf)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        tz = np.where(d[:, 2] > 1e-15, (S.Z_BACK - x[:, 2]) / d[:, 2],
+                      np.where(d[:, 2] < -1e-15, (S.Z_FRONT - x[:, 2]) / d[:, 2], np.inf))
+    inside = (C < 0) & (x[:, 2] > S.Z_FRONT) & (x[:, 2] < S.Z_BACK)
+    return np.where(inside, np.clip(np.minimum(t_cyl, tz), 0, None), 0.0)
 
 
 def _replace_rows(col, mom, ci, cc, cm, nr):
@@ -968,7 +1009,7 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
                kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-               exit_scatter=False, all_muons=True):
+               exit_scatter=True, all_muons=True):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
     an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
     primary-muon StrawGasSteps on g4ref_v1 had them only from a second muon); all_muons=False keeps the first muon only
@@ -984,8 +1025,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     interior_msc_cal: support-scattering calibration (TrackerInterior.transport msc_cal; None = off); lever_moments:
     support lever arms from the material's own moments (TrackerInterior.transport; default midpoint); kink_sup_xx0:
     split thick support segments into kinks of at most this x/X0 (default KINK_SUP_XX0; None or <= 0: one kink per segment);
-    exit_scatter: scatter the material behind each muon's last straw into the path used for the tracker VD crossings
-    (TrackerInterior.exit_scatter; StrawGasSteps unchanged)."""
+    exit_scatter (default on since 2026-10-24): scatter the material behind each muon's last straw into the path used for
+    the tracker VD crossings (TrackerInterior.exit_scatter; StrawGasSteps unchanged)."""
     make_steps.path_vertices = None   # set below only by the interior transport of this call
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,

@@ -98,9 +98,16 @@ def _from_vertices(v):
     u = seg / np.maximum(L, 1e-30)[:, None]
     c = A[k] + t[:, None] * seg
     j0, j1 = a[k], a[k] + 1
+    # a kink's displacement is a zero-path jump (end -> restart point); a surface it crosses gets the track direction
+    # there (the restart vertex's), not the jump's own direction, which is transverse to the track
+    jump = (v.path.to_numpy()[j1] - v.path.to_numpy()[j0]) < 1e-6
+    if jump.any():
+        uv = v[["ux", "uy", "uz"]].to_numpy(float)[j1[jump]]
+        u[jump] = uv / np.maximum(np.linalg.norm(uv, axis=1), 1e-30)[:, None]
+        L = np.where(jump, 0.0, L)
     pa, pb = v.p.to_numpy()[j0], v.p.to_numpy()[j1]
     p = pa + t * (pb - pa)
-    path = v.path.to_numpy()[j0] + t * L
+    path = v.path.to_numpy()[j0] + t * L                 # L = 0 on a jump: the crossing is at the kink's path length
     tt = v.t0.to_numpy()[j0] + path / (v.beta.to_numpy()[j0] * C_MM_PER_NS)
     return _rows(v.iloc[j0], sid, c, u, p, tt)
 

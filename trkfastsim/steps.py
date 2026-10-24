@@ -25,7 +25,7 @@ import pandas as pd
 
 from mu2efastsim import eloss, materials
 from mu2efastsim import transport as tr
-from mu2efastsim.tables import KEY, primary_muons
+from mu2efastsim.tables import KEY, all_primary_muons, primary_muons
 
 from . import crossings, geometry
 
@@ -693,8 +693,17 @@ def _kink(pos, d, dth, dy):
     return pos + u * dy[:, [0]] + v * dy[:, [1]], dn
 
 
+def _muons(gen, all_muons):
+    """Muons to transport: every generated muon (key mukey = 1..n per event) or the first of each event (key 1)."""
+    if all_muons:
+        return all_primary_muons(gen)
+    mu = primary_muons(gen)
+    mu["mukey"] = 1
+    return mu
+
+
 def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN, msc_tail=True, tail_k=None,
-             band_spread=False):
+             band_spread=False, all_muons=True):
     """Stage C transport of the primary muons to the plane above the tracker.
 
     Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]). Tracks
@@ -702,8 +711,9 @@ def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARG
     are returned with alive = False: their generated state has crossed no material, so a straw they happen to cross
     below the plane would be reached with no energy loss and no scattering. band_spread: spread each height band's
     scattering uniformly along its path (transport.msc_to_plane band_len) instead of at the band centre.
+    all_muons (default): every generated muon (CRY multi-muon events); False = the first muon of each event only.
     """
-    mu = primary_muons(gen)
+    mu = _muons(gen, all_muons)
     p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     o = mu[["x", "y", "z"]].to_numpy()
     d = mu[["px", "py", "pz"]].to_numpy() / p0[:, None]
@@ -763,7 +773,7 @@ def add_instraw_secondaries(steps, parts, sampler, geom=None):
     copied step becomes a SimParticle (pdg from the library, parent = the muon).
     """
     steps = steps.reset_index(drop=True)
-    mu = steps[steps.sp == 1].reset_index(drop=True)          # muon crossings only, never pasted secondaries
+    mu = steps[steps.sp < SECONDARY_KEY0].reset_index(drop=True)   # muon crossings only (keys 1..n), never pasted secondaries
     p = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     _, st = sampler.draw(p, mu.len.to_numpy())
     if not len(st):
@@ -786,7 +796,7 @@ def add_instraw_secondaries(steps, parts, sampler, geom=None):
     out = pd.concat([steps, new], ignore_index=True)
     out["nsgs"] = out.groupby(KEY)["sid"].transform("size")
     sp = new[KEY + ["sp"]].rename(columns={"sp": "key"})
-    sp["parent"] = 1
+    sp["parent"] = src.sp.to_numpy()                 # the muon whose crossing it was pasted on
     sp["pdg"] = st.pdg.to_numpy()
     sp["isprim"] = 0
     sp["ismcprim"] = 0
@@ -819,15 +829,16 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     stored (r, phi) about the wire, phi from the anchor direction's transverse part. Time = anchor time + library delay. Steps of one G4 secondary stay one SimParticle (parent = the muon).
     Returns (steps, parts, stats).
     """
-    mu = steps[steps.sp == 1].sort_values(KEY + ["t"]).reset_index(drop=True)
+    mu = steps[steps.sp < SECONDARY_KEY0].sort_values(KEY + ["sp", "t"]).reset_index(drop=True)   # muons (keys 1..n)
     if not len(mu):
         return steps, parts, {"drawn": 0, "placed": 0}
-    mu["k"] = mu.groupby(KEY).cumcount()
-    nmu = mu.groupby(KEY, sort=False).size()
-    f = mu.groupby(KEY, sort=False).first().reset_index()
-    nk = nmu.reindex(pd.MultiIndex.from_frame(f[KEY])).to_numpy()
+    MK = KEY + ["sp"]                       # one off-axis draw per muon (per event with one muon per event)
+    mu["k"] = mu.groupby(MK).cumcount()
+    nmu = mu.groupby(MK, sort=False).size()
+    f = mu.groupby(MK, sort=False).first().reset_index()
+    nk = nmu.reindex(pd.MultiIndex.from_frame(f[MK])).to_numpy()
     p = np.sqrt(f.px ** 2 + f.py ** 2 + f.pz ** 2).to_numpy()
-    pl = mu.groupby(KEY, sort=False).plane.agg(["min", "max"]).reindex(pd.MultiIndex.from_frame(f[KEY]))
+    pl = mu.groupby(MK, sort=False).plane.agg(["min", "max"]).reindex(pd.MultiIndex.from_frame(f[MK]))
     _, st = sampler.draw(p, (f.py / p).to_numpy(), pl["min"].to_numpy(), pl["max"].to_numpy())
     stats = {"drawn": int(len(st))}
     if not len(st):
@@ -843,8 +854,8 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     k = np.clip(k, 0, nk[i] - 1)
     v2 = "du0" in st
     acols = ["x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"] if v2 else []
-    anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in KEY}, "k": k}).merge(
-        mu[KEY + ["k", "plane", "panel", "straw", "t"] + acols], on=KEY + ["k"], how="left")
+    anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in MK}, "k": k}).merge(
+        mu[MK + ["k", "plane", "panel", "straw", "t"] + acols], on=MK + ["k"], how="left")
     plane0 = anc.plane.to_numpy() + st.dpl.to_numpy()
     panel = (anc.panel.to_numpy() + st.dpa.to_numpy()) % NPANELS_
     straw0 = anc.straw.to_numpy() + st.dst.to_numpy()
@@ -885,8 +896,11 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     for j, c in enumerate("xyz"):
         new[f"{c}0"], new[f"{c}1"] = p0[:, j], p1[:, j]
         new[f"p{c}"] = 0.0
-    gkey = pd.DataFrame({"i": i, "gsp": st.sp.to_numpy()})
-    new["sp"] = (OFFAXIS_KEY0 + gkey.groupby("i").gsp.rank(method="dense").astype(np.int64).to_numpy() - 1).astype(steps.sp.dtype)
+    gkey = pd.DataFrame({"i": i, "gsp": st.sp.to_numpy(), **{c: f[c].to_numpy()[i] for c in KEY}})
+    # keys unique within the event: dense rank of (muon draw, library particle) over the event
+    gkey["pair"] = gkey.groupby(["i", "gsp"], sort=True).ngroup()   # ordered by (muon draw, library particle)
+    new["sp"] = (OFFAXIS_KEY0 + gkey.groupby(KEY).pair.rank(method="dense").astype(np.int64).to_numpy() - 1).astype(steps.sp.dtype)
+    new["mu_"] = f.sp.to_numpy()[i]
     new["pdg_"] = st.pdg.to_numpy()
     # one step per particle per straw, as MakeStrawGasSteps: a mirrored offset can put a second step of the same
     # G4 particle into a straw it already has; merge them (eIon and length summed, earliest time and geometry kept)
@@ -901,8 +915,8 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     new["nsgs"] = 0
     out = pd.concat([steps, new[steps.columns]], ignore_index=True)
     out["nsgs"] = out.groupby(KEY)["sid"].transform("size")
-    sp = new[KEY + ["sp", "pdg_"]].rename(columns={"pdg_": "pdg"}).drop_duplicates(KEY + ["sp"]).rename(columns={"sp": "key"})
-    sp["parent"] = 1
+    sp = (new[KEY + ["sp", "pdg_", "mu_"]].rename(columns={"pdg_": "pdg", "mu_": "parent"}).drop_duplicates(KEY + ["sp"])
+          .rename(columns={"sp": "key"}))
     sp["isprim"] = 0
     sp["ismcprim"] = 0
     return out, pd.concat([parts, sp[parts.columns]], ignore_index=True), stats
@@ -938,6 +952,7 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
     p = np.r_[p, p[last]]
     order = np.lexsort((path, i0))
     v = pd.DataFrame({k: mu[k].to_numpy()[i0[order]] for k in KEY})
+    v["sp"] = mu.mukey.to_numpy()[i0[order]] if "mukey" in mu.columns else 1   # the muon's key (1..n per event)
     xyz = geometry.to_detector(pos[order])
     for j, c in enumerate("xyz"):
         v[c] = xyz[:, j]
@@ -953,8 +968,11 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
                kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-               exit_scatter=False):
-    """Return (sgsteps, particles) DataFrames for the primary muons in `gen` (one CRY muon per event).
+               exit_scatter=False, all_muons=True):
+    """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
+    an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
+    primary-muon StrawGasSteps on g4ref_v1 had them only from a second muon); all_muons=False keeps the first muon only
+    (the earlier tables, bit for bit).
 
     sampler: an InStrawSampler (trkfastsim.library) to add the library's in-straw secondaries; None = muons only.
     offaxis: an OffAxisSampler to add the library's off-axis secondaries (needs the muon steps first).
@@ -971,10 +989,11 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     make_steps.path_vertices = None   # set below only by the interior transport of this call
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
-                                                   msc_tail=msc_tail, tail_k=tail_k, band_spread=band_spread)
+                                                   msc_tail=msc_tail, tail_k=tail_k, band_spread=band_spread,
+                                                   all_muons=all_muons)
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     else:
-        mu = primary_muons(gen)
+        mu = _muons(gen, all_muons)
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
         o = mu[["x", "y", "z"]].to_numpy()
         d = mu[["px", "py", "pz"]].to_numpy() / p0[:, None]
@@ -1051,7 +1070,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     steps["upanel"] = geom.upanel[js]
     steps["shape"] = 0
     steps["ion"] = np.where((bg > MINION_BG) & (ke > MINION_KE), 0, 1)
-    steps["sp"] = 1
+    steps["sp"] = mu.mukey.to_numpy()[it]
     steps["eion"] = eion
     steps["len"] = path
     steps["width"] = 0.0
@@ -1061,11 +1080,12 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         steps[f"{c}1"] = pos1[:, j]
         steps[f"p{c}"] = dirs[:, j] * p
     parts = pd.DataFrame({k: mu[k].to_numpy() for k in KEY})
-    parts["key"] = 1
+    parts["key"] = mu.mukey.to_numpy()
     parts["parent"] = -1
     parts["pdg"] = mu.pdg.to_numpy()
     parts["isprim"] = 1
     parts["ismcprim"] = 1
+    parts = parts.drop(columns=[c for c in ("mukey",) if c in parts.columns])
     if offaxis is not None:   # before the in-straw pasting, so the frame uses muon steps only
         steps, parts, make_steps.offaxis_stats = add_offaxis_secondaries(steps, parts, offaxis, geom)
     if sampler is not None:

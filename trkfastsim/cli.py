@@ -63,6 +63,8 @@ def build_parser():
                             help="off-axis draw: planes per plane-extent bin of the matching key (0 = no plane matching)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
+            sp.add_argument("--first-muon-only", action="store_true",
+                            help="transport only the first generated muon of each event (before 2026-10-24; default: all)")
             sp.add_argument("--near-margin", type=float, default=1500.0,
                             help="stage C: transport through the world only muons whose straight line passes within this "
                                  "many mm of the straws' footprint at the plane (1e9 = every downward muon)")

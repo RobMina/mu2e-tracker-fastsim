@@ -9,7 +9,8 @@ polyline itself, from the start of the interior transport through every kink (se
 direction), extended straight at both ends; so the crossings include the scattering in the support structure. Without
 vertices, the polyline through the muon's own StrawGasStep entry/exit points, extended straight before the first and
 after the last straw (misses the kinks between TT_Outer and the first straw). No random numbers either way.
-Only primary-muon (sp == 1) crossings: G4 also records secondaries (about 5 % of its surfsteps, census in surfcheck).
+Only primary-muon crossings (sp < 1000: muon keys 1..n, one polyline per muon, so multi-muon events get each muon's
+own crossings); G4 also records secondaries (about 5 % of its surfsteps, census in surfcheck).
 """
 import numpy as np
 import pandas as pd
@@ -78,10 +79,15 @@ def _crossings(A, B):
     return k, np.concatenate([o[1] for o in out]), np.concatenate([o[2] for o in out])
 
 
+MUON_KEY_MAX = 1000   # primary muons have SimParticle keys 1..n (< trkfastsim.steps.SECONDARY_KEY0)
+
+
 def _from_vertices(v):
-    """Path vertices (one muon per event, ordered) -> surfsteps rows."""
-    v = v.sort_values(KEY + ["path"], kind="stable").reset_index(drop=True)
-    ev = v.groupby(KEY, sort=False).ngroup().to_numpy()
+    """Path vertices (ordered per muon) -> surfsteps rows."""
+    if "sp" not in v.columns:
+        v = v.assign(sp=1)
+    v = v.sort_values(KEY + ["sp", "path"], kind="stable").reset_index(drop=True)
+    ev = v.groupby(KEY + ["sp"], sort=False).ngroup().to_numpy()
     nxt = np.r_[ev[1:] == ev[:-1], False]
     a = np.flatnonzero(nxt)
     P = v[["x", "y", "z"]].to_numpy(float)
@@ -107,27 +113,28 @@ def _rows(src, sid, c, u, p, tt):
     out = pd.DataFrame({kk: src[kk].to_numpy() for kk in KEY})
     out["surf"] = sid.astype(np.int32)
     out["sindex"] = np.zeros(len(sid), np.int32)
-    out["sp"] = np.ones(len(sid), np.int32)
+    out["sp"] = (src["sp"].to_numpy() if "sp" in src.columns else np.ones(len(sid))).astype(np.int32)
     out["edep"] = np.zeros(len(sid), np.float32)
     for j, ax in enumerate("xyz"):
         out[f"{ax}0"] = x0[:, j].astype(np.float32)
         out[f"{ax}1"] = x1[:, j].astype(np.float32)
         out[f"p{ax}"] = (u[:, j] * p).astype(np.float32)
     out["t"] = tt
-    return out.sort_values(KEY + ["t"], kind="stable").reset_index(drop=True)[COLS]
+    return out.sort_values(KEY + ["t"], kind="stable").reset_index(drop=True)[COLS]   # one muon: as before
 
 
 def surface_steps(sgsteps, vertices=None):
     """Fast primary muon -> surfsteps rows (columns as StrawGasStepTableDumper's surfsteps tree): from the transported
     path `vertices` if given (and covering the event), else from the muon's StrawGasStep polyline."""
-    st = sgsteps[sgsteps.sp == 1].sort_values(KEY + ["t"], kind="stable").reset_index(drop=True)
+    st = sgsteps[sgsteps.sp < MUON_KEY_MAX].sort_values(KEY + ["sp", "t"], kind="stable").reset_index(drop=True)
     if vertices is not None and len(vertices):
-        hit = st[KEY].drop_duplicates()
-        v = vertices.merge(hit, on=KEY)                      # events whose muon reached a straw, as without vertices
+        hit = st[KEY + ["sp"]].drop_duplicates()
+        vv = vertices if "sp" in vertices.columns else vertices.assign(sp=1)
+        v = vv.merge(hit, on=KEY + ["sp"])                   # muons that reached a straw, as without vertices
         return _from_vertices(v) if len(v) else pd.DataFrame({c: np.zeros(0) for c in COLS})
     if not len(st):
         return pd.DataFrame({c: np.zeros(0) for c in COLS})
-    st["_ev"] = st.groupby(KEY, sort=False).ngroup()
+    st["_ev"] = st.groupby(KEY + ["sp"], sort=False).ngroup()
     A, B, idx = _polyline(st)
     k, t, sid = _crossings(A, B)
     seg = B[k] - A[k]

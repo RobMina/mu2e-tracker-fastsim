@@ -75,7 +75,9 @@ namespace mu2e {
       fhicl::OptionalTable<Mu2eKinKal::KKExtrapConfig> extrapSettings {Name("ExtrapolationSettings")};   // accepted, unused
       fhicl::OptionalAtom<std::string> fitDirection {Name("FitDirection"), Comment("unused here")};
       fhicl::Atom<int> maxSeeds {Name("MaxSeedsPerEvent"), Comment("trace at most this many seeds per event"), 4};
-      fhicl::Atom<bool> perIter {Name("PerIteration"), Comment("also trace each iteration of every stage (MaxNIter 1..n of the last meta-iteration)"), false};
+      fhicl::Atom<bool> perIter {Name("PerIteration"), Comment("diagnostic caps applied to every retained meta-iteration"), false};
+      fhicl::Atom<bool> fullSchedule {Name("FullSchedule"), Comment("one full seed fit and extension without stage reruns"), false};
+      fhicl::Atom<bool> captureRejection {Name("CaptureRejection"), Comment("capture the exact rejected extension candidate"), false};
     };
 
   public:
@@ -103,7 +105,10 @@ namespace mu2e {
     double mass_ = 0;
     int charge_ = 0;
     int maxseeds_;
-    bool periter_;
+    bool periter_, fullSchedule_, captureRejection_;
+    int rejected_ = 0;
+    std::vector<double> rejectedParameters_, rejectedCovariances_, rejectedRanges_, rejectedSteps_, rejectedMetrics_;
+    std::vector<unsigned long long> rejectedReferenceIndices_;
     std::unique_ptr<KKBField> kkbf_;
     Config config_, exconfig_;
     std::vector<Config> seedcfgs_, extcfgs_;
@@ -111,10 +116,10 @@ namespace mu2e {
     TTree* tr_ = nullptr;
     int run_ = 0, subrun_ = 0, event_ = 0, iseed_ = 0, stage_ = 0, status_ = 0, miter_ = 0, iter_ = 0, ndof_ = 0;
     int goodseed_ = 0, nxact_ = 0, nxing_ = 0, maxit_ = -1;
-    std::vector<float> pf_, pb_, cf_, cb_;          // front/back piece parameters [6] and covariance [36]
-    std::vector<int> ihist_, sthist_;               // full status history: meta-iteration, iteration, status
-    std::vector<float> chist_;
-    float chi2_ = 0, momf_ = 0, momb_ = 0, momfvar_ = 0;
+    std::vector<double> pf_, pb_, cf_, cb_;          // Retained front/back parameters and covariance.
+    std::vector<int> ihist_, sthist_;               // Full status history: meta-iteration, iteration, status.
+    std::vector<double> chist_;
+    double chi2_ = 0, momf_ = 0, momb_ = 0, momfvar_ = 0;
     std::vector<int> shind_, state_, frozen_, algo_;
     std::vector<float> qbkg_, qsign_, qdrift_, doca_;
   };
@@ -128,8 +133,12 @@ namespace mu2e {
     kkfit_(settings().mu2eSettings()),
     maxseeds_(settings().maxSeeds()),
     periter_(settings().perIter()),
+    fullSchedule_(settings().fullSchedule()),
+    captureRejection_(settings().captureRejection()),
     config_(Mu2eKinKal::makeConfig(settings().fitSettings())),
     exconfig_(Mu2eKinKal::makeConfig(settings().extSettings())) {
+    if ((captureRejection_ && !fullSchedule_) || (fullSchedule_ && periter_))
+      throw std::invalid_argument("CaptureRejection requires FullSchedule; FullSchedule forbids PerIteration");
     for (auto const& tag : settings().modSettings().seedCollections())
       seedCols_.emplace_back(consumes<CosmicTrackSeedCollection>(tag));
     auto const& seederrors = settings().modSettings().seederrors();
@@ -162,6 +171,11 @@ namespace mu2e {
     tr_->Branch("qdrift", &qdrift_); tr_->Branch("doca", &doca_);
     tr_->Branch("maxit", &maxit_); tr_->Branch("pf", &pf_); tr_->Branch("pb", &pb_); tr_->Branch("cf", &cf_);
     tr_->Branch("cb", &cb_); tr_->Branch("hmiter", &ihist_); tr_->Branch("hstatus", &sthist_); tr_->Branch("hchi2", &chist_);
+    tr_->Branch("capture_enabled", &captureRejection_); tr_->Branch("full_schedule", &fullSchedule_);
+    tr_->Branch("rejected", &rejected_); tr_->Branch("rejected_parameters", &rejectedParameters_);
+    tr_->Branch("rejected_covariances", &rejectedCovariances_); tr_->Branch("rejected_ranges", &rejectedRanges_);
+    tr_->Branch("rejected_steps", &rejectedSteps_); tr_->Branch("rejected_metrics", &rejectedMetrics_);
+    tr_->Branch("rejected_reference_indices", &rejectedReferenceIndices_);
   }
 
   void KinematicLineFitTrace::beginRun(art::Run const&) {
@@ -193,6 +207,24 @@ namespace mu2e {
 
   void KinematicLineFitTrace::record(KKTRK const& trk, int iseed, int stage, bool goodseed) {
     iseed_ = iseed; stage_ = stage; goodseed_ = goodseed;
+    rejected_ = 0;
+    for (auto* v : {&rejectedParameters_, &rejectedCovariances_, &rejectedRanges_, &rejectedSteps_, &rejectedMetrics_}) v->clear();
+    rejectedReferenceIndices_.clear();
+    if (auto const* r = trk.rejectionTrace()) {
+      rejected_ = 1;
+      for (auto const* piece : {&r->candidateFront, &r->referenceFront, &r->candidateBack, &r->referenceBack}) {
+        rejectedRanges_.push_back(piece->range().begin()); rejectedRanges_.push_back(piece->range().end());
+        for (size_t i = 0; i < KinKal::NParams(); ++i) {
+          rejectedParameters_.push_back(piece->params().parameters()[i]);
+          for (size_t j = 0; j < KinKal::NParams(); ++j)
+            rejectedCovariances_.push_back(piece->params().covariance()(i, j));
+        }
+      }
+      for (auto const* step : {&r->frontStep, &r->backStep})
+        for (size_t i = 0; i < KinKal::NParams(); ++i) rejectedSteps_.push_back((*step)[i]);
+      rejectedReferenceIndices_ = {r->referenceFrontIndex, r->referenceBackIndex};
+      rejectedMetrics_ = {r->frontChi2, r->backChi2, r->threshold, r->averageGap, r->deltaChi2};
+    }
     auto const& st = trk.fitStatus();
     status_ = st.status_; miter_ = st.miter_; iter_ = st.iter_; chi2_ = st.chisq_.chisq(); ndof_ = st.chisq_.nDOF();
     auto const& front = trk.fitTraj().front();
@@ -253,6 +285,17 @@ namespace mu2e {
           if (constraining_) kkfit_.makeSeedParamHit(seedtraj, paramconstraints_, ph);
           return std::make_unique<KKTRK>(cfg, *kkbf_, seedtraj, fpart_, kkfit_.strawHitClusterer(), sh, sx, ch, ph);
         };
+        if (fullSchedule_) {
+          maxit_ = -1;
+          auto trk = build(config_);
+          bool const seedgood = goodFit(*trk);
+          if (seedgood) {
+            trk->captureRejection(captureRejection_);
+            kkfit_.extendTrack(exconfig_, *kkbf_, *tracker, *strawresponse, chcol, *calo_h, cc_H, *trk);
+          }
+          record(*trk, iseed, -1, seedgood);
+          continue;
+        }
         for (size_t k = 0; k < seedcfgs_.size(); ++k) {
           maxit_ = -1;
           auto trk = build(seedcfgs_[k]);
@@ -265,8 +308,7 @@ namespace mu2e {
           auto trk = build(config_);
           kkfit_.extendTrack(extcfgs_[k], *kkbf_, *tracker, *strawresponse, chcol, *calo_h, cc_H, *trk);
           record(*trk, iseed, seedcfgs_.size() + k, true);
-          // per iteration of the last meta-iteration of this stage: MaxNIter 1..n (n = iterations stock used); the
-          // earlier meta-iterations keep the stock MaxNIter, so their result is unchanged
+          // Capped reruns can change every retained meta-iteration; they are not successive stock snapshots.
           if (!periter_) continue;
           unsigned nit = 0;
           unsigned const lastmeta = trk->fitStatus().miter_;

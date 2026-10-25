@@ -231,6 +231,14 @@ common fit domain (median exit momentum at least 60% of entrance momentum). They
 not significance tests. Historical outputs without settings remain explicitly unidentified in that field; matching
 G4 observables does not establish matched random seeds or code for the historical fast arm.
 
+## Entry-energy writer diagnostic
+
+[Entry-ledger diagnostics](docs/entry-ledger.md) isolate the air-energy subtraction and vacuum convention on
+fixed primary-muon trajectories. Run `python3 -m trkfastsim.analyses.ledgercheck INPUTS --gdml GDML
+--outdir NEW_DIR --seed N --tracker-ref SHA --core-ref SHA`. This writes summaries, source/input hashes and
+identity-paired counts, not surface/reco-ready ROOT products. The normal generator retains its defaults;
+full transport-energy and integrated-flight-time closure remain separate work.
+
 ## License
 
 Apache-2.0 (`LICENSE`, `NOTICE`).

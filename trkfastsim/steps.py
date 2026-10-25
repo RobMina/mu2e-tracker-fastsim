@@ -1011,7 +1011,7 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
                kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-               exit_scatter=True, all_muons=True):
+               exit_scatter=True, all_muons=True, entry_ledger="legacy", capture_entry_ledger=False):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
     an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
     primary-muon StrawGasSteps on g4ref_v1 had them only from a second muon); all_muons=False keeps the first muon only
@@ -1028,7 +1028,21 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     support lever arms from the material's own moments (TrackerInterior.transport; default midpoint); kink_sup_xx0:
     split thick support segments into kinks of at most this x/X0 (default KINK_SUP_XX0; None or <= 0: one kink per segment);
     exit_scatter (default on since 2026-10-24): scatter the material behind each muon's last straw into the path used for
-    the tracker VD crossings (TrackerInterior.exit_scatter; StrawGasSteps unchanged)."""
+    the tracker VD crossings (TrackerInterior.exit_scatter; StrawGasSteps unchanged).
+    entry_ledger: legacy (default), energy or vacuum; opt-in writer-only diagnostics on fixed trajectories.
+    Nonlegacy modes require exit_scatter=False and omit path vertices; they are not surface/reco-ready transport.
+    capture_entry_ledger: expose cumulative per-entry accounting as make_steps.entry_ledger, before gas sampling.
+    """
+    from . import entryledger
+    if entry_ledger not in entryledger.MODES:
+        raise ValueError(f"unknown entry ledger mode: {entry_ledger}")
+    if entry_ledger != "legacy" and exit_scatter:
+        raise ValueError("entry-ledger diagnostics require exit_scatter=False")
+    if entry_ledger != "legacy" and (sampler is not None or offaxis is not None):
+        raise ValueError("entry-ledger diagnostics require primary-only output without secondary libraries")
+    if entry_ledger == "vacuum" and (stage != "C" or interior is None):
+        raise ValueError("vacuum entry ledger requires stage C with a tracker interior")
+    make_steps.entry_ledger = None
     make_steps.path_vertices = None   # set below only by the interior transport of this call
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
@@ -1063,8 +1077,9 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
                                        fin["xcum"], tail=msc_tail, tail_k=tail_k)
             ek = dict(ek, path=ek["path"] + fin["path"][ek["it"]])
             kinks = {k: np.concatenate([kinks[k], ek[k]]) for k in kinks}
-        make_steps.path_vertices = _path_vertices(mu, sel, o, d, p_start, t_off, p0_all=np.sqrt(
-            mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy(), kinks=kinks)
+        if entry_ledger == "legacy":
+            make_steps.path_vertices = _path_vertices(mu, sel, o, d, p_start, t_off, p0_all=np.sqrt(
+                mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy(), kinks=kinks)
         it = sel[tr_["it"]]
         js = tr_["js"]
         w0, w1, dirs = tr_["pos0"], tr_["pos1"], tr_["dir"]
@@ -1086,17 +1101,31 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         p = p_start[it]
         if air_loss:
             p = np.maximum(p - eloss.dedx_restricted(materials.AIR, p_start[it], 1e9) * s_in, 1.0)
+        lost = np.zeros(len(it))
         if interior is not None and len(it):
             lost, make_steps.interior_stats = interior.loss_to_straws(rng, o, d, p_start, it, s_in)
             tk = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU - lost
             stopped = tk <= 0.5
             p = np.sqrt(np.clip((np.maximum(tk, 0.5) + eloss.MMU) ** 2 - eloss.MMU ** 2, 1.0, None))
-            if stopped.any():   # a muon ranging out in the support structure makes no further straw steps
+            if stopped.any() and entry_ledger == "legacy":
                 keep = ~stopped
                 it, js, s_in, s_out, path, p = it[keep], js[keep], s_in[keep], s_out[keep], path[keep], p[keep]
+                lost = lost[keep]
         w0 = o[it] + d[it] * s_in[:, None]
         w1 = o[it] + d[it] * s_out[:, None]
         dirs = d[it]
+    if capture_entry_ledger or entry_ledger != "legacy":
+        ledger = entryledger.evaluate(p_start[it], lost, s_in, p, air_loss=air_loss, mode=entry_ledger)
+        keep = (np.ones(len(it), bool) if entry_ledger == "legacy" else
+                entryledger.keep_before_stop(it, s_in, ledger["above_stop_threshold"]))
+        if capture_entry_ledger:
+            make_steps.entry_ledger = pd.DataFrame({**{k: mu[k].to_numpy()[it] for k in KEY},
+                "sp": mu.mukey.to_numpy()[it], "sid": geom.sid[js], "mode": entry_ledger,
+                **ledger, "emitted": keep})
+        if entry_ledger != "legacy":
+            p = ledger["p_written_MeV_c"][keep]
+            it, js, s_in, path = it[keep], js[keep], s_in[keep], path[keep]
+            w0, w1, dirs = w0[keep], w1[keep], dirs[keep]
     eion = eloss.sample_loss(rng, STRAW_GAS, p, path, delta_cut_mev())
     e = np.sqrt(p ** 2 + eloss.MMU ** 2)
     bg = p / eloss.MMU

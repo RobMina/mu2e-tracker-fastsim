@@ -303,6 +303,12 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
            "iterations_per_stage_q50": np.median(np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1), 0).tolist(),
            "iterations_per_stage_q99": np.quantile(np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1), .99, 0).tolist(),
            "iterations_per_stage_max": np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1).max(0).tolist()}
+    from .fitvalidity import fit_checks
+    validity, res["numerical_validity"] = fit_checks(
+        xe, Ce, np.concatenate([H["valid"], X["valid"]], axis=1), xf, Cf,
+        chi2[:, -1], ndof[:, -1], good, stockok)
+    np.savez(os.path.join(outdir, "validity.npz"), **validity, good=good, stockok=stockok,
+             event_index=ref["event_index"], subrun=ref["subrun"], event=ref["event"])
     ok = good & stockok
     if own_states:
         # yield confusion against stock FitOK, and hit states against the stock final states on tracks both keep

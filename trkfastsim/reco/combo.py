@@ -58,7 +58,7 @@ def panel_hits(sh, settings="mc"):
     grp = np.lexsort((member, owner[member]))
     member = member[grp]
     seed_of = owner[member]
-    starts = np.flatnonzero(np.concatenate([[True], seed_of[1:] != seed_of[:-1]]))
+    starts = np.flatnonzero(np.concatenate([np.ones(min(len(member), 1), bool), seed_of[1:] != seed_of[:-1]]))
     ncombo = np.diff(np.append(starts, len(member)))
     combo_order = np.argsort(seed_of[starts], kind="stable")      # stock output order = seed order
     return _combine(sh, order, member, starts, ncombo, combo_order, s)

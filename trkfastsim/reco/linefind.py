@@ -19,6 +19,9 @@ def time_clusters(sh, s=STC_SETTINGS):
     (makeSH collection order inside each cluster, as the stock loop over the collection)."""
     good = (sh["flag"] & _BKG) == 0
     gi = np.flatnonzero(good)
+    if len(gi) == 0:
+        return {"ev": sh["ev"][:0], "n": gi.copy(), "t0": np.empty(0, np.float64),
+                "t0err": np.empty(0, np.float64), "member": gi.copy(), "member_cl": gi.copy(), "ind": gi.copy()}
     ev, t = sh["ev"][gi], sh["time"][gi]
     o = np.lexsort((t, ev))
     gi, ev, t = gi[o], ev[o], t[o]

@@ -194,6 +194,28 @@ Expected (2026-10-21): crossings per selected event within 1 % of G4 on every si
 position and time bands 0-3.5 % after the 2-sigma allowance. 52-72 % of G4 surfsteps come from particles other than the
 primary muon (delta rays crossing the VDs): the fast sim does not write those.
 
+## Interior slab momentum diagnostic
+
+`slabcheck --model interior --kink-p-mean` tests the arithmetic mean of group entry/exit momentum for the
+Highland core and single-scattering tail. Without the flag it retains exit momentum. The optional support
+calibration is evaluated at exit momentum in both modes, matching `TrackerInterior.transport`.
+
+Run the two arms against the **same existing G4 slab files**, seed and sample count, with different output
+directories. For example, from the umbrella environment:
+
+```bash
+python3 -m trkfastsim slabcheck "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
+    --model interior --seed 1 --nmu 100000 --outdir "$M2FS_DATA/trk_fastsim/slab/check_exit_TAG"
+python3 -m trkfastsim slabcheck "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
+    --model interior --kink-p-mean --seed 1 --nmu 100000 --outdir "$M2FS_DATA/trk_fastsim/slab/check_mean_TAG"
+```
+
+These are diagnostic entry points, not evidence that either comparison has run. Repeat for the Cu/Pb inputs.
+`slabcheck_interior.json` includes the effective momentum conventions, calibration, seed and sample count.
+The flag is rejected for `--model world` and is not exposed by production `steps`. This helper models **one
+unsplit support group**; it does not validate the production multi-kink traversal, straw losses, timing or rate.
+Do not promote a production default or refit the calibration solely from a synthetic unit-test pass.
+
 ## License
 
 Apache-2.0 (`LICENSE`, `NOTICE`).

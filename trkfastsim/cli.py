@@ -148,6 +148,8 @@ def build_parser():
             sp.add_argument("--material", default=None, help="interior: NIST slab material (default: input's directory name)")
             sp.add_argument("--cal", default=None, metavar="JSON", help="interior: calibration to test (default: built-in)")
             sp.add_argument("--fit", action="store_true", help="interior: fit the per-material width correction")
+            sp.add_argument("--kink-p-mean", action="store_true",
+                            help="interior only: scatter at mean entry/exit |p| (default exit |p|); diagnostic, not production validation")
         if name in ("tv2compare", "secdiag"):
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4-arm EventNtuples")
             sp.add_argument("--steps", nargs="+", required=True, metavar="ROOT", help="fast step tables of the fast arm")

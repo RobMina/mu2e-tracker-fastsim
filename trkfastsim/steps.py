@@ -654,11 +654,12 @@ def _group_tail(rng, parts, gk, pm, p_k, a, tail_k):
     return tt
 
 
-def slab_group(rng, mat, length_mm, p, tail=True, tail_k=None, msc_cal=None):
+def slab_group(rng, mat, length_mm, p, tail=True, tail_k=None, msc_cal=None, kink_p_mean=False):
     """One support segment of `mat` (length_mm, normal incidence, entry |p| p [N]) as TrackerInterior.transport treats it
     when it lies alone in front of a straw: sampled loss (slab_loss), one kink group at the segment's end with Highland on
-    its x/X0 at the exit |p|, lever arm at the segment midpoint, the tail, and msc_cal. Returns (alive, p_exit, dth [N,2],
-    dy [N,2]) at the exit face (the kink is applied there, KINK_BACKOFF_MM ignored)."""
+    its x/X0 at the exit |p| (or entry/exit mean with kink_p_mean), lever arm at the segment midpoint, the tail, and
+    msc_cal evaluated at exit |p| as in transport. Returns (alive, p_exit, dth [N,2], dy [N,2]) at the exit face
+    (the kink is applied there, KINK_BACKOFF_MM ignored). This is one unsplit group, not a multi-kink slab traversal."""
     n = len(p)
     L = np.full(n, float(length_mm))
     tk = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU
@@ -666,13 +667,14 @@ def slab_group(rng, mat, length_mm, p, tail=True, tail_k=None, msc_cal=None):
     alive = tk - lost > 0.5
     p_k = _p_of(tk - lost)
     X = L / eloss.radiation_length_mm(mat)
-    V = tr.highland_var_increment(p_k, np.zeros(n), X)
+    p_sc = 0.5 * (_p_of(tk) + p_k) if kink_p_mean else p_k
+    V = tr.highland_var_increment(p_sc, np.zeros(n), X)
     if msc_cal is not None:
         V = V * interior_msc_var_factor(msc_cal, {mat.name: X}, X, p_k)
     w1, w2 = 0.5 * L, 0.25 * L ** 2
     dth, dy, a = _kink_core(rng, V, w1, w2)
     if tail:
-        tt = _group_tail(rng, [(mat, L)], np.arange(n), p_k, p_k, a, tail_k)
+        tt = _group_tail(rng, [(mat, L)], np.arange(n), p_sc, p_sc, a, tail_k)
         dth += tt
         dy += tt * w1[:, None]
     return alive, p_k, dth, dy

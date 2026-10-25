@@ -18,6 +18,11 @@ with and without the calibration (--cal JSON: steps.INTERIOR_MSC_CAL form; defau
 per-material fit s = c0 + c1 ln(x/X0) + c2 ln(p / 1 GeV) of the width ratio (interior_cal.json).
 
     slabcheck "slab/G4_Al/slab.*.root" "slab/G4_Cu/slab.*.root" --model interior --fit --outdir DIR
+
+--kink-p-mean uses mean entry/exit momentum for the interior core and tail, keeping the calibration evaluated at
+exit momentum as in TrackerInterior.transport. The default remains exit momentum. This is a single unsplit group;
+it does not validate support-segment splitting, straw crossings, or production transport. Effective settings are
+recorded in slabcheck_interior.json. Reuse the same G4 inputs and seed with separate output directories for each arm.
 """
 import json
 import os
@@ -144,7 +149,7 @@ def fit_cal(rows, clip=(0.5, 1.2)):
     return {"points": out, "clip": list(clip)}, fits
 
 
-def run_interior(inputs, outdir, nmu=30000, seed=1, material=None, cal=None, fit=False, tail_k=None):
+def run_interior(inputs, outdir, nmu=30000, seed=1, material=None, cal=None, fit=False, tail_k=None, kink_p_mean=False):
     from .. import steps as st
     calib = st.INTERIOR_MSC_CAL if cal is None else json.load(open(cal))
     rows = []
@@ -168,7 +173,8 @@ def run_interior(inputs, outdir, nmu=30000, seed=1, material=None, cal=None, fit
             if lab == "fast_cal" and cc is None:
                 continue
             rng = np.random.default_rng([int(seed), int(round(tg * 1000)), pm])
-            ok, pk, dth, _ = st.slab_group(rng, mat, L, np.full(int(nmu), float(pm)), tail=True, tail_k=tail_k, msc_cal=cc)
+            ok, pk, dth, _ = st.slab_group(rng, mat, L, np.full(int(nmu), float(pm)), tail=True, tail_k=tail_k,
+                                          msc_cal=cc, kink_p_mean=kink_p_mean)
             if ok.sum() < 1000:
                 break
             row[lab] = _wq(dth[ok])
@@ -184,7 +190,10 @@ def run_interior(inputs, outdir, nmu=30000, seed=1, material=None, cal=None, fit
         rows.append(row)
     rows.sort(key=lambda r: (r["material"], r["xx0"], r["p_MeV"]))
     os.makedirs(outdir, exist_ok=True)
-    out = {"rows": rows}
+    out = {"rows": rows, "settings": {"model": "interior", "kink_p_mean": bool(kink_p_mean),
+            "scattering_momentum": "entry_exit_mean" if kink_p_mean else "exit",
+            "calibration_momentum": "exit", "segment_model": "single_unsplit_group",
+            "nmu": int(nmu), "seed": int(seed), "tail_k": tail_k, "calibration": calib}}
     if fit:
         c, fits = fit_cal(rows)
         out["fit"], out["cal"] = fits, c
@@ -205,10 +214,14 @@ def run_interior(inputs, outdir, nmu=30000, seed=1, material=None, cal=None, fit
     return out
 
 
-def run(inputs, outdir, nbands=4, nmu=100000, seed=1, model="world", material=None, cal=None, fit=False, **kw):
+def run(inputs, outdir, nbands=4, nmu=100000, seed=1, model="world", material=None, cal=None, fit=False,
+        kink_p_mean=False, **kw):
     outdir = outdir or "plots/slabcheck"
+    if kink_p_mean and model != "interior":
+        raise ValueError("--kink-p-mean requires --model interior")
     if model == "interior":
-        return run_interior(inputs, outdir, nmu=nmu, seed=seed, material=material, cal=cal, fit=fit)
+        return run_interior(inputs, outdir, nmu=nmu, seed=seed, material=material, cal=cal, fit=fit,
+                            kink_p_mean=kink_p_mean)
     os.makedirs(outdir, exist_ok=True)
     rows = []
     for path in T.expand(inputs):

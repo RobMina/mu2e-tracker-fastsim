@@ -95,6 +95,8 @@ def build_parser():
                             help="stage C: split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
             sp.add_argument("--band-spread", action="store_true",
                             help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
+            sp.add_argument("--straw-var-scale", type=float, default=1.0,
+                            help="factor on the straw-material core variance of the interior kinks (1 = off; ~0.70 from msccheck --spans)")
         if name == "geomcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--fast", nargs="+", required=True, metavar="ROOT", help="fast step tables made from these gen tables")
@@ -122,6 +124,8 @@ def build_parser():
                             help="split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
             sp.add_argument("--kink-p-mean", action="store_true",
                             help="interior kinks scatter at the mean of the group's entry and exit |p| (default exit |p|)")
+            sp.add_argument("--straw-var-scale", type=float, default=1.0,
+                            help="factor on the straw-material core variance of the interior kinks (1 = off; ~0.70 from msccheck --spans)")
         if name == "interiorcensus":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--nsub", type=int, default=8, help="phi samples per sector interval (as TrackerInterior)")

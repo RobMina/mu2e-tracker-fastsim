@@ -324,7 +324,7 @@ class TrackerInterior:
 
     def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
                   max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-                  kink_p_mean=False):
+                  kink_p_mean=False, straw_var_scale=1.0):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
@@ -346,6 +346,8 @@ class TrackerInterior:
         the angle where the summed single-scattering density crosses the Gaussian. Rows before the kink row are final; crossings are then recomputed from the kinked track (straws already
         recorded for that muon are skipped). The material behind a muon's last straw is not scattered. Returns a dict of per-crossing arrays sorted by muon then path: it, js, pos0, pos1 (Mu2e frame),
         dir, path (to the entry, from the plane), lost (interior loss before the entry, MeV).
+        straw_var_scale: factor on the Gaussian core variance of the straw-material share of each kink group (wall, gas,
+        wire; the tail and the support share unchanged); 1 = off (msccheck --spans 2026-10-24: core ~1.19x G4 in width).
         msc_cal: support-material width calibration against G4 slabs (INTERIOR_MSC_CAL or a dict of that form; None = off),
         see interior_msc_var_factor.
         """
@@ -500,6 +502,9 @@ class TrackerInterior:
             # (a slow muon losing much of its energy in the group otherwise scatters as if it had the exit |p| throughout)
             p_sc = 0.5 * (_p_of(tk_start[km] - lost[km]) + p_k) if kink_p_mean else p_k
             V = tr.highland_var_increment(p_sc, xcum[km], xcum[km] + X)
+            if straw_var_scale != 1.0:
+                xs_g = np.bincount(gk, xt_m, minlength=len(km))
+                V = V * (1.0 + (xs_g / np.maximum(X, 1e-30)) * (straw_var_scale - 1.0))
             if msc_cal is not None:
                 xm = {m: np.bincount(gk, (c / eloss.radiation_length_mm(materials.get(m)))[member],
                                      minlength=len(km)) for m, c in col.items()}
@@ -1009,7 +1014,7 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
                kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-               exit_scatter=True, all_muons=True):
+               exit_scatter=True, all_muons=True, straw_var_scale=1.0):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
     an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
     primary-muon StrawGasSteps on g4ref_v1 had them only from a second muon); all_muons=False keeps the first muon only
@@ -1026,7 +1031,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     support lever arms from the material's own moments (TrackerInterior.transport; default midpoint); kink_sup_xx0:
     split thick support segments into kinks of at most this x/X0 (default KINK_SUP_XX0; None or <= 0: one kink per segment);
     exit_scatter (default on since 2026-10-24): scatter the material behind each muon's last straw into the path used for
-    the tracker VD crossings (TrackerInterior.exit_scatter; StrawGasSteps unchanged)."""
+    the tracker VD crossings (TrackerInterior.exit_scatter; StrawGasSteps unchanged); straw_var_scale: factor on the
+    straw-material core variance of the interior kinks (TrackerInterior.transport; 1 = off)."""
     make_steps.path_vertices = None   # set below only by the interior transport of this call
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
@@ -1049,7 +1055,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     if interior is not None and interior_msc:
         sel = np.flatnonzero(alive)
         tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0,
-                                 msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0)
+                                 msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0,
+                                 straw_var_scale=straw_var_scale)
         make_steps.interior_stats = interior.last_stats
         kinks = interior.last_kinks
         if exit_scatter:

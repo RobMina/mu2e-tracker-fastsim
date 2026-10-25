@@ -1,6 +1,8 @@
 # Thread F p109 diagnostic build area
 
-Prepared October 25, 2026. Source-only; **no C++ build has been started**.
+Prepared October 25, 2026. **User build completed and verified later the same day**; see `rejection-trace.md` for
+bounded capture-off/on validation. The source-preparation and quota measurements below are retained as the build
+handoff record, not current usage. No agent started a build.
 
 This is one coherent full-source area, with no p107 or frozen Offline backing. The sources are git worktrees
 sharing existing object stores; `TrkFastSim` is a real directory copied on the cluster from tracker `79e4bec`.

@@ -1,0 +1,5 @@
+# Full-schedule control for the passive-rejection capture comparison.
+#include "TrkFastSim/fcl/trace_kkline_mc.fcl"
+physics.analyzers.kktrace.FullSchedule : true
+physics.analyzers.kktrace.CaptureRejection : false
+physics.analyzers.kktrace.PerIteration : false

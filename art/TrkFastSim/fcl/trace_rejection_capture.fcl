@@ -1,0 +1,3 @@
+# Same full schedule and input as the control, with passive capture enabled.
+#include "TrkFastSim/fcl/trace_rejection_control.fcl"
+physics.analyzers.kktrace.CaptureRejection : true

@@ -216,6 +216,21 @@ The flag is rejected for `--model world` and is not exposed by production `steps
 unsplit support group**; it does not validate the production multi-kink traversal, straw losses, timing or rate.
 Do not promote a production default or refit the calibration solely from a synthetic unit-test pass.
 
+Summarize a candidate against a saved baseline without regenerating it:
+
+```bash
+python3 -m trkfastsim.analyses.slabcompare BEFORE/slabcheck_interior.json AFTER/slabcheck_interior.json \
+    --references "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
+    "$M2FS_DATA/trk_fastsim/slab/G4_Cu/slab.*.root" "$M2FS_DATA/trk_fastsim/slab/G4_Pb/slab.*.root" \
+    --tracker-ref TRACKER_SHA --core-ref CORE_SHA --out AFTER/comparison.json
+```
+
+The comparator requires matching saved G4 observables, audits actual primary-muon events from the highest-cycle
+particle trees, records input JSON hashes, and refuses to overwrite its output. Per-material summaries use the
+common fit domain (median exit momentum at least 60% of entrance momentum). They are unweighted point summaries,
+not significance tests. Historical outputs without settings remain explicitly unidentified in that field; matching
+G4 observables does not establish matched random seeds or code for the historical fast arm.
+
 ## License
 
 Apache-2.0 (`LICENSE`, `NOTICE`).

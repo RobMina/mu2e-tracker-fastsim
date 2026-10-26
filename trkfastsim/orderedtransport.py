@@ -7,7 +7,8 @@ import numpy as np
 from mu2efastsim import eloss, materials, segmenttransport
 from . import flighttime, transportledger as ledger
 
-MODES = {"ordered-support-mean-replace-v1": "mean-replace", "ordered-support-sampled-stop-v1": "sampled"}
+MODES = {"ordered-support-mean-replace-v1": "mean-replace", "ordered-support-sampled-stop-v1": "sampled",
+         "ordered-support-deterministic-mean-v1": "sampled"}
 
 
 def _validate_inputs(identity, origin, direction, kinetic, intervals):
@@ -47,7 +48,9 @@ def transport_intervals(rng, identity, origin_mm, direction, kinetic_MeV, interv
                         stop_ke_MeV=1., max_steps=10000):
     """Transport support intervals in physical order with one active interval per muon.
 
-    Modes differ only in core overshoot treatment; neither reproduces legacy grouped transport.
+    Sampled modes differ only in core overshoot treatment. The explicit deterministic-mean mode uses
+    core mean proposals without RNG; sampled_loss_MeV then stores the full deterministic proposal.
+    No mode reproduces legacy grouped transport.
     Intervals must partition each supplied ray from zero, including vacuum. Missing lanes have zero extent.
     The cutoff retains residual KE in an absorbing model_stop, including initially stopped lanes in vacuum.
     Positive material slices have unmodeled deposit/escape partitions. Timing is unknown unless explicitly
@@ -73,7 +76,9 @@ def transport_intervals(rng, identity, origin_mm, direction, kinetic_MeV, interv
         if len(matches) != 1:
             raise ValueError(f"manifest needs exactly one matching unrestricted core medium for {name}")
         media[name] = matches[0]
+    loss_model = "mean" if mode == "ordered-support-deterministic-mean-v1" else "sampled"
     meta["settings"]["ordered_transport"] = dict(mode=mode, timing=timing, max_step_mm=max_step_mm,
+        loss_model=loss_model, proposal_field="sampled_loss_MeV contains full proposed-step loss; deterministic for mean",
         fractional_loss=fractional_loss, stop_ke_MeV=stop_ke_MeV, max_steps=max_steps,
         accounting="primary kinetic debit only; deposition and escape unmodeled",
         path="supplied straight support intervals; no scattering or straws",
@@ -125,7 +130,7 @@ def transport_intervals(rng, identity, origin_mm, direction, kinetic_MeV, interv
                 else:
                     result = segmenttransport.transport_segment(rng, materials.get(name), ke[use], s1[row] - s0[row],
                         tcut_MeV=1e9, stopping=MODES[mode], max_step_mm=max_step_mm, fractional_loss=fractional_loss,
-                        stop_ke_MeV=stop_ke_MeV, max_steps=max_steps)
+                        stop_ke_MeV=stop_ke_MeV, max_steps=max_steps, loss_model=loss_model)
                     sl = result["slices"]
                     local = sl["lane_index"]
                     append(use[local], s0[row[local]] + sl["s0_mm"], s0[row[local]] + sl["s1_mm"],

@@ -195,3 +195,12 @@ the same full particle identities and both arms, and calls the existing core los
 Keep mean/stochastic stopping and timing choices separate. Do not label energy differences as a rigorous bound
 or infer physical deposition without restricted-loss/secondary accounting. Ordered straw wall/gas/wire and
 energy-coupled crossings/scattering remain later gates; no material retuning or default promotion is justified.
+
+## Paired energy follow-up
+
+A separate deterministic mean sensitivity runner now consumes these saved paths; see
+[paired-support-energy.md](paired-support-energy.md). It retains the geometric admission flags and uncertainty,
+uses a separately SHA-pinned input set, merges exact-touch equal media before stepping, and never claims energy
+bounds. All 391 identities are retained: both arms give 377 transmissions and 14 model stops, with eight final-KE
+differences (maximum absolute 1.7100842342188116e-6 MeV). Integration-step sensitivity and stochastic-stop arms
+remain to be tested; this result is not transport/physics closure or permission to promote production defaults.

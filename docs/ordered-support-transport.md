@@ -145,3 +145,12 @@ with a consistent restricted-loss/secondary convention; couple energy updates to
 crossing recomputation, including upstream and exit state. Keep the isolated energy/air/stopping/timing arms
 and provenance separate. Only then compare same identities to existing G4 references below 500 MeV/c and by
 range-out margin, followed by library-on stock TV2/TV3. No default promotion is authorized by these tests.
+
+## Deterministic mean option
+
+A third explicitly named mode, `ordered-support-deterministic-mean-v1`, invokes the experimental core
+segment integrator with `loss_model="mean"`. It uses the existing restricted mean times the step and makes
+no sampler/RNG calls. The two original sampled modes retain their meaning and core defaults stay sampled.
+Metadata labels `sampled_loss_MeV` as a deterministic full-step proposal in the new mode. It supports the
+paired geometry sensitivity in [paired-support-energy.md](paired-support-energy.md); it is not the expectation
+of stochastic stopping or a separate loss model implementation.

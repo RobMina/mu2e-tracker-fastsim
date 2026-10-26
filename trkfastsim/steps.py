@@ -176,6 +176,15 @@ class TrackerInterior:
         if self.unknown:
             raise KeyError(f"tracker interior materials without constants: {self.unknown} (add them to mu2efastsim.materials)")
 
+    def transport_support_history(self, rng, identity, o, d, kinetic_MeV, length, metadata, *, mode,
+                                  timing="unknown", **settings):
+        """Experimental support-only straight transport; separate from production crossings and scattering."""
+        from .interiorpath import interior_intervals
+        from .orderedtransport import transport_intervals
+        intervals = interior_intervals(self.shells, o, d, length)
+        return transport_intervals(rng, identity, o, d, kinetic_MeV, intervals, metadata,
+                                   mode=mode, timing=timing, **settings)
+
     def _support(self, o, d, seg, moments):
         """Support column per material of segments (o, d, seg); with moments also (length, m1, m2) per material."""
         col = self.shells.column(o, d, seg, nsub=self.nsub, moments=moments)
@@ -215,7 +224,7 @@ class TrackerInterior:
                 sm2 += mom[m][2] / x0m
         return solid, x_sup, sm1, sm2
 
-    def exit_scatter(self, rng, o, d, p, xcum, length=EXIT_SCATTER_MM, tail=True, tail_k=None):
+    def exit_scatter(self, rng, o, d, p, xcum, length=EXIT_SCATTER_MM, tail=True, tail_k=None, trace=None):
         """Material behind each muon's last straw (support rings, end plates, calorimeter) crossed as kinks of at most
         KINK_SUP_XX0, so the path beyond the tracker (the tracker VD exit crossings) carries its scattering; energy loss
         sampled per kink. Straws are not looked for (the muon has left the straw volume or is done). Returns kink dicts
@@ -230,6 +239,7 @@ class TrackerInterior:
         # material beyond the exit crossing does not change it, and scattering there only grows the displacement
         length = np.minimum(np.full(n, float(length)), _envelope_exit(o, d) + ENVELOPE_PAD_MM)
         act = np.flatnonzero((p > 1.0) & (length > 1.0))
+        trace_status = np.full(n, "not_eligible", dtype="U32") if trace is not None else None
         for _ in range(64):
             if not len(act):
                 break
@@ -237,6 +247,8 @@ class TrackerInterior:
             col, _ = self._support(o[act], d[act], left, False)
             solid, x_sup, _, _ = self._support_sums(col, {}, len(act))
             go = x_sup > 1e-6
+            if trace is not None:
+                trace_status[act[~go]] = "no_further_material"
             act = act[go]
             if not len(act):
                 break
@@ -251,9 +263,16 @@ class TrackerInterior:
             for m, c in col.items():
                 h = np.flatnonzero(c > 0)
                 if len(h):
-                    lost[h] += tr.slab_loss(rng, materials.get(m), np.maximum(p[act][h], 1.0), c[h])
+                    lost[h] += (tr.slab_loss(rng, materials.get(m), np.maximum(p[act][h], 1.0), c[h]) if trace is None else
+                                trace.slab_loss(rng, materials.get(m), np.maximum(p[act][h], 1.0), c[h], act[h],
+                                                stage="exit", query_origin_mm=o[act[h]], query_direction=d[act[h]],
+                                                query_length_mm=seg[h], path_origin_mm=trav[act[h]]))
             alive = tk - lost > 0.5
             pk = _p_of(np.maximum(tk - lost, 0.0))
+            if trace is not None:
+                trace.emit("exit", "group_energy", act, ke_in_MeV=tk, cumulative_loss_MeV=lost,
+                           ke_requested_MeV=tk - lost, p_legacy_MeV_c=pk, alive=alive,
+                           query_origin_mm=o[act], query_length_mm=seg)
             # Highland at the mean |p| over the kink (entry and exit), not the exit |p|: a muon that ranges out in the
             # piece would otherwise scatter at |p| -> 0 (radian deflections); stopped muons end at the kink point
             pm = 0.5 * (p[act] + pk)
@@ -280,18 +299,29 @@ class TrackerInterior:
             dth[~alive], dy[~alive] = 0.0, 0.0            # a muon that stops in this piece does not leave it
             end = o[act] + d[act] * seg[:, None]
             pos, dn = _kink(end, d[act], dth, dy)
+            if trace is not None:
+                trace.emit("exit", "kink", act, end_mm=end, displaced_mm=pos, direction=dn,
+                           nominal_path_mm=trav[act] + seg, alive=alive)
             out.append({"it": act[alive].copy(), "end": end[alive], "pos": pos[alive], "dir": dn[alive],
                         "path": (trav[act] + seg)[alive], "p": pk[alive]})
             o[act], d[act], p[act] = pos, dn, pk
             xc[act] += X
             trav[act] += seg
+            if trace is not None:
+                trace_status[act] = np.where(alive, "extent_complete", "model_stop")
             act = act[alive & (trav[act] < length[act] - 1.0)]
+        else:
+            if trace is not None:
+                trace_status[act] = "iteration_cap"
+        if trace is not None:
+            trace.emit("exit", "termination", np.arange(n), status=trace_status,
+                       nominal_processed_mm=trav, nominal_remaining_mm=np.maximum(length - trav, 0.))
         if not out:
             z3 = np.zeros((0, 3))
             return {"it": np.zeros(0, np.int64), "end": z3, "pos": z3, "dir": z3, "path": np.zeros(0), "p": np.zeros(0)}
         return {k: np.concatenate([q[k] for q in out]) for k in out[0]}
 
-    def loss_to_straws(self, rng, o, d, p, it, s_in):
+    def loss_to_straws(self, rng, o, d, p, it, s_in, trace=None):
         """Energy lost [MeV] in the interior between each muon's origin o (on the plane) and each straw entry.
 
         o, d, p: per muon [N]; it, s_in: per crossing (muon index, path length to the straw entry), sorted by muon then
@@ -313,18 +343,24 @@ class TrackerInterior:
                 continue
             mat = materials.get(name)
             hit = np.flatnonzero(c > 0)
-            lost_seg[hit] += tr.slab_loss(rng, mat, np.maximum(pk[hit], 1.0), c[hit])
+            lost_seg[hit] += (tr.slab_loss(rng, mat, np.maximum(pk[hit], 1.0), c[hit]) if trace is None else
+                              trace.slab_loss(rng, mat, np.maximum(pk[hit], 1.0), c[hit], it[hit], stage="straight",
+                                              query_origin_mm=seg_o[hit], query_direction=d[it[hit]],
+                                              query_length_mm=seg_len[hit], crossing_row=hit))
             stats[name] = float(c.sum())
         # cumulative loss along each muon
         grp = np.cumsum(first) - 1
         cum = np.cumsum(lost_seg)
         base = np.r_[0.0, cum][np.flatnonzero(first)][grp]
         out = cum - base
+        if trace is not None:
+            trace.emit("straight", "entry_energy", it, path_mm=s_in, cumulative_loss_MeV=out,
+                       p_start_MeV_c=p[it], crossing_row=np.arange(len(it)))
         return out, stats
 
     def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
                   max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-                  kink_p_mean=False):
+                  kink_p_mean=False, trace=None):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
@@ -357,6 +393,7 @@ class TrackerInterior:
         xcum = np.zeros(n)
         restarted = np.zeros(n, bool)                # muon restarted before its kink straw (back-off segment counted)
         act = np.arange(n)
+        trace_status = np.full(n, "no_further_candidates", dtype="U32") if trace is not None else None
         rows = []
         kinks = []                                   # kink points per muon, for the surface crossings (no rng use)
         done = np.zeros(0, np.int64)                 # muon * nstraw + straw of the recorded crossings
@@ -452,7 +489,12 @@ class TrackerInterior:
             for m, c in col.items():
                 h = np.flatnonzero((c > 0) & upto)
                 if len(h):
-                    lseg[h] += tr.slab_loss(rng, materials.get(m), np.maximum(pk[h], 1.0), c[h])
+                    lseg[h] += (tr.slab_loss(rng, materials.get(m), np.maximum(pk[h], 1.0), c[h]) if trace is None else
+                                trace.slab_loss(rng, materials.get(m), np.maximum(pk[h], 1.0), c[h], it[h],
+                                                stage="interior", iteration=st["iterations"], crossing_row=h,
+                                                query_origin_mm=o[it[h]] + d[it[h]] * prev[h, None],
+                                                query_direction=d[it[h]], query_length_mm=seg[h],
+                                                path_origin_mm=travelled[it[h]] + prev[h]))
             cum = np.cumsum(lseg)
             cum = cum - np.r_[0.0, cum][start][grp]
             loss_at = lost[it] + cum
@@ -461,7 +503,20 @@ class TrackerInterior:
             if dead.any():
                 np.minimum.at(dead_from, it[dead], idx[dead])
                 st["stopped"] += int(len(np.unique(it[dead])))
+                if trace is not None:
+                    trace_status[it[dead]] = "model_stop"
             ok = fin & (idx < dead_from[it])
+            if trace is not None:
+                h = np.flatnonzero(upto)
+                trace.emit("interior", "thin_columns", it[h], iteration=st["iterations"], crossing_row=h,
+                           sid=geom.sid[js[h]],
+                           gap_mm=lens["air"][h], mylar_mm=lens["mylar"][h], metal_mm=lens["metal"][h],
+                           gas_mm=lens["gas"][h], wire_mm=lens["wire"][h], plate_mm=lens["plate"][h],
+                           transport_loss_status="unmodeled", gap_material=None if gap is None else gap.name)
+                trace.emit("interior", "candidate_energy", it[h], iteration=st["iterations"], crossing_row=h,
+                           path_mm=travelled[it[h]] + s_in[h], ke_start_MeV=tk_start[it[h]],
+                           cumulative_loss_MeV=loss_at[h], ke_requested_MeV=tk_start[it[h]] - loss_at[h],
+                           stopped=dead[h], first_stop=(idx == dead_from[it])[h], emitted=ok[h])
             if ok.any():
                 rows.append({"it": it[ok], "js": js[ok], "pos0": o[it[ok]] + d[it[ok]] * s_in[ok, None],
                              "pos1": o[it[ok]] + d[it[ok]] * s_out[ok, None], "dir": d[it[ok]].copy(),
@@ -523,6 +578,9 @@ class TrackerInterior:
             pos, dn = _kink(end, d[km], dth, dy)
             # a displacement can still land the point inside a straw's gas: move it back out along the new direction
             pos = _exit_gas_backwards(pos, dn, geom)
+            if trace is not None:
+                trace.emit("interior", "kink", km, iteration=st["iterations"], end_mm=end, displaced_mm=pos,
+                           direction=dn, path_mm=travelled[km] + s_k - back, p_legacy_MeV_c=p_k)
             kinks.append({"it": km.copy(), "end": end.copy(), "pos": pos.copy(), "dir": dn.copy(),
                           "path": travelled[km] + s_k - back, "p": p_k.copy()})
             o[km] = pos
@@ -535,6 +593,11 @@ class TrackerInterior:
             act = km
         else:
             st["capped"] += len(act)
+            if trace is not None:
+                trace_status[act] = "iteration_cap"
+        if trace is not None:
+            trace.emit("interior", "termination", np.arange(n), status=trace_status, stats=st,
+                       last_restart_path_mm=travelled)
         self.last_stats = st
         self.last_final = {"o": o.copy(), "d": d.copy(), "p": _p_of(np.maximum(tk_start - lost, 0.0)),
                            "path": travelled.copy(), "xcum": xcum.copy()}
@@ -1011,7 +1074,7 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
                kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-               exit_scatter=True, all_muons=True, entry_ledger="legacy", capture_entry_ledger=False):
+               exit_scatter=True, all_muons=True, entry_ledger="legacy", capture_entry_ledger=False, transport_trace=None):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
     an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
     primary-muon StrawGasSteps on g4ref_v1 had them only from a second muon); all_muons=False keeps the first muon only
@@ -1032,6 +1095,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     entry_ledger: legacy (default), energy or vacuum; opt-in writer-only diagnostics on fixed trajectories.
     Nonlegacy modes require exit_scatter=False and omit path vertices; they are not surface/reco-ready transport.
     capture_entry_ledger: expose cumulative per-entry accounting as make_steps.entry_ledger, before gas sampling.
+    transport_trace: optional fresh LegacyTrace; passive algorithm/column capture, not a physical segment history.
     """
     from . import entryledger
     if entry_ledger not in entryledger.MODES:
@@ -1042,6 +1106,17 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         raise ValueError("entry-ledger diagnostics require primary-only output without secondary libraries")
     if entry_ledger == "vacuum" and (stage != "C" or interior is None):
         raise ValueError("vacuum entry ledger requires stage C with a tracker interior")
+    if transport_trace is not None:
+        if sampler is not None or offaxis is not None:
+            raise ValueError("transport trace currently requires primary-only output")
+        transport_trace.configure(dict(stage=stage, air_loss=air_loss, sliced_msc=sliced_msc,
+            interior=interior is not None, interior_msc=interior_msc, near_margin=near_margin,
+            msc_tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0, band_spread=band_spread,
+            interior_msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0,
+            exit_scatter=exit_scatter, all_muons=all_muons, entry_ledger=entry_ledger,
+            capture_entry_ledger=capture_entry_ledger, interior_nsub=getattr(interior, "nsub", None),
+            gap_material="vacuum", core_slice_frac=tr.SLICE_FRAC, core_tk_stop_MeV=tr.TK_STOP,
+            core_max_slices=tr.N_SLICES_MAX, core_max_slices_per_slab=tr.MAX_SLICES_PER_SLAB))
     make_steps.entry_ledger = None
     make_steps.path_vertices = None   # set below only by the interior transport of this call
     if stage == "C":
@@ -1055,6 +1130,16 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         o = mu[["x", "y", "z"]].to_numpy()
         d = mu[["px", "py", "pz"]].to_numpy() / p0[:, None]
         p_start, t_off, alive = p0.copy(), np.zeros(len(mu)), np.ones(len(mu), bool)
+    trace = transport_trace.bind(mu) if transport_trace is not None else None
+    if trace is not None:
+        handoff = np.full(len(mu), "generated", dtype="U32")
+        if stage == "C":
+            near = near_tracker(mu[["x", "y", "z"]].to_numpy(),
+                                mu[["px", "py", "pz"]].to_numpy() / p0[:, None], geom, plane_y(geom), near_margin)
+            handoff = np.where(near, np.where(alive, "plane_alive", "upstream_stopped_plane_proxy"), "generated_rejected")
+        trace.emit("handoff", "plane" if stage == "C" else "generated", np.arange(len(mu)),
+                   origin_mm=o, direction=d, p_MeV_c=p_start, legacy_path_offset_mm=t_off, alive=alive,
+                   handoff_status=handoff, generated_p_MeV_c=p0, generated_t_ns=mu.t.to_numpy())
     if stage == "C":   # muon state at the plane, for fate diagnostics (analyses/fatecheck.py)
         make_steps.last_plane = {"key": mu[KEY].to_numpy(), "alive": alive.copy(), "p_plane": p_start.copy(),
                                  "o": o.copy(), "d": d.copy()}
@@ -1062,10 +1147,14 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         # the interior shells reach above the plane (support rings to r ~ 820 mm about the axis): start the interior
         # transport where they begin, so their top part is crossed (the world column stops at the plane)
         o, t_off = _back_to_interior_top(o, d, t_off, alive, interior, geom)
+        if trace is not None:
+            trace.emit("handoff", "interior_top", np.arange(len(mu)), origin_mm=o, direction=d,
+                       p_MeV_c=p_start, legacy_path_offset_mm=t_off, alive=alive)
     if interior is not None and interior_msc:
         sel = np.flatnonzero(alive)
         tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0,
-                                 msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0)
+                                 msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0,
+                                 **({"trace": trace.subset(sel)} if trace is not None else {}))
         make_steps.interior_stats = interior.last_stats
         kinks = interior.last_kinks
         if exit_scatter:
@@ -1074,7 +1163,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             # origin is its last restart point; no support lies between it and the last straw (else it would have kinked)
             fin = interior.last_final
             ek = interior.exit_scatter(np.random.default_rng(rng.bit_generator.seed_seq.spawn(1)[0]), fin["o"], fin["d"], fin["p"],
-                                       fin["xcum"], tail=msc_tail, tail_k=tail_k)
+                                       fin["xcum"], tail=msc_tail, tail_k=tail_k,
+                                       **({"trace": trace.subset(sel)} if trace is not None else {}))
             ek = dict(ek, path=ek["path"] + fin["path"][ek["it"]])
             kinks = {k: np.concatenate([kinks[k], ek[k]]) for k in kinks}
         if entry_ledger == "legacy":
@@ -1103,10 +1193,15 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             p = np.maximum(p - eloss.dedx_restricted(materials.AIR, p_start[it], 1e9) * s_in, 1.0)
         lost = np.zeros(len(it))
         if interior is not None and len(it):
-            lost, make_steps.interior_stats = interior.loss_to_straws(rng, o, d, p_start, it, s_in)
+            lost, make_steps.interior_stats = interior.loss_to_straws(
+                rng, o, d, p_start, it, s_in, **({"trace": trace} if trace is not None else {}))
             tk = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU - lost
             stopped = tk <= 0.5
             p = np.sqrt(np.clip((np.maximum(tk, 0.5) + eloss.MMU) ** 2 - eloss.MMU ** 2, 1.0, None))
+            if trace is not None:
+                trace.emit("straight", "writer_candidate", it, sid=geom.sid[js], path_mm=s_in,
+                           ke_requested_MeV=tk, p_legacy_MeV_c=p, stopped=stopped,
+                           kept_by_legacy_filter=~stopped if entry_ledger == "legacy" else np.ones(len(it), bool))
             if stopped.any() and entry_ledger == "legacy":
                 keep = ~stopped
                 it, js, s_in, s_out, path, p = it[keep], js[keep], s_in[keep], s_out[keep], path[keep], p[keep]
@@ -1127,6 +1222,11 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             it, js, s_in, path = it[keep], js[keep], s_in[keep], path[keep]
             w0, w1, dirs = w0[keep], w1[keep], dirs[keep]
     eion = eloss.sample_loss(rng, STRAW_GAS, p, path, delta_cut_mev())
+    if trace is not None:
+        trace.emit("writer", "gas_sample", it, sid=geom.sid[js], entry_mm=w0, exit_mm=w1, path_mm=path,
+                   entry_path_mm=s_in, p_written_MeV_c=p, sampled_restricted_MeV=eion,
+                   effective_cut_MeV=delta_cut_mev(), transport_debit_status="unmodeled",
+                   escaping_status="unmodeled")
     e = np.sqrt(p ** 2 + eloss.MMU ** 2)
     bg = p / eloss.MMU
     ke = e - eloss.MMU

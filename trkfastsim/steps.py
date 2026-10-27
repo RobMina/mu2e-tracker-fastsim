@@ -20,6 +20,8 @@ Delta rays, other secondaries and steps of non-primary particles are not produce
 Positions are written in the detector frame, as Geant4's StrawSD stores them (geometry.to_detector).
 Output rows follow the sgsteps tree of StrawGasStepTableDumper, so the reference readers and comparisons apply.
 """
+import time
+
 import numpy as np
 import pandas as pd
 
@@ -1011,7 +1013,7 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
                kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-               exit_scatter=True, all_muons=True, entry_ledger="legacy", capture_entry_ledger=False):
+               exit_scatter=True, all_muons=True, entry_ledger="legacy", capture_entry_ledger=False, backend="numpy"):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
     an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
     primary-muon StrawGasSteps on g4ref_v1 had them only from a second muon); all_muons=False keeps the first muon only
@@ -1032,6 +1034,9 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     entry_ledger: legacy (default), energy or vacuum; opt-in writer-only diagnostics on fixed trajectories.
     Nonlegacy modes require exit_scatter=False and omit path vertices; they are not surface/reco-ready transport.
     capture_entry_ledger: expose cumulative per-entry accounting as make_steps.entry_ledger, before gas sampling.
+    backend: numpy (default, the reference) or jax (trkfastsim.steps_jax: the in-tracker transport, exit_scatter, the
+    straight-line crossings and the gas eIon on the JAX device; statistically equal, different random streams).
+    make_steps.timing: wall seconds per stage of this call.
     """
     from . import entryledger
     if entry_ledger not in entryledger.MODES:
@@ -1042,6 +1047,14 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         raise ValueError("entry-ledger diagnostics require primary-only output without secondary libraries")
     if entry_ledger == "vacuum" and (stage != "C" or interior is None):
         raise ValueError("vacuum entry ledger requires stage C with a tracker interior")
+    if backend not in ("numpy", "jax"):
+        raise ValueError(f"unknown backend: {backend}")
+    if backend == "jax":
+        from . import steps_jax
+        steps_jax.check_options(interior, interior_msc, interior_msc_cal=interior_msc_cal, lever_moments=lever_moments,
+                                entry_ledger=entry_ledger, capture_entry_ledger=capture_entry_ledger)
+    timing = make_steps.timing = {}
+    t0 = time.perf_counter()
     make_steps.entry_ledger = None
     make_steps.path_vertices = None   # set below only by the interior transport of this call
     if stage == "C":
@@ -1055,6 +1068,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         o = mu[["x", "y", "z"]].to_numpy()
         d = mu[["px", "py", "pz"]].to_numpy() / p0[:, None]
         p_start, t_off, alive = p0.copy(), np.zeros(len(mu)), np.ones(len(mu), bool)
+    timing["to_plane"] = time.perf_counter() - t0
+    key = steps_jax.key_from(rng) if backend == "jax" else None
     if stage == "C":   # muon state at the plane, for fate diagnostics (analyses/fatecheck.py)
         make_steps.last_plane = {"key": mu[KEY].to_numpy(), "alive": alive.copy(), "p_plane": p_start.copy(),
                                  "o": o.copy(), "d": d.copy()}
@@ -1064,8 +1079,15 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         o, t_off = _back_to_interior_top(o, d, t_off, alive, interior, geom)
     if interior is not None and interior_msc:
         sel = np.flatnonzero(alive)
-        tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0,
-                                 msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0)
+        t1 = time.perf_counter()
+        if backend == "jax":
+            dev = steps_jax.device_interior(interior, geom)
+            tr_, interior.last_stats, interior.last_kinks, interior.last_final = dev.transport(
+                key, o[sel], d[sel], p_start[sel], tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0, kink_sup_xx0=kink_sup_xx0)
+        else:
+            tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0,
+                                     msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0)
+        timing["transport"] = time.perf_counter() - t1
         make_steps.interior_stats = interior.last_stats
         kinks = interior.last_kinks
         if exit_scatter:
@@ -1073,8 +1095,14 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             # stream (does not advance rng), so the StrawGasSteps are identical with and without it. The transport's final
             # origin is its last restart point; no support lies between it and the last straw (else it would have kinked)
             fin = interior.last_final
-            ek = interior.exit_scatter(np.random.default_rng(rng.bit_generator.seed_seq.spawn(1)[0]), fin["o"], fin["d"], fin["p"],
-                                       fin["xcum"], tail=msc_tail, tail_k=tail_k)
+            t1 = time.perf_counter()
+            if backend == "jax":
+                ek = dev.exit_scatter(key, fin["o"], fin["d"], fin["p"], fin["xcum"], tail=msc_tail, tail_k=tail_k)
+                make_steps.interior_stats = dict(make_steps.interior_stats, **{f"exit_{k}": v for k, v in dev.last_exit_stats.items()})
+            else:
+                ek = interior.exit_scatter(np.random.default_rng(rng.bit_generator.seed_seq.spawn(1)[0]), fin["o"], fin["d"], fin["p"],
+                                           fin["xcum"], tail=msc_tail, tail_k=tail_k)
+            timing["exit_scatter"] = time.perf_counter() - t1
             ek = dict(ek, path=ek["path"] + fin["path"][ek["it"]])
             kinks = {k: np.concatenate([kinks[k], ek[k]]) for k in kinks}
         if entry_ledger == "legacy":
@@ -1092,7 +1120,9 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         tk = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU - lost
         p = np.sqrt(np.clip((np.maximum(tk, 0.5) + eloss.MMU) ** 2 - eloss.MMU ** 2, 1.0, None))
     else:
-        xs = crossings.straw_crossings(o, d, geom)
+        t1 = time.perf_counter()
+        xs = steps_jax.straw_crossings(geom, o, d) if backend == "jax" else crossings.straw_crossings(o, d, geom)
+        timing["crossings"] = time.perf_counter() - t1
         xs = xs[alive[xs[:, 0].astype(np.int64)]] if len(xs) else xs
         it = xs[:, 0].astype(np.int64)
         js = xs[:, 1].astype(np.int64)
@@ -1126,7 +1156,12 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             p = ledger["p_written_MeV_c"][keep]
             it, js, s_in, path = it[keep], js[keep], s_in[keep], path[keep]
             w0, w1, dirs = w0[keep], w1[keep], dirs[keep]
-    eion = eloss.sample_loss(rng, STRAW_GAS, p, path, delta_cut_mev())
+    t1 = time.perf_counter()
+    if backend == "jax":
+        eion = steps_jax.sample_gas_eion(key, p, path, np.asarray(it, np.int64))
+    else:
+        eion = eloss.sample_loss(rng, STRAW_GAS, p, path, delta_cut_mev())
+    timing["eion"] = time.perf_counter() - t1
     e = np.sqrt(p ** 2 + eloss.MMU ** 2)
     bg = p / eloss.MMU
     ke = e - eloss.MMU
@@ -1162,4 +1197,5 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         steps, parts, make_steps.offaxis_stats = add_offaxis_secondaries(steps, parts, offaxis, geom)
     if sampler is not None:
         steps, parts = add_instraw_secondaries(steps, parts, sampler, geom)
+    timing["total"] = time.perf_counter() - t0
     return steps, parts

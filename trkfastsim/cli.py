@@ -13,6 +13,7 @@ from .analyses import interiorcensus
 from .analyses import seedcheck
 from .analyses import rangecheck
 from .analyses import arrivalcheck
+from .analyses import jaxcheck
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -38,6 +39,7 @@ ANALYSES = {
     "seedcheck": (seedcheck.run, "is geomcheck's seeded interior-scattering excess real? seed at the ring tops / plane / tracker envelope, all events and the CRV-term subset"),
     "interiorcensus": (interiorcensus.run, "tracker-interior material per volume group: fast shells vs G4 trajectory loss, plane to first straw, and mass vs GDML"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
+    "jaxcheck": (jaxcheck.run, "steps --backend jax against numpy on the same primaries: statistics, paired PrimaryFilter, reproducibility, timing"),
 }
 BATCHABLE = {"refcheck"}
 
@@ -95,6 +97,9 @@ def build_parser():
                             help="stage C: split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
             sp.add_argument("--band-spread", action="store_true",
                             help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
+            sp.add_argument("--backend", default="numpy", choices=["numpy", "jax"],
+                            help="numpy (default, the reference) or jax: in-tracker transport, crossings and gas eIon on the "
+                                 "JAX device (CPU or GPU; statistically equal, different random streams; trkfastsim.steps_jax)")
         if name == "geomcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--fast", nargs="+", required=True, metavar="ROOT", help="fast step tables made from these gen tables")
@@ -109,6 +114,21 @@ def build_parser():
             sp.add_argument("--no-msc-tail", action="store_true", help="no single-scattering tail in the world column")
             sp.add_argument("--band-mm", type=float, default=None, help="uniform height bands of this size [mm] (diagnostic)")
             sp.add_argument("--crv", nargs="+", default=None, metavar="ROOT", help="G4 CrvStep tables: keep CRV-term events only")
+        if name == "jaxcheck":
+            sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
+            sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i), as steps")
+            sp.add_argument("--stage", default="C", choices=["A", "C"])
+            sp.add_argument("--repeat", type=int, default=2, help="jax passes on the same seed (the first compiles)")
+            sp.add_argument("--numpy-repeat", type=int, default=1, help="numpy passes on the same seed")
+            sp.add_argument("--no-exit-scatter", action="store_true", help="skip exit_scatter (surfsteps path) in both")
+            sp.add_argument("--save", action="store_true", help="also write both step tables")
+            sp.add_argument("--concat", action="store_true",
+                            help="one make_steps call on all inputs concatenated (throughput at a large batch)")
+            sp.add_argument("--lanes", type=int, default=None, help="jax muons per device chunk (default steps_jax.LANES)")
+            sp.add_argument("--cross", default=None, metavar="DIR",
+                            help="--save outdir of a run on another JAX device: compare its jax tables step by step")
+            sp.add_argument("--kernel-times", action="store_true",
+                            help="one more jax pass with every steps_jax kernel synchronised and timed")
         if name == "rangecheck":
             sp.add_argument("--nmu", type=int, default=30000, help="fast muons per point")
             sp.add_argument("--seed", type=int, default=1)

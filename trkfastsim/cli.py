@@ -13,6 +13,7 @@ from .analyses import interiorcensus
 from .analyses import seedcheck
 from .analyses import rangecheck
 from .analyses import arrivalcheck
+from .analyses import digicmp, fastdigi
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -38,6 +39,9 @@ ANALYSES = {
     "seedcheck": (seedcheck.run, "is geomcheck's seeded interior-scattering excess real? seed at the ring tops / plane / tracker envelope, all events and the CRV-term subset"),
     "interiorcensus": (interiorcensus.run, "tracker-interior material per volume group: fast shells vs G4 trajectory loss, plane to first straw, and mass vs GDML"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
+    "digi-cond": (fastdigi.run_cond, "fast digitisation conditions (.npz) from the stock job's fhicl-dump, DB CSVs and the GDML"),
+    "digi": (fastdigi.run_digi, "fast digitisation (port of StrawDigisFromStrawGasSteps): step tables -> StrawHitTableDumper-layout digi tables"),
+    "digicmp": (digicmp.run, "fast vs stock digis on the same steps: digis/event, occupancy, TDC/TOT/PMP, dt, hit reco and combo hits, with a reseeded stock floor"),
 }
 BATCHABLE = {"refcheck"}
 
@@ -157,6 +161,24 @@ def build_parser():
             sp.add_argument("--hits", nargs="+", default=None, metavar="ROOT", help="fast-arm StrawHitTableDumper tables")
             sp.add_argument("--hits-ref", nargs="+", default=None, metavar="ROOT", help="G4-arm StrawHitTableDumper tables")
             sp.add_argument("--tot-breakdown", action="store_true", help="track-hit TOT/edep by true relation and true path length")
+        if name == "digi-cond":
+            sp.add_argument("--preamp", default=None, metavar="CSV", help="TrkPreampStraw content (dbTool print-run ... --content)")
+            sp.add_argument("--align", default=None, metavar="CSV", help="TrkAlignStrawSim content (wire-end offsets of alignedTrackerSim)")
+            sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
+            sp.add_argument("--global-constants", default=None, metavar="TXT", help="GlobalConstantsService physicsParams file")
+            sp.add_argument("--out", default=None, metavar="NPZ", help="conditions file (default <outdir>/digicond.npz)")
+            sp.add_argument("--check-ref", default=None, metavar="ROOT", help="StrawHitTableDumper file: compare the straws with its tracker")
+        if name == "digi":
+            sp.add_argument("--cond", default=None, metavar="NPZ", help="conditions from digi-cond")
+            sp.add_argument("--events", nargs="+", default=None, metavar="ROOT",
+                            help="StrawHitTableDumper files: digitise exactly their events (default: PrimaryFilter tracker term)")
+            sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
+            sp.add_argument("--chunk", type=int, default=1000, help="events per vectorised batch")
+        if name == "digicmp":
+            sp.add_argument("--ref", nargs="+", required=True, metavar="ROOT", help="stock StrawHitTableDumper tables (same steps)")
+            sp.add_argument("--floor", nargs="+", default=None, metavar="ROOT", help="stock tables with another digitisation seed")
+            sp.add_argument("--hit-cond", default=None, metavar="JSON", help="hit-reco conditions (reco-conditions); default: from --ref[0]")
+            sp.add_argument("--f2", action="store_true", help="also run the fast reco chain (time clusters, seeds, F2 fit; JAX) on every arm")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")
             sp.add_argument("--merge", action="store_true", help="inputs are --emit JSONs: sum and report")

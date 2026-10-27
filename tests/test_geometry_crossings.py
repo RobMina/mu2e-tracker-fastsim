@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from trkfastsim import crossings as X                                   # noqa: E402
@@ -128,6 +129,7 @@ def _layers(ys, h=5000.0, n=401, pitch=6.0):
                            plane_R=np.tile(np.eye(3), (len(ys), 1, 1)), plane_t=np.zeros((len(ys), 3)))
 
 
+@pytest.mark.slow   # statistical check on 2e4-1e5 muons: several GB, tens of seconds
 def test_interior_transport_kinks_after_material_and_matches_highland():
     from mu2efastsim import eloss as E, materials as M
     interior = _plate_interior(10.0)
@@ -163,6 +165,7 @@ def test_interior_transport_without_material_is_a_straight_line():
     assert interior.last_stats["kinks"] == 0
 
 
+@pytest.mark.slow   # statistical check on 2e4-1e5 muons: several GB, tens of seconds
 def test_interior_transport_tail_adds_large_angles():
     interior = _plate_interior(10.0)
     g = _layers([150.0, -150.0])
@@ -209,6 +212,7 @@ def test_interior_transport_scatters_in_straws_and_air():
     assert interior.last_stats["kinks"] == 0
 
 
+@pytest.mark.slow   # statistical check on 2e4-1e5 muons: several GB, tens of seconds
 def test_interior_transport_wire_hits_add_large_angles():
     """A thick sense wire on the straw axes: tracks that cross it scatter far more than those that miss it."""
     interior = _plate_interior(10.0)

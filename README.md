@@ -278,6 +278,14 @@ fixed primary-muon trajectories. Run `python3 -m trkfastsim.analyses.ledgercheck
 identity-paired counts, not surface/reco-ready ROOT products. The normal generator retains its defaults;
 full transport-energy and integrated-flight-time closure remain separate work.
 
+## Tracker kit task
+
+[`tracker_point`](docs/kit-task.md) connects cached primary shards to stage-C steps, fast digitisation, fast
+hits/seeds/F2 and the EventNtuple writer with typed admission and full generated-event denominators. It is a fixed
+extracted-v04, primary-only integration task, registered for mounted EAF and streamed UVA, **not** live rollout or
+physics commissioning. Endpoint output is JSON metadata only; local validation can retain the ROOT product.
+`trkfastsim.kitf1` is a separate stock-conditioned diagnostic companion, not an autonomous F1 evaluator.
+
 ## License
 
 Apache-2.0 (`LICENSE`, `NOTICE`).

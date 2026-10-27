@@ -103,6 +103,8 @@ def read_digis(paths):
 
 def peak_minus_ped(adc_flat, nadc, npre):
     """StrawHitRecoUtils::peakMinusPedWF: max over samples >= npre minus the float mean of the first npre."""
+    if len(nadc) == 0:
+        return np.zeros(0, np.float64)
     start = np.concatenate([[0], np.cumsum(nadc)[:-1]])
     pos = np.arange(len(adc_flat)) - np.repeat(start, nadc)
     ped = (np.add.reduceat(np.where(pos < npre, adc_flat, 0), start) / F32(npre)).astype(F32)

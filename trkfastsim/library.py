@@ -264,13 +264,16 @@ class OffAxisSampler:
     drawn with the right frequency. Empty keys fall back hierarchically: neighbouring plane-extent bins at the same
     (|p|, angle), then any plane extent at the same (|p|, angle), then neighbouring angle bins. The drawn set carries
     lattice offsets (k, dpl, dpa, dst, dt) that steps.add_offaxis_secondaries applies to the fast muon's straws.
+    edge_anchor (opt-in): steps with dpl != 0 are anchored on the fast muon's first (dpl < 0) or last (dpl > 0) plane
+    instead of the relative rank k, so they stay outside its plane extent (steps._edge_anchor).
     """
 
     COS_BINS = np.array([0.0, 0.5, 0.7, 0.85, 0.95, 1.01])
 
-    def __init__(self, lib, rng, plane_bin_width=PLANE_BIN):
+    def __init__(self, lib, rng, plane_bin_width=PLANE_BIN, edge_anchor=False):
         ev = lib["events"].reset_index(drop=True)
         self.rng = rng
+        self.edge_anchor = bool(edge_anchor)   # opt-in: steps outside the muon's planes anchor on its first/last plane
         self.use_planes = bool(plane_bin_width) and "plane_min" in ev
         self.pbw = int(plane_bin_width) if self.use_planes else 36
         self.nc = len(self.COS_BINS)

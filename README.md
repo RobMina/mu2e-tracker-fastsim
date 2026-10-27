@@ -62,6 +62,8 @@ CLI: `python3 -m trkfastsim <subcommand> -h`.
 | `digi-cond` | fast digitisation conditions (`.npz`) from the stock job's `fhicl-dump`, the DbService CSVs and the GDML |
 | `digi` | fast digitisation: StrawGasStep tables to digi tables in the `StrawHitTableDumper` layout the fast hit reco reads |
 | `digicmp` | fast against stock digis on the same steps, with a reseeded stock floor: digis per event, occupancy, TDC, TOT, ADC/PMP, dt, hit reco and the F2 fit yield |
+| `seccensus` | T-V1b: secondary steps per primary-muon step and their eIon share, by species, eIon, path, place relative to the muon, wire distance, along-wire position, muon \|p\|, G4 creation process; eIon per straw with a G4 half-vs-half floor; step-level panel occupancy with event-clustered errors; `--paired` on the same CRY primaries |
+| `tv2compare` | T-V2/T-V3 on path A EventNtuples (and `StrawHitTableDumper` tables with `--hits`): yield, hits, chi2, TT_Outer residual widths (jackknife errors, entry/exit split), digis, TDC/TOT, panel occupancy over the 216 uniquePanels with Poisson and event-clustered errors and G4 even/odd-file floors; `--paired` splits the yield difference into selection-only and both-selected parts; every row against its threshold |
 | `reco-conditions` | the straw conditions a fast reco job needs, read from the conditions tree of a `StrawHitTableDumper` output |
 | `reco-vr1` | T-VR1: fast straw-hit and combo-hit reco against the stock hits dumped from the same digis (`--jax` for the JAX twins) |
 | `reco-vr1b` | T-VR1b: fast time clusters and line seeds against stock `SimpleTimeCluster` and `LineFinder` (`DumpTracks` in the dumper, `art/TrkFastSim/fcl/dump_tracks_mc.fcl`) |
@@ -232,6 +234,37 @@ python3 -m trkfastsim surfcheck "$D/fast_c1SIsDss/fasttrkC.*.root" --compare "$D
 Expected (2026-10-21): crossings per selected event within 1 % of G4 on every sid; positions on the surfaces; |p|, angle,
 position and time bands 0-3.5 % after the 2-sigma allowance. 52-72 % of G4 surfsteps come from particles other than the
 primary muon (delta rays crossing the VDs): the fast sim does not write those.
+
+## Secondaries, panel occupancy and paired T-V2/T-V3
+
+The per-panel occupancy and the TDC/TOT shapes are sums over events in which one muon puts several digis into each
+panel it crosses: a Poisson chi2 over panels is about the mean cluster size (3-4) for two samples of the same physics.
+`tv2compare` therefore reports a full event-clustered panel covariance and its rank-based chi2
+(`trkfastsim/analyses/occupancy.py`, tested in `tests/test_occupancy.py`), with marginal pulls,
+diagonal/Poisson diagnostic scores and G4-against-G4 floors from disjoint files. Paired occupancy
+is non-certifying until cross-arm covariance is included. Input coverage and yield-factorization
+checks prevent incomplete outputs from becoming apparent physics losses.
+See [secondary validation](docs/secondary-validation.md) for assumptions, the legacy energy-band
+convention and the opt-in `--offaxis-edge-anchor` placement diagnostic.
+
+Paired campaign on the `g4ref_v2` primaries (10 M generated, 200 subruns; same CRY events in both arms), from the
+umbrella environment on a GPVM:
+
+```bash
+O=$M2FS_DATA/trk_straw_occ_TAG
+tracker/scripts/straw_occ_steps.sh $O g4ref_v2            # fast steps + library on 20 merged gen groups, paired seccensus
+tracker/scripts/straw_occ_floors.sh $O                     # G4 even/odd floors of every T-V2/T-V3 row; unpaired census
+tracker/scripts/tv2_group_lists.sh g4ref_v2 $O/fast_g4ref_v2_L $O tv2p   # grid lists (10 subruns per job)
+DUMP=1 TABLES_DIR=$O/fast_g4ref_v2_L tracker/grid/submit_tv2.sh --arm fast --list $O/list_tv2p_fast.txt --tarball --use-staged --cluster --tag tv2p_fast
+DUMP=1 tracker/grid/submit_tv2.sh --arm g4 --list $O/list_tv2p_g4.txt --tarball --use-staged --cluster --tag tv2p_g4
+python3 -m trkfastsim tv2compare "$TRKFS_PNFS/tv2p_fast/nts.*.root" --compare "$TRKFS_PNFS/tv2p_g4/nts.*.root" \
+  --steps "$O/fast_g4ref_v2_L/fasttrkCL.*.root" --steps-ref "$M2FS_DATA/trk_fastsim/g4ref_v2_tables/sgsteps.*.root" \
+  --hits "$TRKFS_PNFS/tv2p_fast/hits/*.root" --hits-ref "$TRKFS_PNFS/tv2p_g4/hits/*.root" --paired --outdir $O/tv2p
+```
+
+`grid/grid_tv2.sh` takes comma-separated inputs on one list line (one art job over several files, one fast table holding
+all their events). Expanding the pnfs globs above lists dCache: copy the outputs to the data area first, or pass the
+known file names.
 
 ## Interior slab momentum diagnostic
 

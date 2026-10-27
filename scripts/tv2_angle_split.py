@@ -20,7 +20,7 @@ def residuals(nts, sel):
         t = uproot.open(path)[TV.TREE]
         keys = np.stack([t[f"evtinfo/{k}"].array(library="np").astype(np.int64) for k in ("run", "subrun", "event")], 1)
         m = np.isin(TV._keyid_rows(keys), sel)
-        rp, rm, rt, tp, tm, tt = TV._pairs_at(t["trksegs"].array()[m], t["trksegsmc"].array()[m], TV.SID_OUTER)
+        rp, rm, rt, tp, tm, tt, _ = TV._pairs_at(t["trksegs"].array()[m], t["trksegsmc"].array()[m], TV.SID_OUTER)
         if not len(rp):
             continue
         u = tm / np.linalg.norm(tm, axis=1)[:, None]

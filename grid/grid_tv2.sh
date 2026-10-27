@@ -2,7 +2,8 @@
 # Grid worker, T-V2/T-V3: one shard -> digi -> stock extracted reco -> EventNtuple, the same code for both arms.
 #   ARM=fast: gen-stream art + fast tracker table -> StrawGasStepsFromTable path A (digi_from_fasttable_alltrig.fcl)
 #   ARM=g4:   G4 dts (MDC2025as) -> stock extracted digitisation with the same output selection (digi_g4_alltrig.fcl)
-# Shard k = PROCESS: line k+1 of LIST_PNFS ("<input art> [<fast table>]" per line). Code from CODE_TARBALL (muse tarball of
+# Shard k = PROCESS: line k+1 of LIST_PNFS ("<input art>[,<input art>...] [<fast table>]" per line: several comma-separated
+# inputs run as one art job, with one fast table holding all their events). Code from CODE_TARBALL (muse tarball of
 # tracker/art: TrkFastSim + EventNtuple on MDC2025ay); reco and ntuple fcls from FCL_PNFS. Skips if the ntuple exists.
 set -o pipefail
 OUTDIR="${1:?need OUTDIR (pnfs scratch)}"
@@ -18,7 +19,7 @@ which ifdh >/dev/null || { echo "ERROR: no ifdh"; exit 2; }
 ifdh cp "$LIST_PNFS" ./list.txt || { echo "ERROR: list"; exit 2; }
 read -r INPUT TABLE <<< "$(sed -n "$((K + 1))p" ./list.txt)"
 [ -n "$INPUT" ] || { echo "ERROR: no line $((K + 1))"; exit 2; }
-SEQ=$(basename "$INPUT" .art | awk -F. '{print $NF}')
+SEQ=$(basename "${INPUT%%,*}" .art | awk -F. '{print $NF}')
 NTS="nts.ram2aq.tv2${ARM}.v0.${SEQ}.root"
 HIT="strawhits.ram2aq.tv2${ARM}.v0.${SEQ}.root"
 HAVE_NTS=0; ifdh ls "$OUTDIR/$NTS" >/dev/null 2>&1 && HAVE_NTS=1
@@ -40,7 +41,12 @@ for f in reco_kkts_extrap_nofilter_v04.fcl reco_smoke_kl_ts.fcl reco_evd_v03.fcl
 done
 export FHICL_FILE_PATH="$PWD/fcl:$FHICL_FILE_PATH"
 
-ifdh cp "$INPUT" ./input.art || { echo "ERROR: stage input"; exit 2; }
+: > inputs.txt
+i=0
+for IN in ${INPUT//,/ }; do
+  ifdh cp "$IN" "./input_$i.art" || { echo "ERROR: stage input $IN"; exit 2; }
+  echo "$PWD/input_$i.art" >> inputs.txt; i=$((i + 1))
+done
 DIG=dig.art; MCS=mcs.art
 T0=$(date +%s)
 if [ "$ARM" = fast ]; then
@@ -50,8 +56,9 @@ if [ "$ARM" = fast ]; then
 else
   printf '#include "digi_g4_alltrig.fcl"\n' > fcl/digi.fcl
 fi
-/usr/bin/time -v mu2e -c fcl/digi.fcl -s ./input.art -o "$DIG" -n "$NEVTS" > digi.log 2>&1 || { tail -40 digi.log; echo "DIGI FAILED"; exit 3; }
+/usr/bin/time -v mu2e -c fcl/digi.fcl -S inputs.txt -o "$DIG" -n "$NEVTS" > digi.log 2>&1 || { tail -40 digi.log; echo "DIGI FAILED"; exit 3; }
 T1=$(date +%s)
+rm -f input_*.art
 RECO=fcl/reco_kkts_extrap_nofilter_v04.fcl
 if [ "${DUMP:-0}" = 1 ]; then
   printf '#include "reco_kkts_extrap_nofilter_v04.fcl"\nphysics.analyzers.trkdump : { module_type : StrawHitTableDumper  ProtonBunchTimeTag : @local::physics.producers.makeSH.ProtonBunchTimeTag }\nphysics.EndPath : [ @sequence::physics.EndPath, trkdump ]\nservices.TFileService.fileName : "%s"\n' "$HIT" > fcl/reco_dump.fcl

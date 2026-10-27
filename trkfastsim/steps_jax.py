@@ -2,15 +2,15 @@
 
 Opt-in with make_steps(..., backend="jax") (CLI `steps --backend jax`); numpy stays the default and the reference.
 What runs where:
-  * host, numpy, unchanged: the generator tables, the world column above the plane (to_plane), the library
-    secondaries, the path vertices and the DataFrame assembly;
+  * host, numpy, unchanged: generator selection, the library secondaries, path vertices and DataFrame assembly;
+  * device, JAX: world_jax transport to the plane (convex column, ordered sliced loss, air and scattering);
   * device, JAX: TrackerInterior.transport (straw crossings re-found after every kink, support column of the coaxial
     shells and the calorimeter pieces, kink splitting by bisection, sliced Urban loss in the support, Highland core and
     single-scattering tail per kink group, the gas-exit back-off), TrackerInterior.exit_scatter, the straight-line
     crossings of stage A, and the Urban eIon in the straw gas (mu2efastsim.eloss_jax).
 Same algorithm, cuts and conventions as the numpy code; random streams differ (explicit keys per muon, per pass and per
-purpose), so the outputs are statistically equal to numpy, and bit-identical per seed on one device and lane count
-(another device or chunking changes only the float rounding: the same straws, ~1e-6 relative differences).
+purpose). Statistical agreement and cross-device tolerance must be checked on each supported geometry/configuration;
+outputs are reproducible per seed on one device and lane count.
 Masked and padding writes go out of bounds with mode="drop" (a common dummy index serialises GPU scatters), and the
 host loops sync only for bucket sizes and loop ends; the remaining per-pass glue is jitted.
 
@@ -60,8 +60,14 @@ def _bucket(n, lo=64):
 
 
 def key_from(rng):
-    """JAX key from one draw of the numpy generator (the jax backend's only use of it after the world column)."""
+    """JAX key from one draw of the numpy generator, before any device transport."""
     return jax.random.key(int(rng.integers(0, 2 ** 62)))
+
+
+def to_plane(*args, **kwargs):
+    """Device world transport; lazy import keeps its kernels separate from interior transport."""
+    from .world_jax import to_plane as world_to_plane
+    return world_to_plane(*args, **kwargs)
 
 
 def _to_np(x):
@@ -539,12 +545,22 @@ def _slab_one(key, c, p, L, rounds, carry):
 
 
 @partial(jax.jit, static_argnames=("rounds",))
-def _slab_rounds(MC, mat, p, L, keys, carry, rounds):
+def _slab_rounds(MC, mat, p, L, keys, carry, rounds, valid=None):
     c = eloss_jax.MatConsts(*(f[mat] for f in MC))
-    out = jax.vmap(lambda k, cc, pp, ll, i, lf, lo: _slab_one(k, cc, pp, ll, rounds, (i, lf, lo)))(
-        keys, c, p, L, *carry)
     tk0 = jnp.sqrt(p * p + MMU * MMU) - MMU
-    todo = (out[0] < tr.N_SLICES_MAX) & (out[1] > 0) & (tk0 - out[2] > tr.TK_STOP)
+    valid = jnp.ones(p.shape, bool) if valid is None else valid
+
+    def pending(s):
+        return valid & (s[0] < tr.N_SLICES_MAX) & (s[1] > 0) & (tk0 - s[2] > tr.TK_STOP)
+
+    def body(state):
+        r, s, _ = state
+        out = jax.vmap(lambda k, cc, pp, ll, i, lf, lo: _slab_one(k, cc, pp, ll, 1, (i, lf, lo)))(
+            keys, c, p, L, *s)
+        return r + 1, out, pending(out)
+
+    _, out, todo = lax.while_loop(lambda s: (s[0] < rounds) & jnp.any(s[2]), body,
+                                   (jnp.int32(0), carry, pending(carry)))
     return out, todo
 
 
@@ -583,7 +599,8 @@ def _slab_pairs(col, keys, p, C):
 @partial(jax.jit, static_argnames=("rounds",))
 def _slab_iter(MC, mat, pp, L, k, carry, idx, rounds):
     """`rounds` slices of the work list idx (out-of-bounds padding: gathers clamp, writes dropped); pending count."""
-    out, todo = _slab_rounds(MC, mat[idx], pp[idx], L[idx], k[idx], tuple(x[idx] for x in carry), rounds)
+    out, todo = _slab_rounds(MC, mat[idx], pp[idx], L[idx], k[idx], tuple(x[idx] for x in carry), rounds,
+                             valid=(idx >= 0) & (idx < pp.shape[0]))
     return _carry_set(carry, idx, out), todo, jnp.sum(todo)
 
 

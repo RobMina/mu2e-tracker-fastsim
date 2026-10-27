@@ -14,8 +14,14 @@ TRK=$(cd "$(dirname "$0")/.." && pwd)
 U=${UVA_HOST:-uva-hpc}; F=/scratch/ram2aq/mu2efastsim
 D=/exp/mu2e/data/users/ram2aq
 TMP=$(mktemp -d -t trkgpu_code); TGZ=$TMP/code.tgz
+[ -d "$CORE/mu2efastsim" ] || { echo "missing core source $CORE"; exit 2; }
 { echo "tracker $(git -C "$TRK" rev-parse --short HEAD) + diff md5 $(cd "$TRK" && { git diff; git ls-files -o --exclude-standard | xargs cat; } | md5 -q)"
-  echo "core $(git -C "$CORE" rev-parse --short HEAD) + diff md5 $(git -C "$CORE" diff | md5 -q)"; } > "$TMP/VERSION.txt"
+  if [ -n "${CORE_REF:-}" ]; then
+    echo "core archive $CORE_REF"
+    shasum -a 256 "$CORE/mu2efastsim/transport.py" "$CORE/mu2efastsim/eloss_jax.py"
+  else
+    echo "core $(git -C "$CORE" rev-parse --short HEAD) + diff md5 $(git -C "$CORE" diff | md5 -q)"
+  fi; } > "$TMP/VERSION.txt"
 cat "$TMP/VERSION.txt"
 tar -czf "$TGZ" --exclude .git --exclude __pycache__ --exclude plots --exclude .pytest_cache --exclude '*.root' \
   -s ",^$(basename "$TRK"),tracker," -s ",^$(basename "$CORE"),core," \
@@ -37,6 +43,9 @@ put code.tgz "$(md5 -q "$TGZ")" < "$TGZ"; rm -rf "$TMP"
 SRCS=("$D/crv_fastsim/geometry/mu2e_extracted_v04.gdml")
 for s in "${SH[@]}"; do
   SRCS+=("$D/trk_fastsim/gen_as_v1/gen.001400_0000$s.root" "?$CPU/jc_$s/fasttrkCjx.001400_0000$s.root")
+  if [ -n "${NUMPY_REFERENCE:-}" ]; then
+    SRCS+=("?$NUMPY_REFERENCE/jc_$s/fasttrkCnp.001400_0000$s.root")
+  fi
 done
 for SRC in "${SRCS[@]}"; do   # a leading ? marks an optional input (CPU tables not made yet: no --cross for that shard)
   opt=; [ "${SRC:0:1}" = "?" ] && { opt=1; SRC=${SRC:1}; }

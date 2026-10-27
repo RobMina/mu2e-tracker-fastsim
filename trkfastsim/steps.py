@@ -29,7 +29,7 @@ from mu2efastsim import eloss, materials
 from mu2efastsim import transport as tr
 from mu2efastsim.tables import KEY, all_primary_muons, primary_muons
 
-from . import crossings, geometry
+from . import crossings, geometry, ledger
 
 C_MM_PER_NS = 299.792458
 MINION_BG, MINION_KE = 0.5, 20.0          # MakeStrawGasSteps minionBetaGamma, minionKineticEnergy defaults
@@ -99,6 +99,9 @@ KINK_BACKOFF_MM = 0.05   # the in-tracker kink is applied this far before the ki
 EXIT_SCATTER_MM = 1500.0   # path behind the last straw scattered for the exit side of the tracker VDs (exit_scatter)
 GAP_MATERIAL = None  # medium between straws and support inside the tracker: the GDML's DSVacuum (None = no material)
 
+
+LEDGER_ARMS_DEFAULT = "legacy"   # make_steps arms=None in stage C with the interior transport (trkfastsim.ledger.PRESETS)
+COMPONENTS = ("lost_support", "lost_thin", "l_support", "l_thin", "l_gap")   # interior ledger terms (transport)
 
 CALO_MOTHER = "CalorimeterMother"
 CALO_CELL_MM = 100.0   # x-z grid cell of the calorimeter pieces
@@ -326,7 +329,7 @@ class TrackerInterior:
 
     def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
                   max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-                  kink_p_mean=False):
+                  kink_p_mean=False, thin_loss=False):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
@@ -350,11 +353,17 @@ class TrackerInterior:
         dir, path (to the entry, from the plane), lost (interior loss before the entry, MeV).
         msc_cal: support-material width calibration against G4 slabs (INTERIOR_MSC_CAL or a dict of that form; None = off),
         see interior_msc_var_factor.
+        thin_loss (ledger arm M, default off): charge the unrestricted mean loss of the thin material in front of each
+        straw (the previous straw's walls, gas and wire; the gap medium if any) to the kinetic energy, like the support
+        loss (no random numbers). Every returned crossing also carries the cumulative components at its entry:
+        lost_support, lost_thin [MeV] and the lengths l_support, l_thin, l_gap [mm]; last_final adds ke and stopped.
         """
         n = len(p)
         o, d = o.copy(), d.copy()
         tk_start = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU
         lost = np.zeros(n)
+        comp = {k: np.zeros(n) for k in COMPONENTS}     # cumulative ledger components per muon (lost = support + thin)
+        stopped = np.zeros(n, bool)
         travelled = np.zeros(n)
         xcum = np.zeros(n)
         restarted = np.zeros(n, bool)                # muon restarted before its kink straw (back-off segment counted)
@@ -455,19 +464,33 @@ class TrackerInterior:
                 h = np.flatnonzero((c > 0) & upto)
                 if len(h):
                     lseg[h] += tr.slab_loss(rng, materials.get(m), np.maximum(pk[h], 1.0), c[h])
-            cum = np.cumsum(lseg)
-            cum = cum - np.r_[0.0, cum][start][grp]
+            # ledger components of each row: the previous straw's own material (as x_str) and the gap
+            l_thin = sum(np.where(first, 0.0, lens[k][np.maximum(prow, 0)]) for m, k in thin if k != "air")
+            lthin = np.zeros(nr)
+            if thin_loss:
+                for m, k in thin:
+                    ln = lens["air"] if k == "air" else np.where(first, 0.0, lens[k][np.maximum(prow, 0)])
+                    lthin += ledger.thin_mean_loss(m, pk, np.where(upto, ln, 0.0))
+            rowc = {"lost_support": lseg, "lost_thin": lthin, "l_support": np.where(upto, solid, 0.0),
+                    "l_thin": np.where(upto, l_thin, 0.0), "l_gap": np.where(upto, lens["air"], 0.0)}
+            cumc = {}
+            for k, v in rowc.items():
+                cv = np.cumsum(v)
+                cumc[k] = cv - np.r_[0.0, cv][start][grp]
+            cum = cumc["lost_support"] + cumc["lost_thin"]
             loss_at = lost[it] + cum
             dead = tk_start[it] - loss_at <= 0.5
             dead_from = np.full(n, nr)
             if dead.any():
                 np.minimum.at(dead_from, it[dead], idx[dead])
                 st["stopped"] += int(len(np.unique(it[dead])))
+                stopped[it[dead]] = True
             ok = fin & (idx < dead_from[it])
             if ok.any():
                 rows.append({"it": it[ok], "js": js[ok], "pos0": o[it[ok]] + d[it[ok]] * s_in[ok, None],
                              "pos1": o[it[ok]] + d[it[ok]] * s_out[ok, None], "dir": d[it[ok]].copy(),
-                             "path": travelled[it[ok]] + s_in[ok], "lost": loss_at[ok]})
+                             "path": travelled[it[ok]] + s_in[ok], "lost": loss_at[ok],
+                             **{k: comp[k][it[ok]] + cumc[k][ok] for k in COMPONENTS}})
                 done = np.r_[done, it[ok] * ns + js[ok]]
             kr = fm[kinked]
             km = it[kr]
@@ -532,6 +555,8 @@ class TrackerInterior:
             restarted[km] = ~cut[kr]          # after a split the rest of the segment is still ahead
             travelled[km] += s_k - back
             lost[km] += cum[kr]
+            for k in COMPONENTS:
+                comp[k][km] += cumc[k][kr]
             xcum[km] += X
             st["kinks"] += len(km)
             act = km
@@ -539,14 +564,15 @@ class TrackerInterior:
             st["capped"] += len(act)
         self.last_stats = st
         self.last_final = {"o": o.copy(), "d": d.copy(), "p": _p_of(np.maximum(tk_start - lost, 0.0)),
-                           "path": travelled.copy(), "xcum": xcum.copy()}
+                           "path": travelled.copy(), "xcum": xcum.copy(), "ke": tk_start - lost, "stopped": stopped,
+                           **{k: comp[k].copy() for k in COMPONENTS}}
         self.last_kinks = ({k: np.concatenate([q[k] for q in kinks]) for k in kinks[0]} if kinks else
                            {"it": np.zeros(0, np.int64), "end": np.zeros((0, 3)), "pos": np.zeros((0, 3)),
                             "dir": np.zeros((0, 3)), "path": np.zeros(0), "p": np.zeros(0)})
         if not rows:
             z3 = np.zeros((0, 3))
             return {"it": np.zeros(0, np.int64), "js": np.zeros(0, np.int64), "pos0": z3, "pos1": z3, "dir": z3,
-                    "path": np.zeros(0), "lost": np.zeros(0)}
+                    "path": np.zeros(0), "lost": np.zeros(0), **{k: np.zeros(0) for k in COMPONENTS}}
         out = {k: np.concatenate([r[k] for r in rows]) for k in rows[0]}
         order = np.lexsort((out["path"], out["it"]))
         return {k: v[order] for k, v in out.items()}
@@ -748,7 +774,7 @@ def _muons(gen, all_muons):
 
 
 def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN, msc_tail=True, tail_k=None,
-             band_spread=False, all_muons=True):
+             band_spread=False, all_muons=True, history=False):
     """Stage C transport of the primary muons to the plane above the tracker.
 
     Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]). Tracks
@@ -757,7 +783,10 @@ def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARG
     below the plane would be reached with no energy loss and no scattering. band_spread: spread each height band's
     scattering uniformly along its path (transport.msc_to_plane band_len) instead of at the band centre.
     all_muons (default): every generated muon (CRY multi-muon events); False = the first muon of each event only.
+    history: also set to_plane.last_history = {"t_world": integrated flight time [ns] from the vertex to the plane
+    (ledger.world_time_ns; NaN for muons not transported)}; no random numbers are drawn for it.
     """
+    to_plane.last_history = None
     mu = _muons(gen, all_muons)
     p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     o = mu[["x", "y", "z"]].to_numpy()
@@ -770,17 +799,25 @@ def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARG
     alive = near.copy()
     if near.any():
         res = tr.world_loss(rng, o[near], d[near], p0[near], world, edges, return_band_p=True, return_tail=msc_tail,
-                           return_band_len=band_spread)
+                           return_band_len=band_spread or history)
         pw, xx0, ok, bxx0, bh, bp = res[:6]
         chic2, thn = res[6:8] if msc_tail else (None, None)
         blen = res[-1] if band_spread else None
+        blen_h = res[-1] if history else None
         p_msc = np.maximum(np.sqrt(p0[near] * np.maximum(pw, 1.0)), 1.0)   # geometric mean over the column
         on, dn, Ln = tr.msc_to_plane(rng, o[near], d[near], p_msc, y_pl, eloss.radiation_length_mm(materials.AIR),
                                      xx0, bxx0, bh, band_p=bp if sliced_msc else None,
                                      band_chic2=chic2, band_thn=thn, tail_k=tail_k, band_len=blen)
+        if history:
+            from . import ledger
+            tw = np.full(len(mu), np.nan)
+            tw[near] = ledger.world_time_ns(o[near], d[near], y_pl, p0[near], bp, blen_h, Ln, pw)
+            to_plane.last_history = {"t_world": tw}
         o, d = o.copy(), d.copy()
         o[near], d[near], L[near], p[near] = on, dn, Ln, pw
         alive[np.flatnonzero(near)[~ok]] = False
+    elif history:
+        to_plane.last_history = {"t_world": np.full(len(mu), np.nan)}
     return mu, o, d, p, L, alive
 
 
@@ -801,6 +838,54 @@ def _paste_local(st, m, a, half, radius, q0, q1, pmu, uref_fn):
                                                   m, a, s, e1, e2, uref, half, b, radius)) for e in "01"]
     return [geometry.to_detector(L.from_local(st[f"du{e}"].to_numpy(), st[f"r{e}"].to_numpy(), flip * st[f"phi{e}"].to_numpy(),
                                               m, a, s, e1, e2, uref, half, radius)) for e in "01"]
+
+
+def _ledgers(mu, geom, it, js, s_in, path, p, ke_tr, lost, comps, eion, t_gen_beta, t_int, p_start, alive, fin, sel,
+             t_int0, settings):
+    """Per-step and per-muon ledger tables of make_steps(history=True) (units in the column names).
+
+    Step row = the segment from the previous entry of the same muon (or the interior start) to this straw entry: path,
+    kinetic energy before and at the entry from the transport, its support and thin-material losses (the thin term is
+    an estimate even when it is not charged: unmodeled_thin_MeV), the writer's debit (written kinetic energy against the
+    transport's), the gas deposit eIon (restricted, sampled; deposited_gas_MeV) and the escaping estimate (mean
+    unrestricted gas loss minus the deposit; expectation-level only), flight time in both conventions."""
+    key = {k: mu[k].to_numpy()[it] for k in KEY}
+    seg = pd.DataFrame({**key, "sp": mu.mukey.to_numpy()[it], "sid": geom.sid[js]})
+    first = np.r_[True, it[1:] != it[:-1]] if len(it) else np.zeros(0, bool)
+    seg["path_mm"] = s_in
+    seg["seg_mm"] = s_in - np.where(first, 0.0, np.r_[0.0, s_in[:-1]])
+    seg["ke_entry_MeV"] = ke_tr
+    seg["ke_prev_MeV"] = np.where(first, ledger.kinetic(p_start[it]), np.r_[0.0, ke_tr[:-1]])
+    seg["ke_written_MeV"] = ledger.kinetic(p)
+    seg["writer_debit_MeV"] = ke_tr - seg["ke_written_MeV"].to_numpy()
+    if comps is not None:
+        for k, v in comps.items():
+            seg[f"{k}_{'MeV' if k.startswith('lost') else 'mm'}"] = v
+    seg["gas_mm"] = path
+    seg["deposited_gas_MeV"] = eion
+    gas_mean = ledger.thin_mean_loss(STRAW_GAS, p, path)
+    seg["escaping_gas_MeV"] = gas_mean - eion
+    seg["t_generated_beta_ns"] = t_gen_beta
+    seg["t_integrated_ns"] = t_int if t_int is not None else np.nan
+    for k, v in settings.items():
+        seg.attrs[k] = v
+    mm = pd.DataFrame({k: mu[k].to_numpy() for k in KEY})
+    mm["sp"] = mu.mukey.to_numpy()
+    mm["p_gen_MeV_c"] = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
+    mm["alive_plane"] = alive
+    mm["p_plane_MeV_c"] = p_start
+    for k in ("ke_final_MeV", "stopped_interior", "path_interior_mm", "lost_support_MeV", "lost_thin_MeV",
+              "t_interior_start_ns"):
+        mm[k] = np.nan
+    if fin is not None and sel is not None:
+        mm.loc[sel, "ke_final_MeV"] = fin["ke"]
+        mm.loc[sel, "stopped_interior"] = fin["stopped"].astype(float)
+        mm.loc[sel, "path_interior_mm"] = fin["path"]
+        mm.loc[sel, "lost_support_MeV"] = fin["lost_support"]
+        mm.loc[sel, "lost_thin_MeV"] = fin["lost_thin"]
+        mm.loc[sel, "t_interior_start_ns"] = t_int0[sel]
+    mm.attrs.update(settings)
+    return seg, mm
 
 
 def _xyz_mu2e(df, end):
@@ -970,13 +1055,16 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
 PATH_EXTEND = 4000.0   # straight extension before the interior start and after the last kink [mm]
 
 
-def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
+def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks, t_start=None):
     """The transported muon path as ordered vertices (detector frame), for the tracker VD crossings (surfaces.py).
 
     Per muon: a point PATH_EXTEND before the interior start, the start (top of the support rings), then for each kink the
     segment end and the displaced restart point with the new direction, and a point PATH_EXTEND beyond the last one. Each
     vertex carries the direction of the segment leaving it, |p|, the path length from the interior start, and the time
-    offset and speed used for the StrawGasStep times (so crossing times use the same convention)."""
+    offset and speed used for the StrawGasStep times (so crossing times use the same convention).
+    t_start [N] (ledger time arm "integrated"): time at the interior start; vertex times then follow the integrated
+    flight time between consecutive vertices (ledger.flight_time_ns; jumps take none), and t0/beta per vertex are set
+    so that t0 + path / (beta c) interpolates linearly between them."""
     nk = len(kinks["it"])
     i0 = np.r_[sel, sel, sel[kinks["it"]], sel[kinks["it"]]]
     pos = np.r_[o[sel] - PATH_EXTEND * d[sel], o[sel], kinks["end"], kinks["pos"]]
@@ -1005,15 +1093,34 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
     v["p"] = p[order]
     v["path"] = path[order]
     p0 = p0_all[i0[order]]
-    v["t0"] = mu.t.to_numpy()[i0[order]] + t_off[i0[order]] / ((p0 / np.sqrt(p0 ** 2 + eloss.MMU ** 2)) * C_MM_PER_NS)
-    v["beta"] = p0 / np.sqrt(p0 ** 2 + eloss.MMU ** 2)
+    if t_start is None:
+        v["t0"] = mu.t.to_numpy()[i0[order]] + t_off[i0[order]] / ((p0 / np.sqrt(p0 ** 2 + eloss.MMU ** 2)) * C_MM_PER_NS)
+        v["beta"] = p0 / np.sqrt(p0 ** 2 + eloss.MMU ** 2)
+        return v
+    io, pv, sv = i0[order], v.p.to_numpy(), v.path.to_numpy()
+    same = np.r_[io[1:] == io[:-1], False]                     # a segment leaves this vertex
+    nxt = np.minimum(np.arange(len(io)) + 1, len(io) - 1)
+    ds = np.where(same, sv[nxt] - sv, 0.0)
+    dt = np.where(same, ledger.flight_time_ns(ds, pv, pv[nxt]), 0.0)
+    first = np.r_[True, io[1:] != io[:-1]]
+    grp = np.cumsum(first) - 1
+    cum = np.cumsum(dt)
+    t_rel = np.r_[0.0, cum[:-1]] - np.r_[0.0, cum[:-1]][np.flatnonzero(first)][grp]   # time since the first vertex
+    t_first = t_start[io] - ledger.flight_time_ns(PATH_EXTEND, p_start[io], p_start[io])
+    t_v = t_first + t_rel
+    with np.errstate(divide="ignore", invalid="ignore"):
+        b = np.where(same & (dt > 0), ds / (np.maximum(dt, 1e-300) * C_MM_PER_NS), ledger.beta(np.maximum(pv, 1e-9)))
+    b = np.clip(b, 1e-12, 1.0)
+    v["t0"] = t_v - sv / (b * C_MM_PER_NS)
+    v["beta"] = b
     return v
 
 
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
                kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-               exit_scatter=True, all_muons=True, entry_ledger="legacy", capture_entry_ledger=False, backend="numpy"):
+               exit_scatter=True, all_muons=True, entry_ledger="legacy", capture_entry_ledger=False, backend="numpy",
+               arms=None, history=False):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
     an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
     primary-muon StrawGasSteps on g4ref_v1 had them only from a second muon); all_muons=False keeps the first muon only
@@ -1037,8 +1144,31 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     backend: numpy (default, the reference) or jax (trkfastsim.steps_jax: the in-tracker transport, exit_scatter, the
     straight-line crossings and the gas eIon on the JAX device; statistically equal, different random streams).
     make_steps.timing: wall seconds per stage of this call.
+    arms: ledger arms (trkfastsim.ledger.Arms or a preset name; None = LEDGER_ARMS_DEFAULT for stage C with the interior
+    transport and no entry-ledger diagnostic, else legacy): writer "momentum" (air_loss as given),
+    "energy" (air_loss and entry_ledger="energy") or "none" (no writer air debit: air_loss=False); thin = straw-material
+    loss in the transport (TrackerInterior.transport thin_loss); time "integrated" = flight time from the evolving
+    momentum (ledger module). Stage C with the interior only for thin/time.
+    history: set make_steps.segment_ledger (one row per emitted primary-muon step: path, kinetic energy before and at
+    the entry, ledger components, deposited and escaping gas energy, times in both conventions) and
+    make_steps.muon_ledger (one row per muon: plane, world time, final interior state); no random numbers.
     """
     from . import entryledger
+    thin_loss, time_mode = False, "generated"
+    if arms is None and stage == "C" and interior is not None and interior_msc and entry_ledger == "legacy" \
+            and not capture_entry_ledger:
+        arms = LEDGER_ARMS_DEFAULT
+    if arms is not None:
+        arms = ledger.preset(arms) if isinstance(arms, str) else arms
+        if arms.writer == "none":
+            air_loss = False
+        elif arms.writer == "energy":
+            air_loss, entry_ledger = True, "energy"
+        thin_loss, time_mode = arms.thin, arms.time
+        if (thin_loss or time_mode != "generated") and (stage != "C" or interior is None or not interior_msc):
+            raise ValueError("ledger thin/time arms need stage C with the interior transport")
+    make_steps.segment_ledger = make_steps.muon_ledger = None
+    want_hist = history or time_mode == "integrated"
     if entry_ledger not in entryledger.MODES:
         raise ValueError(f"unknown entry ledger mode: {entry_ledger}")
     if entry_ledger != "legacy" and exit_scatter:
@@ -1053,6 +1183,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         from . import steps_jax
         steps_jax.check_options(interior, interior_msc, interior_msc_cal=interior_msc_cal, lever_moments=lever_moments,
                                 entry_ledger=entry_ledger, capture_entry_ledger=capture_entry_ledger)
+        if thin_loss or time_mode != "generated" or history:
+            raise NotImplementedError("ledger thin/time arms and the segment history need backend='numpy'")
     timing = make_steps.timing = {}
     t0 = time.perf_counter()
     make_steps.entry_ledger = None
@@ -1060,7 +1192,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     if stage == "C":
         mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
                                                    msc_tail=msc_tail, tail_k=tail_k, band_spread=band_spread,
-                                                   all_muons=all_muons)
+                                                   all_muons=all_muons, **({"history": True} if want_hist else {}))
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     else:
         mu = _muons(gen, all_muons)
@@ -1076,6 +1208,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     if interior is not None and stage == "C":
         # the interior shells reach above the plane (support rings to r ~ 820 mm about the axis): start the interior
         # transport where they begin, so their top part is crossed (the world column stops at the plane)
+        t_plane_off = t_off.copy()
         o, t_off = _back_to_interior_top(o, d, t_off, alive, interior, geom)
     if interior is not None and interior_msc:
         sel = np.flatnonzero(alive)
@@ -1086,8 +1219,17 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
                 key, o[sel], d[sel], p_start[sel], tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0, kink_sup_xx0=kink_sup_xx0)
         else:
             tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0,
-                                     msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0)
+                                     msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0,
+                                     **({"thin_loss": True} if thin_loss else {}))
         timing["transport"] = time.perf_counter() - t1
+        # integrated time at the interior start: world flight time to the plane (generated beta if it is unknown),
+        # then back up to the ring tops at the plane momentum (no material there)
+        hist_w = getattr(to_plane, "last_history", None) if stage == "C" else None
+        p0_mu = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
+        t_w = (hist_w["t_world"] if hist_w is not None and len(hist_w["t_world"]) == len(mu) else
+               (t_plane_off if stage == "C" else t_off) / (ledger.beta(p0_mu) * C_MM_PER_NS))
+        back = (t_plane_off - t_off) if stage == "C" else np.zeros(len(mu))
+        t_int0 = mu.t.to_numpy() + t_w - back / (np.maximum(ledger.beta(p_start), 1e-12) * C_MM_PER_NS)
         make_steps.interior_stats = interior.last_stats
         kinks = interior.last_kinks
         if exit_scatter:
@@ -1107,7 +1249,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             kinks = {k: np.concatenate([kinks[k], ek[k]]) for k in kinks}
         if entry_ledger == "legacy":
             make_steps.path_vertices = _path_vertices(mu, sel, o, d, p_start, t_off, p0_all=np.sqrt(
-                mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy(), kinks=kinks)
+                mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy(), kinks=kinks,
+                t_start=t_int0 if time_mode == "integrated" else None)
         it = sel[tr_["it"]]
         js = tr_["js"]
         w0, w1, dirs = tr_["pos0"], tr_["pos1"], tr_["dir"]
@@ -1119,6 +1262,11 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             p = np.maximum(p - eloss.dedx_restricted(materials.AIR, p_start[it], 1e9) * s_in, 1.0)
         tk = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU - lost
         p = np.sqrt(np.clip((np.maximum(tk, 0.5) + eloss.MMU) ** 2 - eloss.MMU ** 2, 1.0, None))
+        # transport ledger at each entry: kinetic energy, momentum and the integrated time
+        ke_tr = ledger.kinetic(p_start[it]) - lost
+        p_tr = ledger.momentum(ke_tr)
+        t_int = t_int0[it] + ledger.segment_times_ns(tr_["it"], s_in, p_tr, p_start[sel])
+        comps = {k: tr_[k] for k in COMPONENTS} if backend == "numpy" else None   # the JAX transport has no ledger terms
     else:
         t1 = time.perf_counter()
         xs = steps_jax.straw_crossings(geom, o, d) if backend == "jax" else crossings.straw_crossings(o, d, geom)
@@ -1144,18 +1292,22 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         w0 = o[it] + d[it] * s_in[:, None]
         w1 = o[it] + d[it] * s_out[:, None]
         dirs = d[it]
+        ke_tr, t_int, comps = ledger.kinetic(p_start[it]) - lost, None, None
     if capture_entry_ledger or entry_ledger != "legacy":
-        ledger = entryledger.evaluate(p_start[it], lost, s_in, p, air_loss=air_loss, mode=entry_ledger)
+        eled = entryledger.evaluate(p_start[it], lost, s_in, p, air_loss=air_loss, mode=entry_ledger)
         keep = (np.ones(len(it), bool) if entry_ledger == "legacy" else
-                entryledger.keep_before_stop(it, s_in, ledger["above_stop_threshold"]))
+                entryledger.keep_before_stop(it, s_in, eled["above_stop_threshold"]))
         if capture_entry_ledger:
             make_steps.entry_ledger = pd.DataFrame({**{k: mu[k].to_numpy()[it] for k in KEY},
                 "sp": mu.mukey.to_numpy()[it], "sid": geom.sid[js], "mode": entry_ledger,
-                **ledger, "emitted": keep})
+                **eled, "emitted": keep})
         if entry_ledger != "legacy":
-            p = ledger["p_written_MeV_c"][keep]
+            p = eled["p_written_MeV_c"][keep]
             it, js, s_in, path = it[keep], js[keep], s_in[keep], path[keep]
             w0, w1, dirs = w0[keep], w1[keep], dirs[keep]
+            lost, ke_tr = lost[keep], ke_tr[keep]
+            t_int = t_int[keep] if t_int is not None else None
+            comps = {k: v[keep] for k, v in comps.items()} if comps is not None else None
     t1 = time.perf_counter()
     if backend == "jax":
         eion = steps_jax.sample_gas_eion(key, p, path, np.asarray(it, np.int64))
@@ -1165,7 +1317,16 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     e = np.sqrt(p ** 2 + eloss.MMU ** 2)
     bg = p / eloss.MMU
     ke = e - eloss.MMU
-    t = mu.t.to_numpy()[it] + (s_in + t_off[it]) / ((p0[it] / np.sqrt(p0[it] ** 2 + eloss.MMU ** 2)) * C_MM_PER_NS)
+    t_gen_beta = mu.t.to_numpy()[it] + (s_in + t_off[it]) / ((p0[it] / np.sqrt(p0[it] ** 2 + eloss.MMU ** 2)) * C_MM_PER_NS)
+    t = t_int if time_mode == "integrated" else t_gen_beta
+    if history:
+        make_steps.segment_ledger, make_steps.muon_ledger = _ledgers(
+            mu, geom, it, js, s_in, path, p, ke_tr, lost, comps, eion, t_gen_beta, t_int, p_start, alive,
+            getattr(interior, "last_final", None) if interior is not None and interior_msc else None,
+            sel if interior is not None and interior_msc else None, t_int0 if interior is not None and interior_msc
+            else None, dict(ledger.Arms(writer="none" if not air_loss else ("energy" if entry_ledger == "energy"
+                                         else "momentum"), thin=thin_loss, time=time_mode).as_dict(),
+                            **ledger.core_world_convention()))
     pos0 = geometry.to_detector(w0)
     pos1 = geometry.to_detector(w1)
     steps = pd.DataFrame({k: mu[k].to_numpy()[it] for k in KEY})

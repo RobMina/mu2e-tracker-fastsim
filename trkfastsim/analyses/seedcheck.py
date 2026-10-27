@@ -14,10 +14,12 @@ artefacts of that diagnostic, each removed by one variant here (all on the same 
     seeded events G4 failed but the fast arm would pass are missing unless the CRV term kept them. Subset "crv":
     events whose G4 CrvSteps pass the CRV term (visible edep > 0.1 MeV, 50 < |p| < 1e6 MeV/c), kept independently
     of the tracker.
-Per variant and subset: tracker-term passes (G4, fast seeded, straight line from the seed), straws per muon, and the
+Per variant and subset: tracker-term passes (G4, fast seeded, straight line from the seed) for the SAME selected
+primary SimParticle (first primary muon in particle-table order), straws per muon, and the
 projected deflection seed -> first straw over the Highland theta0 of the straight-line support x/X0 (robust sigma and
 |.| q90; Gaussian 1, 1.645), plus the G4/fast width ratio. Also the angle between the G4 chord at the plane and the
-G4 envelope direction (the chord artefact on the G4 side alone).
+G4 envelope direction (the chord artefact on the G4 side alone). g4_any_pass and ngood_g4_any retain the event-level
+any-primary-muon reference separately; g4_pass and ngood_g4 refer only to seeded_sp.
 
     seedcheck "trk_fastsim/g4ref_v1_tables/sgsteps.*.root" --crv "crv_fastsim/g4ref_v1_tables/crvsteps.*.root" \
         --outdir DIR [--gdml GDML] [--seed 1]
@@ -30,7 +32,7 @@ import pandas as pd
 from mu2efastsim import eloss, materials, plots
 from mu2efastsim.tables import KEY
 from .. import crossings, geometry, steps as st, tables as T
-from .geomcheck import _g4_paths, _ke_of_p, _p_of_ke, _primary_pass
+from .geomcheck import _g4_paths, _ke_of_p, _p_of_ke
 
 ENVELOPE_SIDS = (0, 2, 4)          # TT_Front, TT_Back, TT_Outer: the outer boundary of the tracker VDs
 XX0_BINS = ((0.05, 0.3), (0.3, 1.0), (1.0, 2.0), (2.0, 10.0))
@@ -48,8 +50,26 @@ def crv_pass_from(steps):
 
 
 def _primaries(paths):
+    """First primary muon in particle-table order, exactly as geomcheck._g4_paths selects for chord seeds."""
     pa = T.read_many(paths, "particles", KEY + ["key", "pdg", "ismcprim"]).rename(columns={"key": "sp"})
     return pa[(pa.ismcprim == 1) & (pa.pdg.abs() == 13)].drop_duplicates(KEY)[KEY + ["sp"]]
+
+
+def _g4_counts(paths, pm):
+    """Tracker counts for the selected seed SimParticle, with the any-primary event convention kept separately."""
+    s = T.read_many(paths, "sgsteps")
+    pa = T.read_many(paths, "particles", KEY + ["key", "pdg", "ismcprim"]).rename(columns={"key": "sp"})
+    primary = pa[(pa.ismcprim == 1) & (pa.pdg.abs() == 13)][KEY + ["sp"]]
+    any_counts = T.trk_filter(s.merge(primary, on=KEY + ["sp"], validate="many_to_one")).reset_index().rename(
+        columns={"nmax": "ngood_g4_any", "pass_trk": "g4_any_pass"})
+    selected = T.trk_filter(s.merge(pm, on=KEY + ["sp"], validate="many_to_one")).reset_index()
+    out = pm.rename(columns={"sp": "seeded_sp"}).merge(selected, on=KEY, how="left", validate="one_to_one")
+    out = out.merge(any_counts, on=KEY, how="left", validate="one_to_one")
+    for c in ("nmax", "ngood_g4_any"):
+        out[c] = out[c].fillna(0).astype(int)
+    for c in ("pass_trk", "g4_any_pass"):
+        out[c] = out[c].fillna(False).astype(bool)
+    return out
 
 
 def envelope_from(ss, pm, ev):
@@ -64,7 +84,7 @@ def envelope_from(ss, pm, ev):
 
 
 def chord_seeds(g4_paths, ev, y_pl):
-    """geomcheck's seed: G4 state at the first downward plane crossing, direction of the trajectory chord through it."""
+    """G4 chord at the first downward plane crossing of the same particle-table primary selected by _primaries."""
     seg = _g4_paths(g4_paths, ev, y_pl)
     jl = np.flatnonzero(seg["last"])
     o = seg["b"][jl].copy()
@@ -208,6 +228,8 @@ def count_table(df):
     tot = {"n": int(len(df)), "g4_pass": int(df.g4_pass.sum()), "seed_pass": int(df.seed_pass.sum()),
            "straight_pass": int(df.straight_pass.sum()), "g4_only": int((df.g4_pass & ~df.seed_pass).sum()),
            "seed_only": int((~df.g4_pass & df.seed_pass).sum())}
+    if "g4_any_pass" in df:
+        tot["g4_any_pass"] = int(df.g4_any_pass.sum())
     tot["seed_over_g4"] = round(tot["seed_pass"] / max(tot["g4_pass"], 1), 4)
     tot["straight_over_g4"] = round(tot["straight_pass"] / max(tot["g4_pass"], 1), 4)
     hit = df.ngood_g4 > 0
@@ -234,24 +256,30 @@ def run(inputs, outdir, crv=None, gdml=None, seed=1, lever_moments=False, kink_s
     g4_paths = T.expand(inputs)
     ev = T.read_many(g4_paths, "gen", KEY).drop_duplicates().reset_index(drop=True)
     ev["iev"] = np.arange(len(ev))
-    gf = _primary_pass(g4_paths)
-    ev = ev.merge(gf, on=KEY, how="left").merge(crv_pass_from(T.read_many(T.expand(crv), "steps")), on=KEY, how="left")
+    pm = _primaries(g4_paths)
+    gf = _g4_counts(g4_paths, pm)
+    ev = ev.merge(gf, on=KEY, how="left", validate="one_to_one").merge(
+        crv_pass_from(T.read_many(T.expand(crv), "steps")), on=KEY, how="left", validate="one_to_one")
     ev["g4_pass"] = ev.pass_trk.fillna(False).astype(bool)
     ev["crv_pass"] = ev.crv_pass.fillna(False).astype(bool)
     ev["ngood_g4"] = ev.nmax.fillna(0).astype(int)
+    ev["g4_any_pass"] = ev.g4_any_pass.fillna(False).astype(bool)
+    ev["ngood_g4_any"] = ev.ngood_g4_any.fillna(0).astype(int)
     ev = ev.sort_values("iev").reset_index(drop=True)
-    pm = _primaries(g4_paths)
     v_g4, x_g4 = _g4_first_dir(g4_paths, pm, ev)
     g4_stop = _g4_end(g4_paths, pm, ev, geom)
     filt = {"events": int(len(ev)), "trk": int(ev.g4_pass.sum()), "crv": int(ev.crv_pass.sum()),
-            "trk_and_crv": int((ev.g4_pass & ev.crv_pass).sum()), "neither": int((~ev.g4_pass & ~ev.crv_pass).sum())}
+            "trk_and_crv": int((ev.g4_pass & ev.crv_pass).sum()), "neither": int((~ev.g4_pass & ~ev.crv_pass).sum()),
+            "trk_any": int(ev.g4_any_pass.sum()), "trk_any_and_crv": int((ev.g4_any_pass & ev.crv_pass).sum()),
+            "neither_any": int((~ev.g4_any_pass & ~ev.crv_pass).sum())}
     ec, oc, uc, pc = chord_seeds(g4_paths, ev, y_pl)
     ee, oe, ue, pe, sid = envelope_from(T.read_many(g4_paths, "surfsteps"), pm, ev)
     down = uc[:, 1] < 0
     variants = {"top": (ec[down], oc[down], uc[down], pc[down], "top"),
                 "plane": (ec[down], oc[down], uc[down], pc[down], "as_is"),
                 "envelope": (ee, oe, ue, pe, "as_is")}
-    out = {"filter_terms_g4ref": filt, "envelope_sid_counts": {int(k): int(v) for k, v in zip(*np.unique(sid, return_counts=True))},
+    out = {"rate_convention": "same seeded primary SimParticle", "filter_terms_g4ref": filt,
+           "envelope_sid_counts": {int(k): int(v) for k, v in zip(*np.unique(sid, return_counts=True))},
            "variants": {}}
     frames = []
     for i, (name, (e, o, u, p, start)) in enumerate(variants.items()):
@@ -260,7 +288,8 @@ def run(inputs, outdir, crv=None, gdml=None, seed=1, lever_moments=False, kink_s
         if kink_p_mean:
             tkw["kink_p_mean"] = True
         n_seed, n_st, xx0, vf, xf, pmin = seeded(np.random.default_rng([int(seed), 77, i]), interior, geom, o, u, p, start, **tkw)
-        df = ev.iloc[e][KEY + ["iev", "g4_pass", "crv_pass", "ngood_g4"]].reset_index(drop=True)
+        df = ev.iloc[e][KEY + ["iev", "seeded_sp", "g4_pass", "crv_pass", "ngood_g4", "g4_any_pass",
+                              "ngood_g4_any"]].reset_index(drop=True)
         df["variant"], df["p_seed"], df["xx0"], df["n_seed"], df["n_straight"] = name, p, xx0, n_seed, n_st
         df["seed_pass"] = n_seed >= T.FILTER_MIN_TRK_STEPS
         df["straight_pass"] = n_st >= T.FILTER_MIN_TRK_STEPS
@@ -289,7 +318,7 @@ def run(inputs, outdir, crv=None, gdml=None, seed=1, lever_moments=False, kink_s
 
 
 def _print(out):
-    print(f"G4 reference filter terms (primary muon tracker term, any-particle CRV term): {out['filter_terms_g4ref']}")
+    print(f"G4 reference filter terms (seeded primary tracker term; trk_any = any primary, any-particle CRV term): {out['filter_terms_g4ref']}")
     print(f"envelope entry sid counts (0 front, 2 back, 4 outer): {out['envelope_sid_counts']}")
     print(f"G4 chord at the plane vs envelope direction [mrad]: {out['g4_chord_vs_envelope_mrad']}")
     for name, v in out["variants"].items():

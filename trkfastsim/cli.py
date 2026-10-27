@@ -104,6 +104,9 @@ def build_parser():
             sp.add_argument("--backend", default="numpy", choices=["numpy", "jax"],
                             help="numpy (default, the reference) or jax: in-tracker transport, crossings and gas eIon on the "
                                  "JAX device (CPU or GPU; statistically equal, different random streams; trkfastsim.steps_jax)")
+            sp.add_argument("--ledger-arms", default=None, metavar="PRESET",
+                            help="stage C transport-ledger arms (trkfastsim.ledger.PRESETS: legacy, A, E, M, T, AM, AMT; "
+                                 "default steps.LEDGER_ARMS_DEFAULT)")
         if name == "geomcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--fast", nargs="+", required=True, metavar="ROOT", help="fast step tables made from these gen tables")

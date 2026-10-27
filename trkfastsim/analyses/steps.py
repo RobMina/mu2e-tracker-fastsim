@@ -35,7 +35,7 @@ def default_gdml():
 
 def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, tag="",
         sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True, kink_xx0=st.KINK_XX0,
-        tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, first_muon_only=False, backend="numpy", **kw):
+        tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, first_muon_only=False, backend="numpy", ledger_arms=None, **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom, mods=world_mods) if stage == "C" else None
@@ -63,7 +63,8 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
                                    kink_xx0=kink_xx0, band_spread=band_spread,
                                    interior_msc_cal=st.INTERIOR_MSC_CAL if interior_msc_cal else None,
                                    lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0, exit_scatter=exit_scatter,
-                                   all_muons=not first_muon_only, backend=backend)
+                                   all_muons=not first_muon_only, backend=backend,
+                                   arms=ledger_arms)
         if interior is not None:
             print(f"#   interior: {getattr(st.make_steps, 'interior_stats', {})}", flush=True)
         print(f"#   timing [s] ({backend}): " + ", ".join(f"{k} {v:.3f}" for k, v in st.make_steps.timing.items()), flush=True)

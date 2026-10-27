@@ -34,10 +34,12 @@ tracks inside the tracker), `--no-msc-tail`, `--near-margin MM` (which muons get
 | `trkfastsim/geometry.py` | straws from the GDML (StrawSD ids, inner and wall radii, sense wire), detector frame, alignment composition |
 | `trkfastsim/crossings.py` | vectorised panel-box cull + ray-cylinder straw crossings, point/nearest-straw lookups |
 | `trkfastsim/steps.py` | the generator: world transport to the plane, `TrackerInterior` (support loss and in-tracker scattering), StrawGasStep rows, secondary pasting |
+| `trkfastsim/steps_jax.py` | opt-in JAX backend of `steps` (`--backend jax`, CPU or GPU): the in-tracker transport, `exit_scatter`, the straight-line crossings and the gas eIon on the device; the world column above the plane, the library pasting and the table assembly stay numpy. Statistically equal to numpy (other random streams), bit-identical per seed on one device |
 | `trkfastsim/library.py` | G4 secondary library: build, in-straw and off-axis samplers |
 | `trkfastsim/tables.py` | table readers, the production PrimaryFilter tracker term |
 | `trkfastsim/analyses/` | one module per CLI subcommand (below) |
 | `scripts/stagec_msc_ab.sh`, `scripts/stagec_msc_ab_summary.py` | the stage C scattering A/B on the 20 reference shards (steps + v1compare + worldcheck + msccheck per arm) and its summary |
+| `scripts/jax_steps_cpu.sh`, `scripts/uva_steps_gpu.sh`, `scripts/uva_steps_stream.sh`, `scripts/eaf_steps_gpu.sh` | `jaxcheck` on one CPU core (GPVM), on one A100 at UVA (Slurm job fed by the stream script from the laptop) and on an EAF A100 session |
 | `art/` | muse satellite area with `StrawGasStepTableDumper` (G4 reference tables), `art/README.md` |
 | `trkfastsim/reco/` | fast reconstruction: `hitreco` (StrawHitReco), `combo` (CombineStrawHits), their JAX twins `hitreco_jax` and `combo_jax`, `linefind` (SimpleTimeCluster, LineFinder); subcommands `reco-conditions`, `reco-vr1`, `reco-vr1b` |
 | `tests/` | pytest unit tests (synthetic geometry, no data files) |
@@ -55,6 +57,7 @@ CLI: `python3 -m trkfastsim <subcommand> -h`.
 | `v1compare` | T-V1: primary-muon StrawGasSteps fast vs G4 (rate per live time, straws per muon, path, eIon with the MPV from a Moyal fit, first-straw state, first-to-last-straw deflection per \|p\|) with the T-V1 thresholds |
 | `msccheck` | in-tracker scattering per consecutive step pair (p theta), straw-only vs support pairs, tail shares, fast vs G4 |
 | `stepcheck` | diagnose the T-V1 path and eIon checks: crossing-angle population, G4 half-vs-half noise floor, band bins |
+| `jaxcheck` | `steps --backend jax` against numpy on the same primaries (straws per muon, eIon MPV and spectrum, time, entry points, occupancy, paired PrimaryFilter tracker term), per-seed reproducibility, cross-device comparison (`--cross`), timing per stage; `--concat --lanes N` for the throughput at a large batch |
 | `reco-conditions` | the straw conditions a fast reco job needs, read from the conditions tree of a `StrawHitTableDumper` output |
 | `reco-vr1` | T-VR1: fast straw-hit and combo-hit reco against the stock hits dumped from the same digis (`--jax` for the JAX twins) |
 | `reco-vr1b` | T-VR1b: fast time clusters and line seeds against stock `SimpleTimeCluster` and `LineFinder` (`DumpTracks` in the dumper, `art/TrkFastSim/fcl/dump_tracks_mc.fcl`) |

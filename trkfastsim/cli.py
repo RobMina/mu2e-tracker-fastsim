@@ -95,6 +95,9 @@ def build_parser():
                             help="stage C: split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
             sp.add_argument("--band-spread", action="store_true",
                             help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
+            sp.add_argument("--ledger-arms", default=None, metavar="PRESET",
+                            help="stage C transport-ledger arms (trkfastsim.ledger.PRESETS: legacy, A, E, M, T, AM, AMT; "
+                                 "default steps.LEDGER_ARMS_DEFAULT)")
         if name == "geomcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--fast", nargs="+", required=True, metavar="ROOT", help="fast step tables made from these gen tables")

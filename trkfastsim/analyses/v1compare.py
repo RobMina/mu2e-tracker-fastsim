@@ -19,7 +19,7 @@ A paths; with independent multiple scattering in both arms its position spread m
 """
 import numpy as np
 
-from mu2efastsim import match, plots, stats
+from mu2efastsim import plots, stats
 from .. import geometry, tables as T
 
 
@@ -153,6 +153,24 @@ def _all_steps_block(fa_all, ra_all, f_ev, r_ev):
     return out
 
 
+def _same_primary_straw(fast, g4, gen):
+    """Match step identities through generator index, excluding ambiguous repeated particle/straw crossings."""
+    from mu2efastsim.tables import all_primary_muons
+    mu = all_primary_muons(gen)
+    if "idx" not in mu:
+        raise ValueError("same-particle timing requires generator indices")
+    mapping = mu[T.KEY + ["mukey", "idx"]].rename(columns={"mukey": "sp"})
+    f = fast[T.KEY + ["sp", "sid"]].assign(row=np.arange(len(fast))).merge(
+        mapping, on=T.KEY + ["sp"], validate="many_to_one")
+    f["sp_g4"] = f.idx + 1
+    g = g4[T.KEY + ["sp", "sid"]].rename(columns={"sp": "sp_g4"}).assign(row=np.arange(len(g4)))
+    key = T.KEY + ["sp_g4", "sid"]
+    f = f[~f.duplicated(key, keep=False)]
+    g = g[~g.duplicated(key, keep=False)]
+    paired = f[key + ["row"]].merge(g[key + ["row"]], on=key, validate="one_to_one", suffixes=("_f", "_g"))
+    return paired.row_f.to_numpy(), paired.row_g.to_numpy()
+
+
 def run(inputs, outdir, compare=None, **kw):
     if not compare:
         raise SystemExit("v1compare FAST --compare G4REF")
@@ -186,15 +204,26 @@ def run(inputs, outdir, compare=None, **kw):
         out["first_straw"][k] = {"median_fast": float(np.median(a[k])), "median_g4": float(np.median(b[k])),
                                  "q10_q90_fast": np.quantile(a[k], [0.1, 0.9]).tolist(),
                                  "q10_q90_g4": np.quantile(b[k], [0.1, 0.9]).tolist(), "band": _band(a[k], b[k])}
-    # geometry diagnostic: same event, same straw (exact for straight stage-A paths)
-    kf = np.c_[fa[T.KEY].to_numpy(np.int64), fa.sid.to_numpy(np.int64)]
-    kr = np.c_[ra[T.KEY].to_numpy(np.int64), ra.sid.to_numpy(np.int64)]
-    ia, ib = match.join(kf, kr)
-    diag = {"n": int(len(ia)), "frac_of_g4": float(len(ia) / max(len(ra), 1))}
+    # Match the same generated primary and straw; time/position proximity never defines identity.
+    ia, ib = _same_primary_straw(fa, ra, T.read_many(inputs, "gen"))
+    diag = {"n": int(len(ia)), "frac_of_g4": float(len(ia) / max(len(ra), 1)),
+            "matching": "event, generator primary identity, straw; repeated crossings excluded"}
     if len(ia):
         dt = fa.t.to_numpy()[ia] - ra.t.to_numpy()[ib]
+        dx = 1e3 * (fa[["x0", "y0", "z0"]].to_numpy(float)[ia] - ra[["x0", "y0", "z0"]].to_numpy(float)[ib])
         diag.update({"time_bias_ns": float(np.median(dt)), "time_core_ns": stats.resid_stats(dt)["coresig"],
-                     "len_ratio_minus_1": _rel(fa.len.to_numpy()[ia].mean(), ra.len.to_numpy()[ib].mean())})
+                     "time_mean_ns": float(np.mean(dt)),
+                     "len_ratio_minus_1": _rel(fa.len.to_numpy()[ia].mean(), ra.len.to_numpy()[ib].mean()),
+                     # entry position, detector frame, median per axis [um] (spread = scattering, median = bias)
+                     "entry_bias_um": np.median(dx, axis=0).tolist()})
+        # time bias by the G4 |p| at the step (flight-time convention matters for slow muons)
+        pg = np.sqrt(ra.px ** 2 + ra.py ** 2 + ra.pz ** 2).to_numpy()[ib]
+        edges = [0.0, 200.0, 300.0, 500.0, 1000.0, 1e9]
+        k = np.clip(np.digitize(pg, edges) - 1, 0, len(edges) - 2)
+        diag["time_bias_by_p_g4"] = [{"p": edges[i:i + 2], "n": int((k == i).sum()),
+                                      "median_ns": float(np.median(dt[k == i])) if (k == i).any() else None,
+                                      "mean_ns": float(np.mean(dt[k == i])) if (k == i).any() else None}
+                                     for i in range(len(edges) - 1)]
     out["same_straw_diag"] = diag
     th = {"straws_per_muon": abs(out["straws_per_muon_mean"]["ratio_minus_1"]) <= 0.01,
           "len_mean": abs(out["len_mean"]["ratio_minus_1"]) <= 0.005,
@@ -203,7 +232,8 @@ def run(inputs, outdir, compare=None, **kw):
           "eion_mpv": bool(abs(out["eion_keV"]["mpv_ratio_minus_1"]) - 2 * out["eion_keV"]["mpv_ratio_err"] <= 0.02),
           "eion_mean": abs(out["eion_keV"]["mean_ratio_minus_1"]) <= 0.03,
           "eion_band": _band_ok(out["eion_band"], 0.05),
-          "time_bias_same_straw": len(ia) > 0 and abs(diag["time_bias_ns"]) <= 0.05}
+          "time_bias_same_straw": len(ia) > 0 and abs(diag["time_bias_ns"]) <= 0.05,
+          "entry_bias_same_straw": len(ia) > 0 and max(abs(x) for x in diag["entry_bias_um"]) <= 10.0}
     out["deflection_first_to_last"] = _deflection_block(f, r)      # [fast, g4] per |p| bin
     out["rate_by_p_first"] = _rate_by_p(a["p"], b["p"], lt_f, lt_r)   # [fast, g4]: muons per live-time second
     out["all_steps"] = _all_steps_block(fa_all, ra_all, f[T.KEY].drop_duplicates(), r[T.KEY].drop_duplicates())

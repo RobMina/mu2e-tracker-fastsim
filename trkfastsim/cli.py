@@ -13,6 +13,7 @@ from .analyses import interiorcensus
 from .analyses import seedcheck
 from .analyses import rangecheck
 from .analyses import arrivalcheck
+from .analyses import seccensus
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -37,6 +38,7 @@ ANALYSES = {
     "rangecheck": (rangecheck.run, "energy loss near range-out in thick slabs: G4 slabs vs the interior loss model (transmission, exit KE)"),
     "seedcheck": (seedcheck.run, "is geomcheck's seeded interior-scattering excess real? seed at the ring tops / plane / tracker envelope, all events and the CRV-term subset"),
     "interiorcensus": (interiorcensus.run, "tracker-interior material per volume group: fast shells vs G4 trajectory loss, plane to first straw, and mass vs GDML"),
+    "seccensus": (seccensus.run, "T-V1b secondaries per primary-muon step by species, eIon, place, wire distance, muon |p|; step-level panel occupancy with clustered errors (fast vs G4, optionally paired)"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
 }
 BATCHABLE = {"refcheck"}
@@ -51,7 +53,7 @@ def build_parser():
                             formatter_class=argparse.RawDescriptionHelpFormatter)
         sp.add_argument("inputs", nargs="+", help="input files (globs allowed, quote them)")
         sp.add_argument("--outdir", default=None, help="output dir (default plots/<cmd>)")
-        if name in ("v0check", "steps", "buildlib", "libplacecheck", "worldcheck", "msccheck", "stepcheck", "tubecheck", "fatecheck", "survivalcheck"):
+        if name in ("v0check", "steps", "buildlib", "libplacecheck", "worldcheck", "msccheck", "stepcheck", "tubecheck", "fatecheck", "survivalcheck", "seccensus"):
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
@@ -61,6 +63,8 @@ def build_parser():
             sp.add_argument("--no-offaxis", action="store_true", help="with --library: in-straw secondaries only")
             sp.add_argument("--offaxis-plane-bin", type=int, default=6,
                             help="off-axis draw: planes per plane-extent bin of the matching key (0 = no plane matching)")
+            sp.add_argument("--offaxis-edge-anchor", action="store_true",
+                            help="off-axis paste: steps outside the library muon's planes anchor on the fast muon's first/last plane (opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
             sp.add_argument("--first-muon-only", action="store_true",
@@ -150,6 +154,9 @@ def build_parser():
             sp.add_argument("--fit", action="store_true", help="interior: fit the per-material width correction")
             sp.add_argument("--kink-p-mean", action="store_true",
                             help="interior only: scatter at mean entry/exit |p| (default exit |p|); diagnostic, not production validation")
+        if name == "seccensus":
+            sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
+            sp.add_argument("--paired", action="store_true", help="same CRY primaries: match files by subrun, events selected in both arms")
         if name in ("tv2compare", "secdiag"):
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4-arm EventNtuples")
             sp.add_argument("--steps", nargs="+", required=True, metavar="ROOT", help="fast step tables of the fast arm")
@@ -157,6 +164,9 @@ def build_parser():
             sp.add_argument("--hits", nargs="+", default=None, metavar="ROOT", help="fast-arm StrawHitTableDumper tables")
             sp.add_argument("--hits-ref", nargs="+", default=None, metavar="ROOT", help="G4-arm StrawHitTableDumper tables")
             sp.add_argument("--tot-breakdown", action="store_true", help="track-hit TOT/edep by true relation and true path length")
+            if name == "tv2compare":
+                sp.add_argument("--paired", action="store_true",
+                                help="both arms on the same CRY primaries: split the yield difference into selection-only and both-selected parts")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")
             sp.add_argument("--merge", action="store_true", help="inputs are --emit JSONs: sum and report")

@@ -857,6 +857,23 @@ def _mirror(x, n):
 OFFAXIS_KEY0 = 100000   # SimParticle keys of pasted off-axis secondaries: 100000 + (G4 particle rank within the set)
 
 
+def _edge_anchor(mu, MK, f, i, k, dpl, pmin, pmax):
+    """Opt-in anchor (sampler.edge_anchor) for off-axis steps with dpl != 0: the fast muon's step in its first plane
+    (dpl < 0) or last plane (dpl > 0) nearest in rank to k, so the step lands dpl planes outside the fast muon's plane
+    extent as it lay outside the library muon's; dpl = 0 keeps k. Returns the new anchor ranks."""
+    out = np.asarray(k).copy()
+    r = np.flatnonzero(dpl != 0)
+    if not len(r):
+        return out
+    q = pd.DataFrame({**{c: f[c].to_numpy()[i[r]] for c in MK}, "row": r, "k0": out[r],
+                      "plane": np.where(dpl[r] < 0, pmin[i[r]], pmax[i[r]])})
+    c = q.merge(mu[MK + ["plane", "k"]], on=MK + ["plane"])
+    c["d"] = (c.k - c.k0).abs()
+    best = c.sort_values(["row", "d", "k"], kind="stable").groupby("row", sort=False).first()
+    out[best.index.to_numpy()] = best.k.to_numpy()
+    return out
+
+
 def add_offaxis_secondaries(steps, parts, sampler, geom):
     """Append library off-axis secondary steps (decision T2, off-axis component) around each fast muon.
 
@@ -895,6 +912,8 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     else:
         k = st.k.to_numpy()
     k = np.clip(k, 0, nk[i] - 1)
+    if getattr(sampler, "edge_anchor", False):
+        k = _edge_anchor(mu, MK, f, i, k, st.dpl.to_numpy(), pl["min"].to_numpy(), pl["max"].to_numpy())
     v2 = "du0" in st
     acols = ["x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"] if v2 else []
     anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in MK}, "k": k}).merge(

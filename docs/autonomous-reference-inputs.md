@@ -45,20 +45,26 @@ verified build, not a historical native-capture area as if it were current head.
 
 ## User build gate
 
-For an isolated current-HEAD satellite, the user can build the existing `art/TrkFastSim` package in this worktree;
-no source is copied into a shared main checkout. On **mu2ebuild02**, fresh shell:
+The satellite is the existing `art/TrkFastSim` package, built in a clean detached worktree of tracker main
+(`trkfs_wt/dumper_build`); no source is copied into a shared main checkout. The backing is pinned to the validated CI
+build by a symlink, not `muse backing HEAD`, which resolves to whatever CI build is newest. On **mu2ebuild02**, fresh
+shell:
 
 ```bash
-cd /exp/mu2e/app/users/ram2aq/analysis/trkfs_wt/r2_f1auto/art
+cd /exp/mu2e/app/users/ram2aq/analysis/trkfs_wt/dumper_build/art
+ln -sfn /cvmfs/mu2e-development.opensciencegrid.org/museCIBuild/main/bac4c588_4479f3fa_a664b74b backing
 source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh
 setup muse
-muse backing HEAD
 muse setup
 muse build -j 32
 ```
 
-These commands are for the user, never executed by an agent. The validated satellite used Offline `bac4c588`,
-Production `4479f3fa` and envset `p109`. For each new area, record the resolved backing revision/envset, expanded
+These commands are for the user, never executed by an agent (`backing` is git- and sync-ignored, so the link is made
+on the cluster). The validated satellite uses Offline `bac4c588`, Production `4479f3fa` and envset `p109`; a rebuild of
+tracker `ff4ba22` in this area reproduced the earlier 500-event KPP dump bit for bit on its first 100 events. CI builds
+are eventually removed from CVMFS: if that one is gone, a newer backing is a new configuration and needs its own
+smoke comparison. The first run on a GPVM whose CVMFS cache lacks the CI build can spend minutes loading libraries.
+For each new area, record the resolved backing revision/envset, expanded
 FCL and successful full build before a smoke run; verify module timestamps/linkage. The backing must contain the intended
 updated Offline/Production configuration. Do not reuse a historical p107 or instrumented p109 capture area as if it
 were this current-HEAD test. Any incompatibility in the helper package stops at the build gate.

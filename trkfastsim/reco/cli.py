@@ -442,6 +442,18 @@ def main(argv=None):
                    "straw axis (KKStrawXing strawLine) rebuilt from the aligned wire ends, not the wire")
     g.add_argument("--own-states", action="store_true", help="hit states from the stock updaters, every single-seed "
                    "event (FitOK or not): yield confusion vs stock FitOK (T-VR3)")
+    g.add_argument("--time-model", default="legacy", choices=["legacy", "stock"], help="F1 effect time semantics: "
+                   "legacy (track-length order, constraint at a fixed position) or stock (KinKal time order, constraint "
+                   "at the immutable seed time, priors and setStatus references from the owned old trajectory)")
+    g.add_argument("--xing-activity", default="hit_or_doca", choices=["hit_or_doca", "doca"], help="crossing "
+                   "activity: hit_or_doca (p109 KKStrawXing::active) or doca (diagnostic: the DOCA test alone)")
+    g.add_argument("--time-legacy", default="", help="comma list of stock-time-model parts reverted to the legacy "
+                   "rule (leave-one-out arms): cons, prior, bounds, statusref, seedx, transit")
+    g.add_argument("--native-time-check", help="successful full stock_iteration_check.json: use only the certified "
+                   "native immutable constraint time, keeping other stock-time-model operands unchanged")
+    g.add_argument("--all-fits", action="store_true", help="fixed stock states on every single-seed fit, FitOK or "
+                   "not (diagnostic: yield with the stock hit states)")
+    g.add_argument("--save-yield-ids", action="store_true", help="also save per-track identities and outcomes (ids.npz)")
     g.add_argument("--outdir", default="plots/reco-vr2f1")
     v3 = sub.add_parser("vr3")
     v3.add_argument("inputs", nargs="+")
@@ -453,7 +465,9 @@ def main(argv=None):
     if a.cmd == "vr2f1":
         from . import vr_f1
         return vr_f1.run(a.input, a.outdir, a.conditions, a.settings, a.max_tracks, a.chunk, not a.no_material, a.straw_axis,
-                         a.own_states)
+                         a.own_states, time_model=a.time_model, save_ids=a.save_yield_ids,
+                         all_fits=a.all_fits, xing_activity=a.xing_activity,
+                         time_legacy=tuple(x for x in a.time_legacy.split(",") if x), native_time_check=a.native_time_check)
     if a.cmd == "vr3":
         return vr3(a.inputs, a.outdir, a.conditions, a.settings, a.niter)
     if a.cmd == "vr2":

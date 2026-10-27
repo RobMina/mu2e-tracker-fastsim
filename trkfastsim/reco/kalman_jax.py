@@ -121,7 +121,8 @@ def crossing_effects(x, cov, mid, wdir, valid, nsig, varscale, mom=None):
     J = jax.jacfwd(lambda xx: straw_poca(xx, mid, wdir)[1])(x)          # [M, NP]
     docavar = jnp.einsum("mi,ij,mj->m", J, cov, J)
     wall, gas = kkmaterial.path_lengths(doca, docavar, c, nsig)
-    sv = kkmaterial.scatter_angle_var("straw-wall", mom, wall) + kkmaterial.scatter_angle_var("straw-gas", mom, gas)
+    sv = kkmaterial.scatter_angle_var("straw-wall", mom, wall) + kkmaterial.scatter_angle_var("straw-gas", mom, gas,
+                                                                                   scatterfrac=kkmaterial.GAS_SCATTERFRAC)
     sv = jnp.where(valid, sv * varscale * SCATSCALE, 0.0)
     dm, dmv = kkmaterial.straw_eloss(wall, gas, mom)
     dm = jnp.where(valid, dm * ELOSS, 0.0)
@@ -540,7 +541,8 @@ def crossing_rows(xref_c, cref_c, crs, nsig, varscale):
     out = jax.vmap(one)(xref_c, cref_c, crs["mid"], crs["wdir"])
     if "kst_wall" in crs:        # diagnostic: scattering from the stock KalSeed path lengths
         sv = (kkmaterial.scatter_angle_var("straw-wall", MOM, crs["kst_wall"]) +
-              kkmaterial.scatter_angle_var("straw-gas", MOM, crs["kst_gas"])) * varscale * SCATSCALE
+              kkmaterial.scatter_angle_var("straw-gas", MOM, crs["kst_gas"], scatterfrac=kkmaterial.GAS_SCATTERFRAC)) \
+            * varscale * SCATSCALE
         out = dict(out, scatvar=sv)
     return out
 
@@ -550,9 +552,137 @@ def _pos(x, t):
     return p + u * speed(x[5]) * (t - x[4])
 
 
-def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dwt):
+def nearest_index(ranges, count, t):
+    """PiecewiseTrajectory::nearestIndex on owned pieces 0..count: clamp at the ends, else the first piece whose
+    range end is at or after t (earlier piece at an exact boundary)."""
+    valid = jnp.arange(ranges.shape[0]) <= count
+    idx = jnp.sum(valid[:, None] & (ranges[:, 1, None] < t[None]), axis=0)
+    idx = jnp.minimum(idx, count)
+    idx = jnp.where(t <= ranges[0, 0], 0, idx)
+    return jnp.where(t >= ranges[count, 1], count, idx).astype(jnp.int32)
+
+
+def seed_owner(x0, C0, t_begin, t_end, M):
+    """Seed trajectory as an owned piecewise trajectory: one piece over the seed time range (KKFit::range)."""
+    ranges = jnp.zeros((M + 1, 2)).at[0].set(jnp.stack([t_begin, t_end]))
+    return {"P": jnp.tile(x0, (M + 1, 1)), "C": jnp.tile(C0, (M + 1, 1, 1)), "ranges": ranges,
+            "count": jnp.array(0, jnp.int32)}
+
+
+def _transit_time(ce, mom):
+    """Straw transit time of each crossing (ElementXing::transitTime: crossing length / speed)."""
+    orad, irad = kkmaterial.STRAW["orad"], kkmaterial.STRAW["irad"]
+    length = 2 * jnp.sqrt(orad ** 2 - jnp.minimum(jnp.abs(ce["doca"]), irad) ** 2)
+    return length / jnp.sqrt(jnp.maximum(1 - ce["dirdot"] ** 2, 0.01)) / speed(mom)
+
+
+TIME_PARTS = ("cons", "prior", "bounds", "statusref", "seedx", "transit")
+
+
+def _iterate_time(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, dwt, tm, prior=None):
+    """Track::iterate with the stock time semantics (time_model='stock'): effects sorted by their time on the
+    reference (KKEFFComp), the momentum ParameterHit at its immutable seed time, fit bounds from the first and last
+    active measurement including that constraint (Track::setBounds), priors from the old trajectory's pieces at the
+    bounds (initFitState), candidate piece ranges as Material::append. Returns what iterate_once returns plus the
+    owned candidate trajectory and the setStatus query times (candidate front/back piece range midpoints).
+    tm["legacy"]: parts reverted to the legacy rule (leave-one-out arms, TIME_PARTS): cons (constraint at the hit-only
+    seed midpoint in local s, lifted to time on the first hit's reference), prior (retained endpoint priors), bounds
+    (diagnostic: crossing inclusion, prior and range bounds from the active hits only, constraint excluded), statusref (setStatus reference at the candidate bounds, not the end-piece
+    midpoints), transit (no transit extension of the last range)."""
+    N = h["valid"].shape[0]
+    hh = dict(h, active=hs["active"], lr=hs["lr"])
+    r, Hj, dT, rd, doca, s_h = hit_rows(xe[:N], hh, d)
+    act = hs["active"] & h["valid"]
+    mvar = jnp.stack([hs["dvar"], h["tvar"], h["uvar"]], -1)
+    w = jnp.where(act[:, None], 1.0 / (mvar * varscale), 0.0)
+    ce = crossing_rows(xe[N:], Ce[N:], crs, nsig, sxscale)
+    M = ce["s"].shape[0]
+    big = 1e12
+    t_h = xe[:N, 4] + s_h / speed(xe[:N, 5])
+    t_x = xe[N:, 4] + ce["s"] / speed(xe[N:, 5])
+    leg = tm.get("legacy", ())
+    t_c = xe[0, 4] + hs["s_cons"] / speed(xe[0, 5]) if "cons" in leg else tm["t_cons"]
+    cons = MOM_CONSTRAINT > 0
+    cb = cons and "bounds" not in leg
+    tmin = jnp.minimum(jnp.min(jnp.where(act, t_h, big)), jnp.where(cb, t_c, big))
+    tmax = jnp.maximum(jnp.max(jnp.where(act, t_h, -big)), jnp.where(cb, t_c, -big))
+    inb = (t_x > tmin) & (t_x < tmax) & xact & crs["valid"]
+    owner = tm["owner"]
+    pi = nearest_index(owner["ranges"], owner["count"], jnp.stack([tmin, tmax]))
+    if "prior" not in leg:
+        prior = {"xf": owner["P"][pi[0]], "Cf": owner["C"][pi[0]], "xb": owner["P"][pi[1]], "Cb": owner["C"][pi[1]]}
+    eff = {"xref": xe, "H": jnp.concatenate([Hj, jnp.zeros((M, 3, NP))]),
+           "r": jnp.concatenate([r, jnp.zeros((M, 3))]), "w": jnp.concatenate([w, jnp.zeros((M, 3))]),
+           "mvar": jnp.concatenate([mvar, jnp.ones((M, 3))]),
+           "D": jnp.concatenate([jnp.zeros((N, NP, 3)), ce["D"]]),
+           "sv": jnp.concatenate([jnp.zeros(N), jnp.where(inb, ce["scatvar"], 0.0)]),
+           "dm": jnp.concatenate([jnp.zeros(N), jnp.where(inb, ce["dmom"], 0.0)]),
+           "dmv": jnp.concatenate([jnp.zeros(N), jnp.where(inb, ce["dmomvar"], 0.0)])}
+    hc = jnp.zeros((1, 3, NP)).at[0, 0, 5].set(1.0)
+    rc = jnp.zeros((1, 3)).at[0, 0].set(xe[0, 5] - hs["mom_seed"])
+    mvc = jnp.ones((1, 3)).at[0, 0].set(MOM_CONSTRAINT ** 2)
+    wc = jnp.zeros((1, 3)).at[0, 0].set(jnp.where(cons, 1.0 / (MOM_CONSTRAINT ** 2 * varscale), 0.0))
+    eff = {"xref": jnp.concatenate([xe, xe[:1]]), "H": jnp.concatenate([eff["H"], hc]),
+           "r": jnp.concatenate([eff["r"], rc]), "w": jnp.concatenate([eff["w"], wc]),
+           "mvar": jnp.concatenate([eff["mvar"], mvc]), "D": jnp.concatenate([eff["D"], jnp.zeros((1, NP, 3))]),
+           "sv": jnp.concatenate([eff["sv"], jnp.zeros(1)]), "dm": jnp.concatenate([eff["dm"], jnp.zeros(1)]),
+           "dmv": jnp.concatenate([eff["dmv"], jnp.zeros(1)])}
+    t_all = jnp.concatenate([jnp.where(h["valid"], t_h, big), jnp.where(inb, t_x, big), t_c[None]])
+    order = jnp.argsort(t_all)
+    effs = {k: v[order] for k, v in eff.items()}
+    dw = dwt / varscale
+    isx = jnp.concatenate([jnp.zeros(N, bool), inb, jnp.zeros(1, bool)])[order]
+    E = N + M + 1
+    xpre, Cpre, chi2, ndof, xl, Cl = filter_smooth_cov(effs, isx, prior["Cf"] * dw, prior["xf"], prior["Cb"] * dw,
+                                                       prior["xb"])
+    ar = jnp.arange(E)
+    xpos = jnp.argsort(jnp.where(isx, ar, E + ar))[:M]
+    vx = isx[xpos]
+    Dx = effs["D"][xpos]
+    qd = jnp.stack([effs["sv"][xpos], effs["sv"][xpos], effs["dmv"][xpos]], -1)
+    Qx = jnp.where(vx[:, None, None], jnp.einsum("mia,ma,mja->mij", Dx, qd, Dx), 0.0)
+    dmx = jnp.where(vx[:, None], Dx[:, :, 2] * effs["dm"][xpos][:, None], 0.0)
+    Px, PC = _rts(xpre[xpos], Cpre[xpos], Qx, xl, Cl, dmx)
+    # piece ownership in time: a crossing's boundary is its time (TOCA + wire radius / speed); the crossing itself
+    # and every other effect belong to the piece holding their TOCA
+    bnd = jnp.sort(jnp.where(inb, t_x, big))
+    toff = kkmaterial.STRAW["wrad"] / speed(xe[N:, 5])
+    t_true = jnp.concatenate([t_h, t_x - toff, t_c[None]])
+    pid_nat = jnp.searchsorted(bnd, t_true, side="right")
+    xs_, Cs_ = Px[pid_nat[order]], PC[pid_nat[order]]
+    ngap = jnp.sum(vx)
+    tx = jnp.where(vx, bnd, 0.0)
+    gaps = jax.vmap(lambda a, b, t: jnp.linalg.norm(_pos(a, t) - _pos(b, t)))(Px[1:], Px[:-1], tx)
+    avggap = jnp.where(ngap > 0, jnp.sum(jnp.where(vx, gaps, 0.0)) / jnp.maximum(ngap, 1), 0.0)
+    # candidate ranges (Material::append): front [tmin, first boundary], ..., back [last boundary, end], the end
+    # extended to every crossing's time + transit time
+    transit = _transit_time(ce, xe[N:, 5])
+    tend = tmax if "transit" in leg else jnp.maximum(tmax, jnp.max(jnp.where(inb, t_x + transit, -big)))
+    count = ngap.astype(jnp.int32)
+    starts = jnp.concatenate([tmin[None], bnd])
+    ends = jnp.concatenate([bnd, tend[None]])
+    ends = jnp.where(jnp.arange(M + 1) == count, tend, ends)
+    ranges = jnp.stack([starts, ends], -1)
+    query = jnp.stack([0.5 * (ranges[0, 0] + ranges[0, 1]), 0.5 * (ranges[count, 0] + ranges[count, 1])])
+    if "statusref" in leg:
+        query = jnp.stack([tmin, tmax])
+    inv = jnp.argsort(order)
+    x, C = xs_[inv][:N + M], Cs_[inv][:N + M]
+    xu, Cu = unbiased_hits(x[:N], C[:N], Hj, r, xe[:N], w)
+    return {"x": x, "C": C, "xu": xu, "Cu": Cu, "chi2": chi2, "ndof": ndof, "s_front": tmin, "s_back": tmax,
+            "xfront": Px[0], "Cfront": PC[0], "xback": Px[count], "Cback": PC[count], "avggap": avggap,
+            "s_hit": s_h, "inbounds": inb, "xing": ce, "nact": jnp.sum(act), "pid": pid_nat[:N + M], "bnd": bnd,
+            "owner": {"P": Px, "C": PC, "ranges": ranges, "count": count}, "query": query}
+
+
+def iterate_once(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, prior, dwt, tm=None):
     """One Track::iterate: rows at each effect's reference, effects between the first and last active hit, forward
-    chi2, smoothed pieces. Returns new pieces (natural order) and the quantities setStatus needs."""
+    chi2, smoothed pieces. Returns new pieces (natural order) and the quantities setStatus needs. tm (time model
+    'stock'): see _iterate_time."""
+    if tm is not None:
+        if FILTER != "cov":
+            raise ValueError("time_model='stock' requires F1_FILTER=cov")
+        return _iterate_time(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, dwt, tm, prior)
     N = h["valid"].shape[0]
     hh = dict(h, active=hs["active"], lr=hs["lr"])
     r, Hj, dT, rd, doca, s_h = hit_rows(xe[:N], hh, d)
@@ -704,10 +834,31 @@ def in_detector(xe, s_hit, active, N):
     return jnp.all(ok | ~active)
 
 
-def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
+def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None, time_model="legacy",
+              xing_activity="hit_or_doca", time_legacy=(), constraint_time=None):
     """Full schedule for one track. h: padded hit dict with 'valid'; crs: mid, wdir, valid, hit (index or -1).
     stages: dict of per-stage arrays (see stock_stages). fixed: optional dict active, lr, nulldv [N] that replaces the
-    updaters in every stage (fit-only comparisons on stock hit states). Returns final pieces, states, status per stage."""
+    updaters in every stage (fit-only comparisons on stock hit states). Returns final pieces, states, status per stage.
+    time_model: 'legacy' (effects ordered by track length, constraint at the seed-hit midpoint position, retained
+    endpoint priors, reference pieces at the endpoint track lengths) or 'stock' (KinKal time semantics, see
+    _iterate_time; the constraint at the immutable seed time, the midpoint of the seed hit and crossing times, and
+    the setStatus reference at the candidate end-piece range midpoints on the owned old trajectory).
+    xing_activity: 'hit_or_doca' (p109 KKStrawXing::active: |DOCA| < maxdoca at the meta-iteration start, or its hit
+    active) or 'doca' (diagnostic: the DOCA test alone). time_legacy: parts of the stock time model reverted to the
+    legacy rule (TIME_PARTS; 'seedx': seed-fit crossings of extension-added hits kept), for leave-one-out arms.
+    constraint_time: optional certified native ParameterHit time; changes only this immutable scalar in the stock
+    time model, not the reconstructed seed state or owner range. Full stock-exactness is not implied."""
+    if time_model not in ("legacy", "stock"):
+        raise ValueError("unknown time_model: " + str(time_model))
+    if xing_activity not in ("hit_or_doca", "doca"):
+        raise ValueError("unknown xing_activity: " + str(xing_activity))
+    if set(time_legacy) - set(TIME_PARTS) or (time_legacy and time_model != "stock"):
+        raise ValueError("time_legacy needs time_model='stock' and parts from " + ",".join(TIME_PARTS))
+    time_legacy = tuple(time_legacy)
+    if constraint_time is not None and (time_model != "stock" or "cons" in time_legacy):
+        raise ValueError("native constraint time requires stock time model without cons reversion")
+    hit_or = xing_activity == "hit_or_doca"
+    stock_time = time_model == "stock"
     N, M = h["valid"].shape[0], crs["valid"].shape[0]
     if x0.shape[0] == 5:
         x0 = jnp.concatenate([x0, jnp.array([MOM])])
@@ -727,6 +878,17 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
               "bnd": jnp.full(M, 1e12), "dpmax": jnp.array(0.0), "dmomf": jnp.array(0.0),
               "smref": jnp.array(0.0), "mterm": jnp.array(0.0),
               "mhist": jnp.zeros(16), "shist": jnp.full(16, -1)}
+    if stock_time:
+        # KKFit::range: extrema of the initial seed hit and crossing times on the seed; ParameterHit at its mid
+        v0 = speed(x0[5])
+        t_sh = jnp.where(sv_, x0[4] + s_seed / v0, jnp.nan)
+        s_sx = straw_poca(x0, crs["mid"], crs["wdir"])[0] + kkmaterial.STRAW["wrad"]
+        sx_ = crs["valid"] & (crs["hit"] >= 0) & sv_[jnp.maximum(crs["hit"], 0)]
+        t_sx = jnp.where(sx_, x0[4] + s_sx / v0, jnp.nan)
+        t_seed = jnp.concatenate([t_sh, t_sx])
+        tb, te = jnp.nanmin(t_seed), jnp.nanmax(t_seed)
+        t_cons = 0.5 * (tb + te) if constraint_time is None else constraint_time
+        carry0["owner"] = seed_owner(x0, C0, tb, te, M)
 
     def stage_fn(c, sg):
         # goodFit gate before the extension (and the schedule stops after any unusable status)
@@ -747,13 +909,17 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
         if "inseed" in h:
             st2 = dict(st2, active=st2["active"] & (h["inseed"] | ~sg["seedfit"]),
                        lr=jnp.where(h["inseed"] | ~sg["seedfit"], st2["lr"], 0.0))
-        # KKStrawXing::updateState(first): active_ = |DOCA at the reference| < SXU maxdoca, or its hit is active
+        # p109 KKStrawXing: updateState(first) sets active_ = |DOCA at the reference| < SXU maxdoca; active() is
+        # active_ or its hit active
         _, dref, _ = straw_poca_batch(c["xe"][N:], crs)
         hact = jnp.where(crs["hit"] >= 0, st2["active"][jnp.maximum(crs["hit"], 0)], False)
-        xact = (jnp.abs(dref) < sg["sx_maxdoca"]) | hact
+        xact = (jnp.abs(dref) < sg["sx_maxdoca"]) | (hact & hit_or)
         # crossings without a hit exist only from the extension on (KKFit::addStraws); the seed fit has the
         # crossings made with the straw hits (KKFit::makeStrawHits)
         xact = xact & ((crs["hit"] >= 0) | ~sg["seedfit"] | NOHIT_IN_SEED)
+        if stock_time and "inseed" in h and "seedx" not in time_legacy:
+            # nor crossings of hits the extension adds (KKFit::addStrawHits makes those with their hits)
+            xact = xact & (sx_ | ~sg["seedfit"] | NOHIT_IN_SEED)
         if "stock_active" in crs:
             xact = crs["stock_active"]
         vs = (1.0 + sg["T"]) ** 2
@@ -763,11 +929,18 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
 
         def body(ic):
             it, cc = ic
-            o = iterate_once(cc["xe"], cc["Ce"], h, crs, d, hs, xact, vs, sg["sx_nsig"], sxs, cc["ref"], dwt)
-            # Track::setStatus compares the new front/back pieces with the OLD trajectory's piece at their times
-            xfo, Cfo = piece_at(cc["xe"], cc["Ce"], cc["pid"], cc["bnd"], o["s_front"])
-            xbo, Cbo = piece_at(cc["xe"], cc["Ce"], cc["pid"], cc["bnd"], o["s_back"])
-            sref = {"xf": xfo, "Cf": Cfo, "xb": xbo, "Cb": Cbo} if REF_AT_TIME else cc["ref"]
+            tm = {"t_cons": t_cons, "owner": cc["owner"], "legacy": time_legacy} if stock_time else None
+            o = iterate_once(cc["xe"], cc["Ce"], h, crs, d, hs, xact, vs, sg["sx_nsig"], sxs, cc["ref"], dwt, tm=tm)
+            if stock_time:
+                # Track::setStatus: old pieces nearest the candidate front/back piece range midpoints
+                ow = cc["owner"]
+                ri = nearest_index(ow["ranges"], ow["count"], o["query"])
+                sref = {"xf": ow["P"][ri[0]], "Cf": ow["C"][ri[0]], "xb": ow["P"][ri[1]], "Cb": ow["C"][ri[1]]}
+            else:
+                # Track::setStatus compares the new front/back pieces with the OLD trajectory's piece at their times
+                xfo, Cfo = piece_at(cc["xe"], cc["Ce"], cc["pid"], cc["bnd"], o["s_front"])
+                xbo, Cbo = piece_at(cc["xe"], cc["Ce"], cc["pid"], cc["bnd"], o["s_back"])
+                sref = {"xf": xfo, "Cf": Cfo, "xb": xbo, "Cb": Cbo} if REF_AT_TIME else cc["ref"]
             status, cpn = set_status(o, sref, cc["cpn"], it, cfg)
             chif, chib = set_status.last
             mterm, smref = set_status.momterm
@@ -785,6 +958,8 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None):
                       mterm=jnp.where(jnp.maximum(chif, chib) >= cc["dpmax"], mterm, cc["mterm"]),
                       mhist=cc["mhist"].at[jnp.minimum(it, 15)].set(o["xfront"][5]),
                       shist=cc["shist"].at[jnp.minimum(it, 15)].set(status))
+            if stock_time:
+                cn["owner"] = jax.tree_util.tree_map(take, o["owner"], cc["owner"])
             return it + 1, cn
 
         def cond(ic):
@@ -854,6 +1029,13 @@ def t0_piece(cf, nself=10):
     """Parameters and covariance of the piece holding the POCA to the z axis, found self-consistently as
     PiecewiseTrajectory::t0 (KalSeed::t0Segment): start from the piece of the first effect, compute that piece's
     z-axis POCA track length s1, move to the piece whose range contains s1 (number of boundaries <= s1)."""
+    if "owner" in cf:
+        # time_model='stock': PiecewiseTrajectory::t0 on the owned pieces (front piece t0, then the piece holding it)
+        ow = cf["owner"]
+        t0_of = lambda i: kl_params(ow["P"][i])[4]
+        step_t = lambda i, _: (nearest_index(ow["ranges"], ow["count"], t0_of(i)[None])[0], None)
+        i, _ = jax.lax.scan(step_t, jnp.array(0, ow["count"].dtype), None, length=nself)
+        return ow["P"][i], ow["C"][i], i
     xe, Ce, pid, bnd = cf["xe"], cf["Ce"], cf["pid"], cf["bnd"]
 
     def s1_of(x):

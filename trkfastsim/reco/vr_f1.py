@@ -111,8 +111,8 @@ def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None, fitok_on
     X["hit"] = np.where(eq.any(-1), eq.argmax(-1), -1)
     x0 = linefit.seed_params(*(ref[k] for k in ("sd_a0", "sd_b0", "sd_a1", "sd_b1", "sd_t0")))
     ref["event_index"] = ie
-    se = uproot.open(path)["trkdump/events"].arrays(["subrun", "event"], library="np")
-    ref["subrun"], ref["event"] = se["subrun"][ie], se["event"][ie]
+    se = uproot.open(path)["trkdump/events"].arrays(["run", "subrun", "event"], library="np")
+    ref["run"], ref["subrun"], ref["event"] = se["run"][ie], se["subrun"][ie], se["event"][ie]
     return x0, H, X, ref, drift, int(len(ie))
 
 
@@ -122,9 +122,15 @@ def _jnp_tree(dct, keys=None):
 
 
 def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, material=True, straw_axis=None,
-        own_states=False):
+        own_states=False, time_model="legacy", save_ids=False, all_fits=False, xing_activity="hit_or_doca",
+        time_legacy=(), native_time_check=None):
     """own_states: the fit decides its hit states with the stock updaters (CADSHU, BkgANN, DriftANN) on every
-    single-seed event, FitOK or not (T-VR3 yield); default: stock final states on FitOK tracks (T-VR2 F1)."""
+    single-seed event, FitOK or not (T-VR3 yield); default: stock final states on FitOK tracks (T-VR2 F1).
+    time_model: kalman_jax.fit_track time semantics; 'stock' also gives the seed-hit labels to fixed-state fits (the
+    constraint time is the seed range midpoint, and extension hits are absent from the seed-fit stages).
+    save_ids: ids.npz with run identities, stock and F1 outcomes and final statuses per track.
+    all_fits: fixed stock states also on stock-failed single-seed fits (their states at failure; diagnostic).
+    xing_activity, time_legacy: kalman_jax.fit_track options (crossing activity rule, leave-one-out time-model parts)."""
     import jax
     import jax.numpy as jnp
     cache = os.environ.get("F1_JAX_CACHE")
@@ -137,15 +143,22 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     cond = hitreco.load_conditions(conditions)
     t0 = time.perf_counter()
     x0, H, X, ref, drift, ntrk = read_inputs(path, cond, settings, max_tracks, straw_axis or os.environ.get("F1_STRAWAXIS"),
-                                             fitok_only=not own_states)
+                                             fitok_only=not (own_states or all_fits))
     stockok = (ref["kl_status"].astype(np.int64) & FITOK) != 0
+    native_meta = None
+    if native_time_check is not None:
+        if time_model != "stock" or "cons" in time_legacy:
+            raise ValueError("native time requires stock time model without cons reversion")
+        from .nativetime import load_times
+        keys = np.column_stack([ref["run"], ref["subrun"], ref["event"], np.zeros(ntrk, np.int64)])
+        native_times, native_meta = load_times(native_time_check, path, keys)
     t_read = time.perf_counter() - t0
     dj = {k: jnp.asarray(np.asarray(drift[k], np.float64)) for k in DRIFT_KEYS}
     ann = K.load_anns()
     stages = K.stock_stages()
     if not material:
         stages = dict(stages, sx_maxdoca=jnp.zeros_like(stages["sx_maxdoca"]))
-    hkeys = HIT_KEYS + ("valid", "inseed") if own_states else HIT_KEYS + ("valid",)
+    hkeys = HIT_KEYS + ("valid", "inseed") if own_states or time_model == "stock" else HIT_KEYS + ("valid",)
     Hn = {k: np.asarray(H[k]) for k in hkeys}
     Xn = {k: X[k] for k in ("mid", "wdir", "valid", "hit")}
     if os.environ.get("F1_PATHS") == "stock":          # diagnostic: scattering from the stock KalSeed path lengths
@@ -155,12 +168,19 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     if not material:
         Xn["valid"] = np.zeros_like(Xn["valid"])
     fixed = {"active": H["active"], "lr": H["lr"], "nulldv": np.ones_like(H["active"])}
+    if native_meta is not None:
+        fixed["constraint_time"] = native_times[:, None]
+        np.savez(os.path.join(outdir, "native_time.npz"), keys=keys, constraint_time=native_times)
 
     def one(x, h, c, fx, maxniter):
-        cf, hist, good = K.fit_track(x, h, c, dj, stages, ann, fixed=None if own_states else fx, maxniter=maxniter)
+        cf, hist, good = K.fit_track(x, h, c, dj, stages, ann, fixed=None if own_states else fx, maxniter=maxniter,
+                                     time_model=time_model, xing_activity=xing_activity,
+                                     time_legacy=time_legacy,
+                                     constraint_time=fx["constraint_time"][0] if native_meta is not None else None)
         xt0, Ct0, _ = K.t0_piece(cf)
         return (xt0, Ct0, hist[0], hist[1], hist[2], hist[3], good, cf["xe"], cf["Ce"], cf["st"]["active"],
-                cf["st"]["lr"], cf["good_seed"], hist[4], hist[5], hist[6], hist[7], hist[8], hist[9], hist[10], hist[11], hist[12], hist[13])
+                cf["st"]["lr"], cf["good_seed"], hist[4], hist[5], hist[6], hist[7], hist[8], hist[9], hist[10], hist[11], hist[12], hist[13],
+                cf["xact"])
 
     # two passes, exact: a vmapped while_loop runs every lane until the slowest converges, so one track at MaxNIter
     # makes the whole batch pay 11 iterations. Pass 1 caps at FAST_NITER; tracks that reached the cap in any stage
@@ -232,6 +252,9 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
             full = np.zeros((n, o[j].shape[1], Nf), dtype=o[j].dtype)
             full[:, :, :Nb] = o[j]
             o[j] = full
+        full = np.zeros((n, Mf), dtype=o[22].dtype)
+        full[:, :Mb] = o[22]
+        o[22] = full
         for j in (7, 8):
             full = np.zeros((n, Nf + Mf) + o[j].shape[2:])
             full[:, :Nb] = o[j][:, :Nb]
@@ -262,8 +285,12 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         o2 = [np.asarray(a)[:nr] for a in o2]
         k = 0
         for io, redo, _ in items:
-            for j in range(22):
+            for j in range(23):
                 v = o2[j][k:k + len(redo)]
+                if j == 22:
+                    full = np.zeros((len(redo), Mf), dtype=v.dtype)
+                    full[:, :Mb] = v
+                    v = full
                 if j in (9, 10):
                     full = np.zeros((len(redo), Nf), dtype=v.dtype)
                     full[:, :Nb] = v
@@ -284,8 +311,8 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
               "pass2_shape": stats.get("pass2_shape"), "total_fit_s": round(sum(stats["pass1_s"]) + sum(stats["pass2_s"]), 3),
               "refit_with_maxniter10": stats["redo"], "fast_niter": FAST_NITER, "bucket_tracks": {f"{a}x{b}": c for (a, b), c in btr.items()}, "n_compiles": len(shapes),
               "warm_fit_s": t_fit}
-    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce, fact, flr, gseed, dpmax, dmomf, sact, slr, smref, mterm, smomf, dmfb, mhist, shist = (
-        np.concatenate([o[i] for o in outs])[inv] for i in range(22))
+    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce, fact, flr, gseed, dpmax, dmomf, sact, slr, smref, mterm, smomf, dmfb, mhist, shist, fxact = (
+        np.concatenate([o[i] for o in outs])[inv] for i in range(23))
     # KinematicLine parameters on the piece holding the t0 point (KalSeed::t0Segment / PiecewiseTrajectory::t0): the
     # POCA to the z axis, s1 along the track; the piece is the smoothed state at the last effect before s1
     N = H["valid"].shape[1]
@@ -297,7 +324,12 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     kl["mom"] = xf[:, 5]
     Jk = np.asarray(jax.jit(jax.vmap(jax.jacfwd(K.kl_params)))(jnp.asarray(xf)))[:, :5, :]
     Ck = np.einsum("tij,tjk,tlk->til", Jk, Cf, Jk)
-    res = {"input": path, "n_tracks": ntrk, "material": material, "straw_axis": straw_axis or os.environ.get("F1_STRAWAXIS"), "read_s": t_read, "first_chunk_s": first,
+    res = {"input": path, "n_tracks": ntrk, "material": material, "time_model": time_model, "xing_activity": xing_activity,
+           "own_states": own_states, "all_fits": all_fits,
+           "seed_time_provenance": "native_ParameterHit_time_only" if native_meta is not None else (
+               "reconstructed_from_saved_seed_and_final_candidates_not_native" if time_model == "stock" else "legacy_local_s"),
+           "native_time": native_meta, "stock_exact": False,
+           "env_f1": {k: v for k, v in sorted(os.environ.items()) if k.startswith("F1_")}, "time_legacy": list(time_legacy), "straw_axis": straw_axis or os.environ.get("F1_STRAWAXIS"), "read_s": t_read, "first_chunk_s": first,
            "timing": timing, "backend": jax.default_backend(),
            **res_piece, "final_status_counts": np.bincount(stat[:, -1], minlength=8).tolist(), "good_frac": float(good.mean()),
            "iterations_per_stage_q50": np.median(np.diff(np.concatenate([np.zeros((ntrk, 1)), niter], 1), axis=1), 0).tolist(),
@@ -421,6 +453,16 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
                                 if (~ours & sa & allx).any() else None,
                                 "ours_only_doca_q16_50_84": np.quantile(np.abs(doca_all)[ours & ~sa & allx], [.16, .5, .84]).tolist()
                                 if (ours & ~sa & allx).any() else None}
+    if save_ids:
+        np.savez(os.path.join(outdir, "ids.npz"), event_index=ref["event_index"], subrun=ref["subrun"],
+                 event=ref["event"], good=good, stockok=stockok, stat=stat, niter=niter, chi2=chi2[:, -1],
+                 ndof=ndof[:, -1], xt0=xf, Ct0=Cf, kl_status=ref["kl_status"].astype(np.int64),
+                 stock_params=np.stack([ref["kl_" + k] for k in KL] + [ref["kl_mom"]], 1),
+                 stock_errors=np.stack([ref["kl_" + k + "err"] for k in KL] + [ref["kl_momerr"]], 1),
+                 fact=fact, flr=flr, valid=H["valid"], stock_active=H["active"], stock_lr=H["lr"],
+                 xact_f1=ours & X["valid"], xact_stock=sa & X["valid"], xinb=inb_x & X["valid"], xvalid=X["valid"],
+                 xhit=X["hit"], xdoca=doca_all, nxing=X["valid"].sum(1),
+                 xact_fit=fxact & X["valid"])
     np.savez(os.path.join(outdir, "xings.npz"), doca=doca[m], dvar=dvar[m], dirdot=dirdot[m], wall=wall[m], gas=gas[m],
              kst_wall=X["kst_wall"][m], kst_gas=X["kst_gas"][m], kst_radlen=X["kst_radlen"][m],
              hashit=(X["hit"] >= 0)[m], trk=np.nonzero(m)[0])

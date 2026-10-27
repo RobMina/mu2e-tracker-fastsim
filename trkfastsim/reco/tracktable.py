@@ -155,16 +155,18 @@ def from_stock(path, cond, settings="mc"):
             "momfit": np.ones(T, np.int32), **hits, "xings": X, "drift": _drift_table(path), "meta": meta}
 
 
-def from_f2(path, cond, settings="mc", niter=4, all_fits=False):
+def from_f2(path, cond, settings="mc", niter=4, all_fits=False, drift=None):
     """reco-vr3 chain on the dump's digis (fast hit reco, SimpleTimeCluster, LineFinder, F2 with its own states).
-    Every seed is fitted; `all_fits` keeps the failed ones (goodfit 0), else only the fits passing the KKFit gates."""
+    Every seed is fitted; `all_fits` keeps the failed ones (goodfit 0), else only the fits passing the KKFit gates.
+    `drift` supplies an explicit calibration when the digi-only input has no conditions tree."""
     from . import linefind, linefind_jax, linefit_jax
     from .cli import _drift_table
     d = hitreco.read_digis([path])
     sh = hitreco.straw_hits(d, cond, settings)
     tc = linefind.time_clusters(sh)
     sd = linefind_jax.line_seeds(sh, tc, cond)
-    drift = _drift_table(path)
+    explicit_drift = drift is not None
+    drift = _drift_table(path) if drift is None else drift
     ns = sd["n"]
     trk = np.repeat(np.arange(len(ns)), ns)
     H = linefit.build_hits(trk, sd["member"], np.zeros(len(trk)), np.ones(len(trk), bool), sh, cond, len(ns))
@@ -199,7 +201,8 @@ def from_f2(path, cond, settings="mc", niter=4, all_fits=False):
     meta = {"version": VERSION, "fit": "F2 (linefit_jax.fit_own_states, fixed momentum, no material)", "fit_type": "F2",
             "stock_conditioned": False, "chain": "reco-vr3: fast makeSH, SimpleTimeCluster, LineFinder (JAX), F2 own states",
             "source": path, "settings": settings, "niter": niter, "all_fits": all_fits, "n_events": int(len(d["evkey"])),
-            "n_seeds": int(T), "n_good": int(good.sum()), "n_written": int(len(k)),
+            "n_hits": int(len(sh["ev"])), "n_seeds": int(T), "n_good": int(good.sum()), "n_written": int(len(k)),
+            "drift_source": "explicit calibration" if explicit_drift else "input conditions tree",
             "status_rule": "goodfit = (>= 5 active hits, finite chi2, ndof >= 1); status 1 when goodfit (fixed iteration "
                            "count, no convergence test), -1 otherwise"}
     g = good[k] if T else np.zeros(0, bool)

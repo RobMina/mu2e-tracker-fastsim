@@ -55,6 +55,8 @@ SCATTERFRAC = {"solid": 0.999999, "gas": 0.9999999}
 # DetMaterial::scatterAngleVar caches vfactor and sig2factor in function statics, so the scatter fraction of the first
 # material ever evaluated in the job is used for all; in KKLine that is the straw wall (findXings pushes wall first)
 STATIC_SCATTERFRAC = SCATTERFRAC["solid"]
+# p109 DetMaterial: each material's own fraction (gas 0.9999999); F1_GASFRAC=p109 selects it, default keeps the static one
+GAS_SCATTERFRAC = SCATTERFRAC["gas"] if __import__("os").environ.get("F1_GASFRAC", "static") == "p109" else STATIC_SCATTERFRAC
 
 # tracker_v7 straw geometry (mm); StrawProperties inner radius = outer - wall thickness
 STRAW = {"orad": 2.5235, "wall": 0.015, "wrad": 0.0125}
@@ -117,7 +119,7 @@ def path_lengths(doca, docavar, dirdot, nsig, irad=STRAW["irad"], orad=STRAW["or
 def straw_scatter_var(doca, docavar, dirdot, nsig, mom, mass=MMU):
     """Projected scattering variance of one straw crossing (ElementXing::materialEffects: wall + gas summed)."""
     w, g = path_lengths(doca, docavar, dirdot, nsig)
-    return scatter_angle_var("straw-wall", mom, w, mass) + scatter_angle_var("straw-gas", mom, g, mass)
+    return scatter_angle_var("straw-wall", mom, w, mass) + scatter_angle_var("straw-gas", mom, g, mass, GAS_SCATTERFRAC)
 
 
 # ---------------------------------------------------------------------------------------------------------------------

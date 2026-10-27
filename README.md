@@ -319,6 +319,14 @@ extracted-v04, primary-only integration task, registered for mounted EAF and str
 physics commissioning. Endpoint output is JSON metadata only; local validation can retain the ROOT product.
 `trkfastsim.kitf1` is a separate stock-conditioned diagnostic companion, not an autonomous F1 evaluator.
 
+## Detector-only F1 prototype
+
+[`reco.autonomous`](docs/autonomous-f1.md) is an opt-in digi → single-straw ComboHit → LineFinder → F1 →
+EventNtuple path that retains every event and fits every seed without stock fit products. It uses an explicitly
+approximate fixed seed-line candidate envelope, not native fitted-seed extension. The separate
+`reco.autonomous_compare` evaluator requires identical event populations and reports paired yield uncertainties;
+shared-hit residual diagnostics require the same digis. Existing F2/stock-conditioned F1 defaults are unchanged.
+
 ## License
 
 Apache-2.0 (`LICENSE`, `NOTICE`).

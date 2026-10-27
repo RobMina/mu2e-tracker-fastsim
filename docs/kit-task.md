@@ -63,6 +63,12 @@ python3 -m trkfastsim.kitpoint --gen GEN.root --gdml extracted_v04.gdml \
   --seed 1 --outdir NEW_OUTPUT --workdir /tmp --retain-ntuple
 ```
 
+The local CLI accepts `--backend jax` for the experimental explicit-key digitiser; the default remains NumPy.
+Transport stays NumPy, event retention is unchanged, and provenance records the chosen `configuration.digitizer`.
+This option is not an endpoint task parameter: the registered task and its typed schema still select NumPy.
+See [fast-digi.md](fast-digi.md) for resource limits, repeatability scope, pilot F2 agreement, A100 tests/timings,
+and the remaining full-sample certification gates.
+
 The CLI's explicit paths are for local validation; callers must supply compatible extracted-v04 MC conditions.
 The endpoint task instead fixes these selectors in `kit_task.py`. `scripts/kit_point_smoke.sh` reproduces the
 one-shard check using `M2FS_DATA`, `M2FS_CORE`, `PY_JAX`, and an otherwise free single-core host. Outputs must be in

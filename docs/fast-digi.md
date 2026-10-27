@@ -108,13 +108,95 @@ SEED=9 bash art/run_digi_ref.sh $GEN_1001 $TABLES/fasttrkCL.001400_00001001.root
 JAX_PLATFORMS=cpu F2=1 bash scripts/digi_validate.sh $D $D/ref $TABLES 1001,1002,...,1010 $D/v2 $VENV_PY
 ```
 
-## JAX port
+## Opt-in JAX backend
 
-Clusters are flat arrays sorted by (straw end, time) with offsets per row (CSR); every waveform evaluation is a
-segment sum, `jax.ops.segment_sum` with padded fixed-size buckets. The sequential parts are lock-step loops with
-masks and small bounded iteration counts: return-below-threshold (bounded by clusters per row), rough crossing (a
-cumulative sum), the peak search (K candidates per pass), regula falsi (10 fixed steps), the crossing-pair loop (a
-few pairs per straw), the digital dead time (rank within the straw). Regular sample times (TOT ticks, ADC samples,
-saturation steps) use integer index strides (`Waveforms.volt_lattice`). The residual-energy loop of minion steps
-draws blocks with prefix acceptance and a short exact tail. Random numbers are drawn as arrays per stage, so the
-port needs one key per stage.
+`digi_clusters_jax.py` and `digi_jax.py` implement the same supported off-spill, field-free model. NumPy remains the
+reference and default; importing/running the NumPy digitiser does not require JAX. Install the optional `jax` extra
+in the project environment, then select explicitly:
+
+```bash
+python3 -m trkfastsim digi STEPS.root --cond digicond.npz --events STOCK.root --backend jax --seed 1 --outdir NEW_DIR
+python3 -m trkfastsim.kitpoint --backend jax --gen GEN.root --gdml GEOMETRY.gdml \
+  --digi-cond digicond.npz --reco-cond cond_mc.json --drift-source STOCK.root --outdir NEW_POINT
+```
+
+The Python API is `digi_jax.digitize(st, nev, conditions, jax.random.key(seed), stats=None)`; it returns host NumPy
+arrays in the reference layout. `fastdigi.digitize_table(..., rng=key, backend="jax")` folds the key by event-chunk
+offset. CLI file streams fold by input-file index; the point runner uses a separate digitiser key domain. Repeatability
+requires the same inputs, seed, file order, chunk/bucket configuration and JAX/runtime version. Cross-device bitwise
+identity is not promised. Conditions must not be mutated while cached kernels use them.
+
+### Shape and resource contracts
+
+- Ionisation uses 128-step batches and power-of-two initial-cluster buckets; step-index-folded keys preserve each
+  step's draws across ionisation buckets. Minion residual energy is exhausted with a masked exact loop, no tail clip.
+- Individual-electron expansion, compaction, straw grouping and bucket packing are host boundaries. Gain/drift use
+  4096-cluster blocks. Waveforms use dense padded `[2*32, cluster_capacity]` rows, not a device-resident CSR pipeline.
+- Electronics searches run as masked JAX loops, preserving both-end matching, analog/digital dead time and stock's
+  asymmetric NaN crossing behavior. TOT, linear ADC and saturation use integer lattice strides.
+- More than 4096 initial clusters per step, four million expanded drift clusters per call, or 4096 clusters in one
+  straw instance raise `OverflowError`; no physics tail is silently dropped. These are resource limits, not cuts.
+  Near-limit dense saturation allocations can still be large; smaller event chunks bound aggregate memory.
+- Pair buffers begin with four entries per straw and retry with identical keys at doubled capacity. Nonprogress and
+  saturation-time overflow fail explicitly. Nonfinite inputs/generated clusters are rejected before packing, distinct
+  from legitimate NaN regula-falsi crossing results, whose stock semantics are retained.
+
+### Validation status (2026-10-27)
+
+A 2,866-event pilot on the existing matched step sample produced 63,330 JAX digis versus 63,361 saved NumPy digis:
+paired relative difference **−0.049 ± 0.095 %**; panel hits **+0.077 ± 0.100 %**. None of 16 comparison histograms
+flagged under the deck, event-clustered or paired rules. Paired chi2/ndf: panel/straw occupancy 1.059/0.996, relative
+cal/hv TDC 0.804/0.736, TOT 0.786/0.216, PMP 0.970, ADC samples 0.936. The independent floor here is stock seed 9
+versus NumPy, not a second NumPy draw. This one-shard pilot does not certify the full ten-shard sample.
+
+F2 on exactly the same 2,866 persisted unique events gives **2,742 good JAX fits versus 2,728 NumPy**:
+paired **+0.513 ± 0.398 %** (1.29 sigma; normal-approximate 95% interval −0.267% to +1.294%). Counts of events
+with a fit equal these fit counts on this sample. Stock seed 9 gives 2,753 (+0.916 ± 0.396% versus NumPy).
+This is pilot agreement, not demonstrated sub-percent equivalence. No stock fit products condition F2.
+
+Tests cover repeatability, empty/zero-hit event retention, NumPy RNG and array identity, time windows/read-all,
+truth indices, dead time and pair retry, nonfinite/capacity rejection, and identical-cluster noiseless linear/saturated
+electronics against NumPy (crossing tolerance 0.04 ns, TDC two ticks, ADC one count, TOT exact).
+
+Cold pilot timing on one pinned GPVM core was **539.97 s / 2,866 events = 188.405 ms/event**, including compilation
+and host packing: no speedup is established. A subsequent local 100-event/2,200-step synthetic check measured
+NumPy cold 1.212 s, warm 0.931/0.881 s; JAX cold 23.715 s, warm 0.827/0.861 s. Both repeated identically per seed.
+These small, unpinned laptop timings are not production throughput or an A100 result. An unused-pair-loop optimization
+and input/resource guards added after the remote pilot need full-sample validation; NumPy remains recommended.
+
+A100-SXM4-80GB / JAX 0.11.2 validation: **19 tests pass**, explicit GPU selection checked, both backends
+per-seed reproducible. The same synthetic 100-event benchmark measured JAX cold **52.884 s**, warm **0.862/0.851 s**;
+NumPy on that node's CPU cold **0.624 s**, warm **0.592/0.578 s**. The allocated test completed in 2:47 with peak
+host RSS 2.69 GiB and verified temporary-directory cleanup. This small host-bucketed workload shows **no GPU speedup**.
+
+### Paired comparison and timing
+
+Fast files have no drift conditions tree. For direct JAX-versus-NumPy F2 comparisons, provide the same stock drift
+source explicitly. `--f2-chunk N` bounds events per reconstruction batch, preserving empty events and pooling good-fit
+values before calculating quantiles; `0` retains the single-batch default. Event chunks alone do not prevent
+compilation churn: each distinct seed count otherwise produces another fitted-track JIT shape.
+
+`--f2-fixed-shapes` uses the caller-only `reco/f2batch.py`: fixed 64-track blocks and power-of-two hit capacities
+(at least 64), duplicate padding removed before any acceptance/counting, and smaller existing linefinder batches.
+No hits or candidates are discarded; fit equations, schedule, iterations and good-fit cuts are unchanged. The default
+path is retained for comparisons. Real legacy-versus-fixed checks agree on 32 events (30 seeds, 29 good fits), and
+100-event checks with chunks 50 and 37 agree (96 seeds, 95 good fits). Ragged/reordered 63/64/65-hit and >64-track
+unit tests compare real fitter parameters, covariance and hit states; finder tests cover the >256-hit NumPy fallback.
+The completed three-arm pilot used only `64x64` and `64x128` fit shapes and summed batch wall times 122.24 s / 82.70 s /
+75.21 s (JAX digi / NumPy digi / stock floor); warm-arm fit portions were 5.16 s / 4.65 s. Seeding dominates remaining
+comparison runtime. `--f2-progress` emits per-batch timing and shape JSON lines.
+
+`--require-same-events` rejects unequal or duplicate full `(run,subrun,event)` identities rather than silently
+intersecting. Event remapping keeps digi and variable-length ADC rows in consistent event order. Full tuple identities
+avoid packed-bit collisions for large event/subrun numbers.
+
+```bash
+python3 -m trkfastsim digicmp JAX.root --ref NUMPY.root --floor STOCK_OTHER_SEED.root \
+  --hit-cond hitcond.json --drift-source STOCK.root --f2 --f2-chunk 50 \
+  --f2-fixed-shapes --f2-progress --require-same-events --outdir NEW_COMPARE
+python3 scripts/digi_bench.py 100 3 --backend jax --json timing.json
+```
+
+`digicmp` intersects event populations: independently verify persisted input counts and common-event coverage.
+`scripts/digi_jax_validate.sh NEW_OUTPUT` reuses the existing stock/NumPy references, never reruns stock, and refuses
+an existing output directory. Its default is one shard; widening it requires a separately sized/authorized run.

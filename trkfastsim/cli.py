@@ -50,6 +50,13 @@ ANALYSES = {
 BATCHABLE = {"refcheck"}
 
 
+def _nonnegative_int(value):
+    n = int(value)
+    if n < 0:
+        raise argparse.ArgumentTypeError("must be nonnegative (0 disables batching)")
+    return n
+
+
 def build_parser():
     p = argparse.ArgumentParser(prog="trkfastsim", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -207,11 +214,21 @@ def build_parser():
                             help="StrawHitTableDumper files: digitise exactly their events (default: PrimaryFilter tracker term)")
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
             sp.add_argument("--chunk", type=int, default=1000, help="events per vectorised batch")
+            sp.add_argument("--backend", choices=["numpy", "jax"], default="numpy",
+                            help="digitizer backend (default numpy); JAX uses separate explicit random keys")
         if name == "digicmp":
             sp.add_argument("--ref", nargs="+", required=True, metavar="ROOT", help="stock StrawHitTableDumper tables (same steps)")
             sp.add_argument("--floor", nargs="+", default=None, metavar="ROOT", help="stock tables with another digitisation seed")
             sp.add_argument("--hit-cond", default=None, metavar="JSON", help="hit-reco conditions (reco-conditions); default: from --ref[0]")
             sp.add_argument("--f2", action="store_true", help="also run the fast reco chain (time clusters, seeds, F2 fit; JAX) on every arm")
+            sp.add_argument("--f2-chunk", type=_nonnegative_int, default=0, metavar="N",
+                            help="events per F2 reco batch, on every arm (default 0: all events at once)")
+            sp.add_argument("--f2-fixed-shapes", action="store_true",
+                            help="bound finder allocations and pad F2 to fixed track/hit buckets without changing fit physics")
+            sp.add_argument("--f2-progress", action="store_true", help="log per-batch F2 timing/shapes as JSON lines")
+            sp.add_argument("--require-same-events", action="store_true", help="reject unequal or duplicate event keys instead of intersecting")
+            sp.add_argument("--drift-source", default=None, metavar="ROOT",
+                            help="F2 drift conditions shared by all arms (default: --ref[0]); permits digi-only references")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")
             sp.add_argument("--merge", action="store_true", help="inputs are --emit JSONs: sum and report")

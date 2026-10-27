@@ -109,7 +109,8 @@ def validate_metrics(metrics):
     return validate(metrics)
 
 
-def run(gen, gdml, digi_cond, reco_cond, drift_source, seed, outdir, workdir=None, retain_ntuple=False):
+def run(gen, gdml, digi_cond, reco_cond, drift_source, seed, outdir, workdir=None, retain_ntuple=False, backend="numpy"):
+    fastdigi.validate_backend(backend)
     if isinstance(seed, bool) or not isinstance(seed, int) or not 0 <= seed < 2 ** 31:
         raise ValueError("seed must be an integer in [0, 2**31)")
     inputs = {"gen": gen, "gdml": gdml, "digi_cond": digi_cond, "reco_cond": reco_cond, "drift_source": drift_source}
@@ -141,8 +142,13 @@ def run(gen, gdml, digi_cond, reco_cond, drift_source, seed, outdir, workdir=Non
         times["steps_s"] = time.perf_counter() - t
         t = time.perf_counter()
         stats = {}
-        _, digis, _ = fastdigi.digitize_table(str(stepfile), dc, np.random.default_rng([seed, 0, 3]),
-                                             keys=keys, chunk=1000, stats=stats)
+        if backend == "numpy":
+            rng = np.random.default_rng([seed, 0, 3])
+        else:
+            from jax import random as jr
+            rng = jr.fold_in(jr.fold_in(jr.key(seed), 0), 3)  # File zero, digitizer domain three; steps stay NumPy.
+        _, digis, _ = fastdigi.digitize_table(str(stepfile), dc, rng,
+                                             keys=keys, chunk=1000, stats=stats, backend=backend)
         digifile = tmp / "digis.root"
         fastdigi.write_digis(str(digifile), keys, digis, dc.nADCSamples)
         times["digitization_s"] = time.perf_counter() - t
@@ -168,7 +174,7 @@ def run(gen, gdml, digi_cond, reco_cond, drift_source, seed, outdir, workdir=Non
         provenance = {"schema": SCHEMA, "sample": SAMPLE, "seed": seed, "inputs": identities,
                       "code": code_identity(), "configuration": {"stage": "C", "sliced_msc": True,
                       "all_primary_muons": True, "secondary_library": None, "step_backend": "numpy",
-                      "digitizer": "numpy", "reco": "hybrid F2", "fixed_momentum_MeV_c": 2000.0,
+                      "digitizer": backend, "reco": "hybrid F2", "fixed_momentum_MeV_c": 2000.0,
                       "fit_material": False, "niter": 4, "settings": "mc", "stock_conditioned": False},
                       "input_binding": "SHA256 checked before and after consumption; not immutable snapshots or protection against transient change-and-restore",
                       "denominator": "distinct run/subrun/event in the complete gen table; no PrimaryFilter selection",
@@ -189,6 +195,8 @@ def main(argv=None):
         p.add_argument("--" + name, required=True)
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--workdir")
+    p.add_argument("--backend", choices=["numpy", "jax"], default="numpy",
+                   help="local digitizer backend only; transport remains NumPy")
     p.add_argument("--retain-ntuple", action="store_true", help="local use only: retain the internal ROOT product")
     return run(**vars(p.parse_args(argv)))
 

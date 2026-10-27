@@ -90,8 +90,26 @@ def write_digis(path, keys, d, nsamp):
         f["trkdump/events"].extend(cols)
 
 
-def digitize_table(path, cond, rng, keys=None, chunk=1000, stats=None):
-    """One step table -> (event keys [E,3], digi dict with ev indexing those keys, number of steps)."""
+def validate_backend(backend):
+    if backend not in ("numpy", "jax"):
+        raise ValueError(f"unsupported digitizer backend {backend!r}; expected 'numpy' or 'jax'")
+
+
+def digitize_jax(st, nev, cond, key, stats=None):
+    """Load the optional JAX digitizer only when selected."""
+    from ..digi_jax import digitize
+    return digitize(st, nev, cond, key, stats)
+
+
+def digitize_table(path, cond, rng, keys=None, chunk=1000, stats=None, backend="numpy"):
+    """Return (event keys [E,3], digis indexing keys, step count).
+
+    rng is a NumPy Generator by default, or an explicit JAX root key for backend='jax'.
+    JAX folds in each chunk's event offset; reproducibility requires the same chunk size.
+    """
+    validate_backend(backend)
+    if backend == "jax":
+        from jax import random as jr
     s = load_steps(path)
     sk = s[["run", "subrun", "event"]].to_numpy(np.int64)
     if keys is None:
@@ -118,7 +136,10 @@ def digitize_table(path, cond, rng, keys=None, chunk=1000, stats=None):
         sub = {k: v[idx] for k, v in st.items()}
         sub["ev"] = sub["ev"] - e0
         t0 = time.perf_counter()
-        d = D.digitize(sub, min(chunk, len(keys) - e0), cond, rng, stats)
+        if backend == "numpy":
+            d = D.digitize(sub, min(chunk, len(keys) - e0), cond, rng, stats)
+        else:
+            d = digitize_jax(sub, min(chunk, len(keys) - e0), cond, jr.fold_in(rng, e0), stats)
         if stats is not None:
             stats["digitize_s"] = stats.get("digitize_s", 0.0) + time.perf_counter() - t0
         d["ev"] = d["ev"] + e0
@@ -132,14 +153,18 @@ def geometry_sid(s):
     return (s["plane"].to_numpy(np.int64) << 10) | (s["panel"].to_numpy(np.int64) << 7) | s["straw"].to_numpy(np.int64)
 
 
-def run_digi(inputs, outdir, cond=None, events=None, seed=1, chunk=1000, **kw):
+def run_digi(inputs, outdir, cond=None, events=None, seed=1, chunk=1000, backend="numpy", **kw):
+    validate_backend(backend)
     if not cond:
         raise SystemExit("digi STEP_TABLES --cond digicond.npz [--events STOCK_STRAWHITS ...] [--seed N]")
+    if backend == "jax":
+        from jax import random as jr
+        root_key = jr.key(seed)
     c = digicond.Conditions.load(cond)
     keys_all = event_keys(events) if events else None
     os.makedirs(outdir, exist_ok=True)
     for i, p in enumerate(tables.expand(inputs)):
-        rng = np.random.default_rng([seed, i])
+        rng = np.random.default_rng([seed, i]) if backend == "numpy" else jr.fold_in(root_key, i)
         keys = None
         if keys_all is not None:
             sk = tables.read(p, "sgsteps", ["run", "subrun"]).drop_duplicates().to_numpy(np.int64)
@@ -148,7 +173,7 @@ def run_digi(inputs, outdir, cond=None, events=None, seed=1, chunk=1000, **kw):
             keys = keys_all[m]
         stats = {}
         t0 = time.perf_counter()
-        keys, d, nstep = digitize_table(p, c, rng, keys, chunk, stats)
+        keys, d, nstep = digitize_table(p, c, rng, keys, chunk, stats, backend=backend)
         dt = time.perf_counter() - t0
         stem = os.path.basename(p).rsplit(".root", 1)[0]
         out = os.path.join(outdir, f"fastdigi.{stem}.root")

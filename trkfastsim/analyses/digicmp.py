@@ -20,11 +20,13 @@ Statistics (per arm against --ref):
 - paired single-digi straws (one digi in the straw in both arms): fast - stock and floor - stock differences of TDC,
   TOT and PMP (quantiles), which must agree if the fast digitiser is statistically equivalent;
 - with --f2: the fast reco chain (time clusters, line seeds, F2 fit; JAX) on each arm's digis: good fits and the
-  paired yield ratio.
+  paired yield ratio; --drift-source supplies calibration separately (default --ref[0]); --f2-chunk N bounds
+  the events per reco batch (0: all events), with exact pooled per-fit quantiles.
 Output: <outdir>/digicmp.json and digicmp_hist.npz (the binned counts).
 """
 import json
 import os
+import time
 
 import numpy as np
 
@@ -34,18 +36,28 @@ LSB_TDC = 0.01953125
 
 
 def _keyid(k):
-    return (k[:, 0].astype(np.int64) << 40) | (k[:, 1].astype(np.int64) << 20) | k[:, 2].astype(np.int64)
+    """Collision-free full event identities for uniqueness, sorting and intersection."""
+    k = np.asarray(k)
+    if k.ndim != 2 or k.shape[1] != 3 or k.dtype.kind not in "iu":
+        raise ValueError("event identities must be integer run/subrun/event triples")
+    if np.any(k < 0) or np.any(k > np.iinfo(np.int64).max):
+        raise ValueError("event identity outside nonnegative int64 domain")
+    dtype = np.dtype([(name, np.int64) for name in ("run", "subrun", "event")])
+    return np.ascontiguousarray(k, dtype=np.int64).view(dtype).reshape(-1)
 
 
 def _restrict(d, keep_ev):
     """Digi arrays restricted to the events keep_ev (indices into d['evkey']), events renumbered in that order."""
     remap = np.full(len(d["evkey"]), -1)
     remap[keep_ev] = np.arange(len(keep_ev))
-    m = remap[d["ev"]] >= 0
-    aidx = np.repeat(m, d["nadc"])
-    out = {k: d[k][m] for k in ("sid", "tdc0", "tdc1", "tot0", "tot1", "nadc")}
-    out["adc"] = d["adc"][aidx]
-    out["ev"] = remap[d["ev"][m]]
+    idx = np.flatnonzero(remap[d["ev"]] >= 0)
+    idx = idx[np.argsort(remap[d["ev"][idx]], kind="stable")]
+    out = {k: d[k][idx] for k in ("sid", "tdc0", "tdc1", "tot0", "tot1", "nadc")}
+    starts = np.cumsum(d["nadc"]) - d["nadc"]
+    off = np.cumsum(out["nadc"]) - out["nadc"]
+    ai = np.repeat(starts[idx] - off, out["nadc"]) + np.arange(out["nadc"].sum())
+    out["adc"] = d["adc"][ai]
+    out["ev"] = remap[d["ev"][idx]]
     out["evkey"] = d["evkey"][keep_ev]
     out["pbt"] = d["pbt"][keep_ev]
     return out
@@ -153,14 +165,24 @@ def paired_single(o_arm, o_ref):
     return out
 
 
-def f2_yield(d, cond, drift_ref, settings="mc", niter=4):
-    """Fast reco chain on the digis (hit reco, SimpleTimeCluster + LineFinder ports, F2 fit): good fits per event."""
-    from ..reco import linefind, linefind_jax, linefit, linefit_jax
-    from ..reco.cli import _drift_table
+def _f2_batch(d, cond, drift_ref, settings="mc", niter=4):
+    """One reco batch; retain good-fit values rather than quantiles for exact pooling."""
+    empty = {"seeds": 0, "fits_per_event": np.zeros(len(d["evkey"]), np.int64),
+             "nactive": np.empty(0, np.int64), "chi2ndf": np.empty(0)}
+    if not len(d["ev"]):
+        return empty
+    from ..reco import linefind
     sh = hitreco.straw_hits(d, cond, settings)
     tc = linefind.time_clusters(sh)
+    if not len(tc["n"]):
+        return empty
+    from ..reco import linefind_jax
     sd = linefind_jax.line_seeds(sh, tc, cond)
     ns = sd["n"]
+    if not len(ns):
+        return empty
+    from ..reco import linefit, linefit_jax
+    from ..reco.cli import _drift_table
     trk = np.repeat(np.arange(len(ns)), ns)
     H = linefit.build_hits(trk, sd["member"], np.zeros(len(trk)), np.ones(len(trk), bool), sh, cond, len(ns))
     x0 = linefit.seed_params(sd["a0"], sd["b0"], sd["a1"], sd["b1"], sd["t0"])
@@ -168,12 +190,75 @@ def f2_yield(d, cond, drift_ref, settings="mc", niter=4):
     nact = f["active"].sum(1)
     good = (nact >= 5) & np.isfinite(f["chi2"]) & (f["ndof"] >= 1)
     fpe = np.bincount(sd["ev"][good], minlength=len(d["evkey"]))
-    return {"seeds": int(len(ns)), "good_fits": int(good.sum()), "events_with_fit": int((fpe > 0).sum()),
+    return {"seeds": int(len(ns)), "fits_per_event": fpe,
+            "nactive": np.asarray(nact[good]),
+            "chi2ndf": np.asarray(f["chi2"][good] / np.maximum(f["ndof"][good], 1))}
+
+
+def _f2_fixed_batch(d, cond, drift, settings="mc", niter=4):
+    """The same F2 model with bounded finder allocation and fixed track/hit buckets."""
+    from ..reco import f2batch, linefind, linefind_jax
+    start = time.perf_counter()
+    empty = {"seeds": 0, "fits_per_event": np.zeros(len(d["evkey"]), np.int64),
+             "nactive": np.empty(0, np.int64), "chi2ndf": np.empty(0), "profile": {}}
+    if not len(d["ev"]):
+        return empty
+    sh = hitreco.straw_hits(d, cond, settings)
+    tc = linefind.time_clusters(sh)
+    hit_s = time.perf_counter() - start
+    if not len(tc["n"]):
+        return empty
+    start = time.perf_counter()
+    sd = linefind_jax.line_seeds(sh, tc, cond, budget=100_000)
+    seed_s = time.perf_counter() - start
+    y = f2batch.fit_seeds(sh, sd, cond, drift, len(d["evkey"]), niter=niter)
+    y["profile"].update(hit_s=hit_s, seed_s=seed_s, clusters=int(len(tc["n"])),
+                        max_cluster_hits=int(tc["n"].max()), seed_count=int(len(sd["n"])))
+    return y
+
+
+def f2_yield(d, cond, drift_ref, settings="mc", niter=4, chunk=0, fixed_shapes=False, progress=None):
+    """Fast reco yield; chunk > 0 bounds events per batch, including events with no digis.
+
+    Counts are summed and good-fit active/chi2 values are pooled before taking quantiles,
+    never averaged per batch. chunk=0 retains the single-batch reco path. With
+    fixed_shapes, only packing/allocation changes: 64-track blocks, power-of-two
+    hit capacities (at least 64), and 64-cluster seeding batches. No candidate is
+    dropped and the fitter, schedule and good-fit predicate remain unchanged.
+    """
+    if chunk < 0:
+        raise ValueError("f2 chunk must be nonnegative (0 disables batching)")
+    ne = len(d["evkey"])
+    fpe = np.zeros(ne, np.int64)
+    seeds, active, chi2ndf = 0, [], []
+    drift = None
+    if fixed_shapes:
+        from ..reco.cli import _drift_table
+        drift = _drift_table(drift_ref) if isinstance(drift_ref, (str, os.PathLike)) else drift_ref
+    for start in range(0, ne, chunk or max(ne, 1)):
+        stop = min(start + (chunk or ne), ne)
+        batch = _restrict(d, np.arange(start, stop)) if chunk else d
+        t0 = time.perf_counter()
+        y = (_f2_fixed_batch(batch, cond, drift, settings, niter) if fixed_shapes
+             else _f2_batch(batch, cond, drift_ref, settings, niter))
+        if progress is not None:
+            progress({"start": start, "stop": stop, "total": ne, "seeds": y["seeds"],
+                      "good_fits": int(y["fits_per_event"].sum()), "wall_s": time.perf_counter() - t0,
+                      **y.get("profile", {})})
+        seeds += y["seeds"]
+        fpe[start:stop] = y["fits_per_event"]
+        active.append(y["nactive"])
+        chi2ndf.append(y["chi2ndf"])
+    return {"seeds": int(seeds), "good_fits": int(fpe.sum()), "events_with_fit": int((fpe > 0).sum()),
             "fits_per_event": fpe,
-            "nactive_q": _q(nact[good]), "chi2ndf_q": _q(f["chi2"][good] / np.maximum(f["ndof"][good], 1))}
+            "nactive_q": _q(np.concatenate(active) if active else []),
+            "chi2ndf_q": _q(np.concatenate(chi2ndf) if chi2ndf else [])}
 
 
-def run(inputs, outdir, ref=None, floor=None, hit_cond=None, f2=False, **kw):
+def run(inputs, outdir, ref=None, floor=None, hit_cond=None, f2=False, drift_source=None, f2_chunk=0,
+        f2_fixed_shapes=False, f2_progress=False, require_same_events=False, **kw):
+    if f2_chunk < 0:
+        raise ValueError("f2_chunk must be nonnegative (0 disables batching)")
     os.makedirs(outdir, exist_ok=True)
     if hit_cond is None:
         hit_cond = os.path.join(outdir, "hitcond.json")
@@ -182,6 +267,13 @@ def run(inputs, outdir, ref=None, floor=None, hit_cond=None, f2=False, **kw):
     arms = {"fast": hitreco.read_digis(inputs), "ref": hitreco.read_digis(ref)}
     if floor:
         arms["floor"] = hitreco.read_digis(floor)
+    population = {n: len(d["evkey"]) for n, d in arms.items()}
+    if require_same_events:
+        refkeys = np.unique(_keyid(arms["ref"]["evkey"]))
+        for n, d in arms.items():
+            keys = np.unique(_keyid(d["evkey"]))
+            if len(keys) != population[n] or not np.array_equal(keys, refkeys):
+                raise ValueError(f"{n} event population differs or contains duplicate keys")
     common = None
     for d in arms.values():
         k = _keyid(d["evkey"])
@@ -194,6 +286,8 @@ def run(inputs, outdir, ref=None, floor=None, hit_cond=None, f2=False, **kw):
     ne = len(common)
     obs = {n: observables(d, cond) for n, d in arms.items()}
     res = {"events": int(ne), "digis": {n: int(len(o["sid"])) for n, o in obs.items()}}
+    if require_same_events:
+        res["event_population"] = {"persisted": population, "common": int(ne), "identical_unique_keys": True}
     for n in obs:
         if n == "ref":
             continue
@@ -227,7 +321,21 @@ def run(inputs, outdir, ref=None, floor=None, hit_cond=None, f2=False, **kw):
     for n, o in obs.items():
         res.setdefault("quantiles", {})[n] = {k: _q(np.asarray(o[k], float)) for k in ("tot0", "tot1", "pmp", "dt", "wdist")}
     if f2:
-        yl = {n: f2_yield(arms[n], cond, ref[0]) for n in arms}
+        drift_ref = ref[0] if drift_source is None else drift_source
+        chunk_kw = {"chunk": f2_chunk} if f2_chunk else {}
+        if f2_fixed_shapes:
+            from ..reco.cli import _drift_table
+            drift_ref = _drift_table(drift_ref)
+            chunk_kw["fixed_shapes"] = True
+        yl = {}
+        for n in arms:
+            def progress(record):
+                record = {"arm": n, **record}
+                print("F2_BATCH " + json.dumps(record, sort_keys=True), flush=True)
+                with open(os.path.join(outdir, "f2_progress.jsonl"), "a") as log:
+                    log.write(json.dumps(record, sort_keys=True) + "\n")
+            extra = {"progress": progress} if f2_progress else {}
+            yl[n] = f2_yield(arms[n], cond, drift_ref, **chunk_kw, **extra)
         b = yl["ref"]["fits_per_event"].astype(float)
         res["f2"] = {}
         for n, y in yl.items():

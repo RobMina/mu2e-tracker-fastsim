@@ -1,0 +1,3807 @@
+{
+ "branches": {
+  "evtinfo": {
+   "arrays_fields": [
+    "evtinfo"
+   ],
+   "branch_array_type": "{event: int32, run: int32, subrun: int32, nprotons: int32, pbtime: float32, pbterr: float32}",
+   "form": {
+    "class": "RecordArray",
+    "contents": [
+     {
+      "class": "NumpyArray",
+      "form_key": null,
+      "inner_shape": [],
+      "parameters": {},
+      "primitive": "int32"
+     },
+     {
+      "class": "NumpyArray",
+      "form_key": null,
+      "inner_shape": [],
+      "parameters": {},
+      "primitive": "int32"
+     },
+     {
+      "class": "NumpyArray",
+      "form_key": null,
+      "inner_shape": [],
+      "parameters": {},
+      "primitive": "int32"
+     },
+     {
+      "class": "NumpyArray",
+      "form_key": null,
+      "inner_shape": [],
+      "parameters": {},
+      "primitive": "int32"
+     },
+     {
+      "class": "NumpyArray",
+      "form_key": null,
+      "inner_shape": [],
+      "parameters": {},
+      "primitive": "float32"
+     },
+     {
+      "class": "NumpyArray",
+      "form_key": null,
+      "inner_shape": [],
+      "parameters": {},
+      "primitive": "float32"
+     }
+    ],
+    "fields": [
+     "event",
+     "run",
+     "subrun",
+     "nprotons",
+     "pbtime",
+     "pbterr"
+    ],
+    "form_key": null,
+    "parameters": {}
+   },
+   "subbranches": {
+    "event": "int32_t",
+    "nprotons": "int32_t",
+    "pbterr": "float",
+    "pbtime": "float",
+    "run": "int32_t",
+    "subrun": "int32_t"
+   },
+   "typename": "mu2e::EventInfo"
+  },
+  "evtinfomc": {
+   "arrays_fields": [
+    "evtinfomc"
+   ],
+   "branch_array_type": "{nprotons: int32, pbtime: float32}",
+   "form": {
+    "class": "RecordArray",
+    "contents": [
+     {
+      "class": "NumpyArray",
+      "form_key": null,
+      "inner_shape": [],
+      "parameters": {},
+      "primitive": "int32"
+     },
+     {
+      "class": "NumpyArray",
+      "form_key": null,
+      "inner_shape": [],
+      "parameters": {},
+      "primitive": "float32"
+     }
+    ],
+    "fields": [
+     "nprotons",
+     "pbtime"
+    ],
+    "form_key": null,
+    "parameters": {}
+   },
+   "subbranches": {
+    "nprotons": "int32_t",
+    "pbtime": "float"
+   },
+   "typename": "mu2e::EventInfoMC"
+  },
+  "trk": {
+   "arrays_fields": [
+    "trk"
+   ],
+   "branch_array_type": "{\"trk.status\": var * int32, \"trk.goodfit\": var * int32, \"trk.seedalg\": var * int32, \"trk.fitalg\": var * int32, \"trk.pdg\": var * int32, \"trk.nhits\": var * int32, \"trk.ndof\": var * int32, \"trk.nactive\": var * int32, \"trk.ndouble\": var * int32, \"trk.ndactive\": var * int32, \"trk.nplanes\": var * int32, \"trk.npanels\": var * int32, \"trk.planespan\": var * int32, \"trk.nnullambig\": var * int32, \"trk.nmat\": var * int32, \"trk.nmatactive\": var * int32, \"trk.nesel\": var * int32, \"trk.nrsel\": var * int32, \"trk.ntsel\": var * int32, \"trk.nbkg\": var * int32, \"trk.nsel\": var * int32, \"trk.nseg\": var * int32, \"trk.nipaup\": var * int32, \"trk.nipadown\": var * int32, \"trk.nstup\": var * int32, \"trk.nstdown\": var * int32, \"trk.tsdainter\": var * bool, \"trk.opainter\": var * bool, \"trk.firststinter\": var * int32, \"trk.chisq\": var * float32, \"trk.fitcon\": var * float32, \"trk.radlen\": var * float32, \"trk.firsthit\": var * float32, \"trk.lasthit\": var * float32, \"trk.maxgap\": var * float32, \"trk.avggap\": var * float32, \"trk.avgedep\": var * float32}",
+   "form": {
+    "class": "RecordArray",
+    "contents": [
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "bool"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "bool"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     }
+    ],
+    "fields": [
+     "trk.status",
+     "trk.goodfit",
+     "trk.seedalg",
+     "trk.fitalg",
+     "trk.pdg",
+     "trk.nhits",
+     "trk.ndof",
+     "trk.nactive",
+     "trk.ndouble",
+     "trk.ndactive",
+     "trk.nplanes",
+     "trk.npanels",
+     "trk.planespan",
+     "trk.nnullambig",
+     "trk.nmat",
+     "trk.nmatactive",
+     "trk.nesel",
+     "trk.nrsel",
+     "trk.ntsel",
+     "trk.nbkg",
+     "trk.nsel",
+     "trk.nseg",
+     "trk.nipaup",
+     "trk.nipadown",
+     "trk.nstup",
+     "trk.nstdown",
+     "trk.tsdainter",
+     "trk.opainter",
+     "trk.firststinter",
+     "trk.chisq",
+     "trk.fitcon",
+     "trk.radlen",
+     "trk.firsthit",
+     "trk.lasthit",
+     "trk.maxgap",
+     "trk.avggap",
+     "trk.avgedep"
+    ],
+    "form_key": null,
+    "parameters": {}
+   },
+   "subbranches": {
+    "trk.avgedep": "float[]",
+    "trk.avggap": "float[]",
+    "trk.chisq": "float[]",
+    "trk.firsthit": "float[]",
+    "trk.firststinter": "int32_t[]",
+    "trk.fitalg": "int32_t[]",
+    "trk.fitcon": "float[]",
+    "trk.goodfit": "int32_t[]",
+    "trk.lasthit": "float[]",
+    "trk.maxgap": "float[]",
+    "trk.nactive": "int32_t[]",
+    "trk.nbkg": "int32_t[]",
+    "trk.ndactive": "int32_t[]",
+    "trk.ndof": "int32_t[]",
+    "trk.ndouble": "int32_t[]",
+    "trk.nesel": "int32_t[]",
+    "trk.nhits": "int32_t[]",
+    "trk.nipadown": "int32_t[]",
+    "trk.nipaup": "int32_t[]",
+    "trk.nmat": "int32_t[]",
+    "trk.nmatactive": "int32_t[]",
+    "trk.nnullambig": "int32_t[]",
+    "trk.npanels": "int32_t[]",
+    "trk.nplanes": "int32_t[]",
+    "trk.nrsel": "int32_t[]",
+    "trk.nseg": "int32_t[]",
+    "trk.nsel": "int32_t[]",
+    "trk.nstdown": "int32_t[]",
+    "trk.nstup": "int32_t[]",
+    "trk.ntsel": "int32_t[]",
+    "trk.opainter": "bool[]",
+    "trk.pdg": "int32_t[]",
+    "trk.planespan": "int32_t[]",
+    "trk.radlen": "float[]",
+    "trk.seedalg": "int32_t[]",
+    "trk.status": "int32_t[]",
+    "trk.tsdainter": "bool[]"
+   },
+   "typename": "vector<mu2e::TrkInfo>"
+  },
+  "trkcalohit": {
+   "arrays_fields": [
+    "trkcalohit"
+   ],
+   "branch_array_type": "{\"trkcalohit.active\": var * bool, \"trkcalohit.did\": var * int32, \"trkcalohit.poca.fCoordinates.fX\": var * float32, \"trkcalohit.poca.fCoordinates.fY\": var * float32, \"trkcalohit.poca.fCoordinates.fZ\": var * float32, \"trkcalohit.mom.fCoordinates.fX\": var * float32, \"trkcalohit.mom.fCoordinates.fY\": var * float32, \"trkcalohit.mom.fCoordinates.fZ\": var * float32, \"trkcalohit.cdepth\": var * float32, \"trkcalohit.trkdepth\": var * float32, \"trkcalohit.dphidot\": var * float32, \"trkcalohit.doca\": var * float32, \"trkcalohit.dt\": var * float32, \"trkcalohit.ptoca\": var * float32, \"trkcalohit.tocavar\": var * float32, \"trkcalohit.tresid\": var * float32, \"trkcalohit.tresidmvar\": var * float32, \"trkcalohit.tresidpvar\": var * float32, \"trkcalohit.ctime\": var * float32, \"trkcalohit.ctimeerr\": var * float32, \"trkcalohit.csize\": var * float32, \"trkcalohit.edep\": var * float32, \"trkcalohit.edeperr\": var * float32}",
+   "form": {
+    "class": "RecordArray",
+    "contents": [
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "bool"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     }
+    ],
+    "fields": [
+     "trkcalohit.active",
+     "trkcalohit.did",
+     "trkcalohit.poca.fCoordinates.fX",
+     "trkcalohit.poca.fCoordinates.fY",
+     "trkcalohit.poca.fCoordinates.fZ",
+     "trkcalohit.mom.fCoordinates.fX",
+     "trkcalohit.mom.fCoordinates.fY",
+     "trkcalohit.mom.fCoordinates.fZ",
+     "trkcalohit.cdepth",
+     "trkcalohit.trkdepth",
+     "trkcalohit.dphidot",
+     "trkcalohit.doca",
+     "trkcalohit.dt",
+     "trkcalohit.ptoca",
+     "trkcalohit.tocavar",
+     "trkcalohit.tresid",
+     "trkcalohit.tresidmvar",
+     "trkcalohit.tresidpvar",
+     "trkcalohit.ctime",
+     "trkcalohit.ctimeerr",
+     "trkcalohit.csize",
+     "trkcalohit.edep",
+     "trkcalohit.edeperr"
+    ],
+    "form_key": null,
+    "parameters": {}
+   },
+   "subbranches": {
+    "trkcalohit.active": "bool[]",
+    "trkcalohit.cdepth": "float[]",
+    "trkcalohit.csize": "float[]",
+    "trkcalohit.ctime": "float[]",
+    "trkcalohit.ctimeerr": "float[]",
+    "trkcalohit.did": "int32_t[]",
+    "trkcalohit.doca": "float[]",
+    "trkcalohit.dphidot": "float[]",
+    "trkcalohit.dt": "float[]",
+    "trkcalohit.edep": "float[]",
+    "trkcalohit.edeperr": "float[]",
+    "trkcalohit.mom.fCoordinates.fX": "float[]",
+    "trkcalohit.mom.fCoordinates.fY": "float[]",
+    "trkcalohit.mom.fCoordinates.fZ": "float[]",
+    "trkcalohit.poca.fCoordinates.fX": "float[]",
+    "trkcalohit.poca.fCoordinates.fY": "float[]",
+    "trkcalohit.poca.fCoordinates.fZ": "float[]",
+    "trkcalohit.ptoca": "float[]",
+    "trkcalohit.tocavar": "float[]",
+    "trkcalohit.tresid": "float[]",
+    "trkcalohit.tresidmvar": "float[]",
+    "trkcalohit.tresidpvar": "float[]",
+    "trkcalohit.trkdepth": "float[]"
+   },
+   "typename": "vector<mu2e::TrkCaloHitInfo>"
+  },
+  "trkhits": {
+   "arrays_fields": [
+    "trkhits"
+   ],
+   "branch_array_type": "var * var * struct[{plane: int32, panel: int32, layer: int32, straw: int32, state: int32, algo: int32, frozen: bool, usetot: bool, usedriftdt: bool, useabsdt: bool, usendvar: bool, bkgqual: float32, signqual: float32, driftqual: float32, chi2qual: float32, earlyend: int32, edep: float32, wdist: float32, werr: float32, tottdrift: float32, etime: 2 * float32, tot: 2 * float32, ptoca: float32, stoca: float32, rdoca: float32, rdocavar: float32, rdt: float32, rtocavar: float32, udoca: float32, udocavar: float32, udt: float32, utocavar: float32, rupos: float32, uupos: float32, rdrift: float32, cdrift: float32, sderr: float32, uderr: float32, dvel: float32, lang: float32, utresid: float32, utresidmvar: float32, utresidpvar: float32, udresid: float32, udresidmvar: float32, udresidpvar: float32, ulresid: float32, ulresidmvar: float32, ulresidpvar: float32, rtresid: float32, rtresidmvar: float32, rtresidpvar: float32, rdresid: float32, rdresidmvar: float32, rdresidpvar: float32, rlresid: float32, rlresidmvar: float32, rlresidpvar: float32, wdot: float32, poca: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], uwirephi: float32, ustrawdist: float32, ustrawphi: float32, dhit: bool, dactive: bool}, parameters={\"__record__\": \"mu2e::TrkStrawHitInfo\"}]",
+   "form": {
+    "class": "ListOffsetArray",
+    "content": {
+     "class": "ListOffsetArray",
+     "content": {
+      "class": "RecordArray",
+      "contents": [
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "RegularArray",
+        "content": {
+         "class": "NumpyArray",
+         "form_key": null,
+         "inner_shape": [],
+         "parameters": {},
+         "primitive": "float32"
+        },
+        "form_key": null,
+        "parameters": {},
+        "size": 2
+       },
+       {
+        "class": "RegularArray",
+        "content": {
+         "class": "NumpyArray",
+         "form_key": null,
+         "inner_shape": [],
+         "parameters": {},
+         "primitive": "float32"
+        },
+        "form_key": null,
+        "parameters": {},
+        "size": 2
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       }
+      ],
+      "fields": [
+       "plane",
+       "panel",
+       "layer",
+       "straw",
+       "state",
+       "algo",
+       "frozen",
+       "usetot",
+       "usedriftdt",
+       "useabsdt",
+       "usendvar",
+       "bkgqual",
+       "signqual",
+       "driftqual",
+       "chi2qual",
+       "earlyend",
+       "edep",
+       "wdist",
+       "werr",
+       "tottdrift",
+       "etime",
+       "tot",
+       "ptoca",
+       "stoca",
+       "rdoca",
+       "rdocavar",
+       "rdt",
+       "rtocavar",
+       "udoca",
+       "udocavar",
+       "udt",
+       "utocavar",
+       "rupos",
+       "uupos",
+       "rdrift",
+       "cdrift",
+       "sderr",
+       "uderr",
+       "dvel",
+       "lang",
+       "utresid",
+       "utresidmvar",
+       "utresidpvar",
+       "udresid",
+       "udresidmvar",
+       "udresidpvar",
+       "ulresid",
+       "ulresidmvar",
+       "ulresidpvar",
+       "rtresid",
+       "rtresidmvar",
+       "rtresidpvar",
+       "rdresid",
+       "rdresidmvar",
+       "rdresidpvar",
+       "rlresid",
+       "rlresidmvar",
+       "rlresidpvar",
+       "wdot",
+       "poca",
+       "uwirephi",
+       "ustrawdist",
+       "ustrawphi",
+       "dhit",
+       "dactive"
+      ],
+      "form_key": null,
+      "parameters": {
+       "__record__": "mu2e::TrkStrawHitInfo"
+      }
+     },
+     "form_key": null,
+     "offsets": "i64",
+     "parameters": {}
+    },
+    "form_key": null,
+    "offsets": "i64",
+    "parameters": {}
+   },
+   "subbranches": {},
+   "typename": "std::vector<std::vector<mu2e::TrkStrawHitInfo>>"
+  },
+  "trkhitsmc": {
+   "arrays_fields": [
+    "trkhitsmc"
+   ],
+   "branch_array_type": "var * var * struct[{pdg: int32, gen: int32, startCode: int32, ambig: int32, earlyend: int32, rel: struct[{_rel: int8, _rem: int8}, parameters={\"__record__\": \"mu2e::MCRelationship\"}], t0: float32, tdrift: float32, rdrift: float32, tprop: float32, dist: float32, doca: float32, len: float32, edep: float32, mom: float32, twdot: float32, tau: float32, cdist: float32, phi: float32, lang: float32, strawdoca: float32, strawphi: float32, cpos: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], recohit: bool}, parameters={\"__record__\": \"mu2e::TrkStrawHitInfoMC\"}]",
+   "form": {
+    "class": "ListOffsetArray",
+    "content": {
+     "class": "ListOffsetArray",
+     "content": {
+      "class": "RecordArray",
+      "contents": [
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "NumpyArray",
+          "form_key": null,
+          "inner_shape": [],
+          "parameters": {},
+          "primitive": "int8"
+         },
+         {
+          "class": "NumpyArray",
+          "form_key": null,
+          "inner_shape": [],
+          "parameters": {},
+          "primitive": "int8"
+         }
+        ],
+        "fields": [
+         "_rel",
+         "_rem"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "mu2e::MCRelationship"
+        }
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       }
+      ],
+      "fields": [
+       "pdg",
+       "gen",
+       "startCode",
+       "ambig",
+       "earlyend",
+       "rel",
+       "t0",
+       "tdrift",
+       "rdrift",
+       "tprop",
+       "dist",
+       "doca",
+       "len",
+       "edep",
+       "mom",
+       "twdot",
+       "tau",
+       "cdist",
+       "phi",
+       "lang",
+       "strawdoca",
+       "strawphi",
+       "cpos",
+       "recohit"
+      ],
+      "form_key": null,
+      "parameters": {
+       "__record__": "mu2e::TrkStrawHitInfoMC"
+      }
+     },
+     "form_key": null,
+     "offsets": "i64",
+     "parameters": {}
+    },
+    "form_key": null,
+    "offsets": "i64",
+    "parameters": {}
+   },
+   "subbranches": {},
+   "typename": "std::vector<std::vector<mu2e::TrkStrawHitInfoMC>>"
+  },
+  "trkmats": {
+   "arrays_fields": [
+    "trkmats"
+   ],
+   "branch_array_type": "var * var * struct[{active: bool, hashit: bool, activehit: bool, drifthit: bool, dead: bool, plane: int32, panel: int32, layer: int32, straw: int32, pcalc: int32, doca: float32, docavar: float32, dp: float32, radlen: float32, dirdot: float32, gaspath: float32, wallpath: float32, wirepath: float32, upos: float32, udist: float32, poca: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], phi: float32}, parameters={\"__record__\": \"mu2e::TrkStrawMatInfo\"}]",
+   "form": {
+    "class": "ListOffsetArray",
+    "content": {
+     "class": "ListOffsetArray",
+     "content": {
+      "class": "RecordArray",
+      "contents": [
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       }
+      ],
+      "fields": [
+       "active",
+       "hashit",
+       "activehit",
+       "drifthit",
+       "dead",
+       "plane",
+       "panel",
+       "layer",
+       "straw",
+       "pcalc",
+       "doca",
+       "docavar",
+       "dp",
+       "radlen",
+       "dirdot",
+       "gaspath",
+       "wallpath",
+       "wirepath",
+       "upos",
+       "udist",
+       "poca",
+       "phi"
+      ],
+      "form_key": null,
+      "parameters": {
+       "__record__": "mu2e::TrkStrawMatInfo"
+      }
+     },
+     "form_key": null,
+     "offsets": "i64",
+     "parameters": {}
+    },
+    "form_key": null,
+    "offsets": "i64",
+    "parameters": {}
+   },
+   "subbranches": {},
+   "typename": "std::vector<std::vector<mu2e::TrkStrawMatInfo>>"
+  },
+  "trkmcsim": {
+   "arrays_fields": [
+    "trkmcsim"
+   ],
+   "branch_array_type": "var * var * struct[{valid: bool, id: int32, nhits: int32, nactive: int32, rank: int32, pdg: int32, startCode: int32, stopCode: int32, gen: int32, time: float32, index: int32, mom: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], pos: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], endmom: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], endpos: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], prirel: struct[{_rel: int8, _rem: int8}, parameters={\"__record__\": \"mu2e::MCRelationship\"}], trkrel: struct[{_rel: int8, _rem: int8}, parameters={\"__record__\": \"mu2e::MCRelationship\"}]}, parameters={\"__record__\": \"mu2e::SimInfo\"}]",
+   "form": {
+    "class": "ListOffsetArray",
+    "content": {
+     "class": "ListOffsetArray",
+     "content": {
+      "class": "RecordArray",
+      "contents": [
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "NumpyArray",
+          "form_key": null,
+          "inner_shape": [],
+          "parameters": {},
+          "primitive": "int8"
+         },
+         {
+          "class": "NumpyArray",
+          "form_key": null,
+          "inner_shape": [],
+          "parameters": {},
+          "primitive": "int8"
+         }
+        ],
+        "fields": [
+         "_rel",
+         "_rem"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "mu2e::MCRelationship"
+        }
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "NumpyArray",
+          "form_key": null,
+          "inner_shape": [],
+          "parameters": {},
+          "primitive": "int8"
+         },
+         {
+          "class": "NumpyArray",
+          "form_key": null,
+          "inner_shape": [],
+          "parameters": {},
+          "primitive": "int8"
+         }
+        ],
+        "fields": [
+         "_rel",
+         "_rem"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "mu2e::MCRelationship"
+        }
+       }
+      ],
+      "fields": [
+       "valid",
+       "id",
+       "nhits",
+       "nactive",
+       "rank",
+       "pdg",
+       "startCode",
+       "stopCode",
+       "gen",
+       "time",
+       "index",
+       "mom",
+       "pos",
+       "endmom",
+       "endpos",
+       "prirel",
+       "trkrel"
+      ],
+      "form_key": null,
+      "parameters": {
+       "__record__": "mu2e::SimInfo"
+      }
+     },
+     "form_key": null,
+     "offsets": "i64",
+     "parameters": {}
+    },
+    "form_key": null,
+    "offsets": "i64",
+    "parameters": {}
+   },
+   "subbranches": {},
+   "typename": "std::vector<std::vector<mu2e::SimInfo>>"
+  },
+  "trkpid": null,
+  "trkqual": null,
+  "trksegpars_kl": {
+   "arrays_fields": [
+    "trksegpars_kl"
+   ],
+   "branch_array_type": "var * var * struct[{d0: float32, phi0: float32, z0: float32, theta: float32, mom: float32, t0: float32, d0err: float32, phi0err: float32, z0err: float32, thetaerr: float32, momerr: float32, t0err: float32}, parameters={\"__record__\": \"mu2e::KinematicLineInfo\"}]",
+   "form": {
+    "class": "ListOffsetArray",
+    "content": {
+     "class": "ListOffsetArray",
+     "content": {
+      "class": "RecordArray",
+      "contents": [
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       }
+      ],
+      "fields": [
+       "d0",
+       "phi0",
+       "z0",
+       "theta",
+       "mom",
+       "t0",
+       "d0err",
+       "phi0err",
+       "z0err",
+       "thetaerr",
+       "momerr",
+       "t0err"
+      ],
+      "form_key": null,
+      "parameters": {
+       "__record__": "mu2e::KinematicLineInfo"
+      }
+     },
+     "form_key": null,
+     "offsets": "i64",
+     "parameters": {}
+    },
+    "form_key": null,
+    "offsets": "i64",
+    "parameters": {}
+   },
+   "subbranches": {},
+   "typename": "std::vector<std::vector<mu2e::KinematicLineInfo>>"
+  },
+  "trksegs": {
+   "arrays_fields": [
+    "trksegs"
+   ],
+   "branch_array_type": "var * var * struct[{mom: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], pos: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], time: float64, dmom: float32, momerr: float32, inbounds: bool, gap: bool, sid: int32, sindex: int32}, parameters={\"__record__\": \"mu2e::TrkSegInfo\"}]",
+   "form": {
+    "class": "ListOffsetArray",
+    "content": {
+     "class": "ListOffsetArray",
+     "content": {
+      "class": "RecordArray",
+      "contents": [
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float64"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       }
+      ],
+      "fields": [
+       "mom",
+       "pos",
+       "time",
+       "dmom",
+       "momerr",
+       "inbounds",
+       "gap",
+       "sid",
+       "sindex"
+      ],
+      "form_key": null,
+      "parameters": {
+       "__record__": "mu2e::TrkSegInfo"
+      }
+     },
+     "form_key": null,
+     "offsets": "i64",
+     "parameters": {}
+    },
+    "form_key": null,
+    "offsets": "i64",
+    "parameters": {}
+   },
+   "subbranches": {},
+   "typename": "std::vector<std::vector<mu2e::TrkSegInfo>>"
+  },
+  "trksegsmc": {
+   "arrays_fields": [
+    "trksegsmc"
+   ],
+   "branch_array_type": "var * var * struct[{sid: int32, sindex: int32, time: float32, edep: float32, path: float32, pos: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], mom: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}]}, parameters={\"__record__\": \"mu2e::SurfaceStepInfo\"}]",
+   "form": {
+    "class": "ListOffsetArray",
+    "content": {
+     "class": "ListOffsetArray",
+     "content": {
+      "class": "RecordArray",
+      "contents": [
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       }
+      ],
+      "fields": [
+       "sid",
+       "sindex",
+       "time",
+       "edep",
+       "path",
+       "pos",
+       "mom"
+      ],
+      "form_key": null,
+      "parameters": {
+       "__record__": "mu2e::SurfaceStepInfo"
+      }
+     },
+     "form_key": null,
+     "offsets": "i64",
+     "parameters": {}
+    },
+    "form_key": null,
+    "offsets": "i64",
+    "parameters": {}
+   },
+   "subbranches": {},
+   "typename": "std::vector<std::vector<mu2e::SurfaceStepInfo>>"
+  },
+  "trktruth": {
+   "arrays_fields": [
+    "trktruth"
+   ],
+   "branch_array_type": "{\"trktruth.status\": var * int32, \"trktruth.goodfit\": var * int32, \"trktruth.seedalg\": var * int32, \"trktruth.fitalg\": var * int32, \"trktruth.pdg\": var * int32, \"trktruth.nhits\": var * int32, \"trktruth.ndof\": var * int32, \"trktruth.nactive\": var * int32, \"trktruth.ndouble\": var * int32, \"trktruth.ndactive\": var * int32, \"trktruth.nplanes\": var * int32, \"trktruth.npanels\": var * int32, \"trktruth.planespan\": var * int32, \"trktruth.nnullambig\": var * int32, \"trktruth.nmat\": var * int32, \"trktruth.nmatactive\": var * int32, \"trktruth.nesel\": var * int32, \"trktruth.nrsel\": var * int32, \"trktruth.ntsel\": var * int32, \"trktruth.nbkg\": var * int32, \"trktruth.nsel\": var * int32, \"trktruth.nseg\": var * int32, \"trktruth.nipaup\": var * int32, \"trktruth.nipadown\": var * int32, \"trktruth.nstup\": var * int32, \"trktruth.nstdown\": var * int32, \"trktruth.tsdainter\": var * bool, \"trktruth.opainter\": var * bool, \"trktruth.firststinter\": var * int32, \"trktruth.chisq\": var * float32, \"trktruth.fitcon\": var * float32, \"trktruth.radlen\": var * float32, \"trktruth.firsthit\": var * float32, \"trktruth.lasthit\": var * float32, \"trktruth.maxgap\": var * float32, \"trktruth.avggap\": var * float32, \"trktruth.avgedep\": var * float32}",
+   "form": {
+    "class": "RecordArray",
+    "contents": [
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "bool"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "bool"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "int32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     },
+     {
+      "class": "ListOffsetArray",
+      "content": {
+       "class": "NumpyArray",
+       "form_key": null,
+       "inner_shape": [],
+       "parameters": {},
+       "primitive": "float32"
+      },
+      "form_key": null,
+      "offsets": "i64",
+      "parameters": {}
+     }
+    ],
+    "fields": [
+     "trktruth.status",
+     "trktruth.goodfit",
+     "trktruth.seedalg",
+     "trktruth.fitalg",
+     "trktruth.pdg",
+     "trktruth.nhits",
+     "trktruth.ndof",
+     "trktruth.nactive",
+     "trktruth.ndouble",
+     "trktruth.ndactive",
+     "trktruth.nplanes",
+     "trktruth.npanels",
+     "trktruth.planespan",
+     "trktruth.nnullambig",
+     "trktruth.nmat",
+     "trktruth.nmatactive",
+     "trktruth.nesel",
+     "trktruth.nrsel",
+     "trktruth.ntsel",
+     "trktruth.nbkg",
+     "trktruth.nsel",
+     "trktruth.nseg",
+     "trktruth.nipaup",
+     "trktruth.nipadown",
+     "trktruth.nstup",
+     "trktruth.nstdown",
+     "trktruth.tsdainter",
+     "trktruth.opainter",
+     "trktruth.firststinter",
+     "trktruth.chisq",
+     "trktruth.fitcon",
+     "trktruth.radlen",
+     "trktruth.firsthit",
+     "trktruth.lasthit",
+     "trktruth.maxgap",
+     "trktruth.avggap",
+     "trktruth.avgedep"
+    ],
+    "form_key": null,
+    "parameters": {}
+   },
+   "subbranches": {
+    "trktruth.avgedep": "float[]",
+    "trktruth.avggap": "float[]",
+    "trktruth.chisq": "float[]",
+    "trktruth.firsthit": "float[]",
+    "trktruth.firststinter": "int32_t[]",
+    "trktruth.fitalg": "int32_t[]",
+    "trktruth.fitcon": "float[]",
+    "trktruth.goodfit": "int32_t[]",
+    "trktruth.lasthit": "float[]",
+    "trktruth.maxgap": "float[]",
+    "trktruth.nactive": "int32_t[]",
+    "trktruth.nbkg": "int32_t[]",
+    "trktruth.ndactive": "int32_t[]",
+    "trktruth.ndof": "int32_t[]",
+    "trktruth.ndouble": "int32_t[]",
+    "trktruth.nesel": "int32_t[]",
+    "trktruth.nhits": "int32_t[]",
+    "trktruth.nipadown": "int32_t[]",
+    "trktruth.nipaup": "int32_t[]",
+    "trktruth.nmat": "int32_t[]",
+    "trktruth.nmatactive": "int32_t[]",
+    "trktruth.nnullambig": "int32_t[]",
+    "trktruth.npanels": "int32_t[]",
+    "trktruth.nplanes": "int32_t[]",
+    "trktruth.nrsel": "int32_t[]",
+    "trktruth.nseg": "int32_t[]",
+    "trktruth.nsel": "int32_t[]",
+    "trktruth.nstdown": "int32_t[]",
+    "trktruth.nstup": "int32_t[]",
+    "trktruth.ntsel": "int32_t[]",
+    "trktruth.opainter": "bool[]",
+    "trktruth.pdg": "int32_t[]",
+    "trktruth.planespan": "int32_t[]",
+    "trktruth.radlen": "float[]",
+    "trktruth.seedalg": "int32_t[]",
+    "trktruth.status": "int32_t[]",
+    "trktruth.tsdainter": "bool[]"
+   },
+   "typename": "vector<mu2e::TrkInfo>"
+  },
+  "trktruthsegs": {
+   "arrays_fields": [
+    "trktruthsegs"
+   ],
+   "branch_array_type": "var * var * struct[{mom: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], pos: struct[{fCoordinates: struct[{fX: float32, fY: float32, fZ: float32}, parameters={\"__record__\": \"ROOT::Math::Cartesian3D<float>\"}]}, parameters={\"__record__\": \"ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>\"}], time: float64, dmom: float32, momerr: float32, inbounds: bool, gap: bool, sid: int32, sindex: int32}, parameters={\"__record__\": \"mu2e::TrkSegInfo\"}]",
+   "form": {
+    "class": "ListOffsetArray",
+    "content": {
+     "class": "ListOffsetArray",
+     "content": {
+      "class": "RecordArray",
+      "contents": [
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "RecordArray",
+        "contents": [
+         {
+          "class": "RecordArray",
+          "contents": [
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           },
+           {
+            "class": "NumpyArray",
+            "form_key": null,
+            "inner_shape": [],
+            "parameters": {},
+            "primitive": "float32"
+           }
+          ],
+          "fields": [
+           "fX",
+           "fY",
+           "fZ"
+          ],
+          "form_key": null,
+          "parameters": {
+           "__record__": "ROOT::Math::Cartesian3D<float>"
+          }
+         }
+        ],
+        "fields": [
+         "fCoordinates"
+        ],
+        "form_key": null,
+        "parameters": {
+         "__record__": "ROOT::Math::DisplacementVector3D<ROOT::Math::Cartesian3D<float>,ROOT::Math::DefaultCoordinateSystemTag>"
+        }
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float64"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "float32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "bool"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       },
+       {
+        "class": "NumpyArray",
+        "form_key": null,
+        "inner_shape": [],
+        "parameters": {},
+        "primitive": "int32"
+       }
+      ],
+      "fields": [
+       "mom",
+       "pos",
+       "time",
+       "dmom",
+       "momerr",
+       "inbounds",
+       "gap",
+       "sid",
+       "sindex"
+      ],
+      "form_key": null,
+      "parameters": {
+       "__record__": "mu2e::TrkSegInfo"
+      }
+     },
+     "form_key": null,
+     "offsets": "i64",
+     "parameters": {}
+    },
+    "form_key": null,
+    "offsets": "i64",
+    "parameters": {}
+   },
+   "subbranches": {},
+   "typename": "std::vector<std::vector<mu2e::TrkSegInfo>>"
+  }
+ },
+ "class": "Model_TTree_v20",
+ "num_entries": 24806,
+ "other_top_branches": [
+  "crvcoincs",
+  "crvcoincsmc",
+  "crvcoincsmcplane_ex",
+  "crvcoincsmcplane_t1",
+  "crvcoincsmcplane_t2",
+  "crvpulses",
+  "crvpulsesmc",
+  "crvsummary",
+  "crvsummarymc",
+  "hitcount",
+  "lumistream.",
+  "primary",
+  "tcnt.ntrk",
+  "tcnt.ntrktruth",
+  "trkmc",
+  "trkmcvd",
+  "trktruthcalohit",
+  "trktruthsegpars_kl"
+ ],
+ "source": "EventNtuple v06_15_00, same reco and ntuple configuration",
+ "tree": "EventNtuple/ntuple"
+}

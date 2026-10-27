@@ -122,7 +122,7 @@ def _jnp_tree(dct, keys=None):
 
 
 def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, material=True, straw_axis=None,
-        own_states=False):
+        own_states=False, save_tracks=False):
     """own_states: the fit decides its hit states with the stock updaters (CADSHU, BkgANN, DriftANN) on every
     single-seed event, FitOK or not (T-VR3 yield); default: stock final states on FitOK tracks (T-VR2 F1)."""
     import jax
@@ -421,6 +421,14 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
                                 if (~ours & sa & allx).any() else None,
                                 "ours_only_doca_q16_50_84": np.quantile(np.abs(doca_all)[ours & ~sa & allx], [.16, .5, .84]).tolist()
                                 if (ours & ~sa & allx).any() else None}
+    if save_tracks:
+        # per-track results for the EventNtuple writer (tracktable.from_f1 rebuilds the inputs with these settings)
+        meta = {"max_tracks": max_tracks, "straw_axis": straw_axis or os.environ.get("F1_STRAWAXIS"),
+                "own_states": bool(own_states), "material": bool(material), "input": path}
+        np.savez_compressed(os.path.join(outdir, "f1_tracks.npz"), meta=json.dumps(meta), event_index=ref["event_index"],
+                            xf=xf, Cf=Cf, stat=stat[:, -1], chi2=chi2[:, -1], ndof=ndof[:, -1], good=good, fact=fact,
+                            flr=flr, xact=ours & X["valid"], xwall=np.asarray(wall), xgas=np.asarray(gas), xdoca=doca_all,
+                            xdvar=dvar, xdirdot=dirdot)
     np.savez(os.path.join(outdir, "xings.npz"), doca=doca[m], dvar=dvar[m], dirdot=dirdot[m], wall=wall[m], gas=gas[m],
              kst_wall=X["kst_wall"][m], kst_gas=X["kst_gas"][m], kst_radlen=X["kst_radlen"][m],
              hashit=(X["hit"] >= 0)[m], trk=np.nonzero(m)[0])

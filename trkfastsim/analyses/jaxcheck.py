@@ -9,8 +9,10 @@ the same seed (the first jax pass includes compilation; later passes are warm), 
   * the PrimaryFilter tracker term (>= 12 good steps of one particle), paired per event: both, numpy-only, jax-only,
     difference / sqrt(numpy-only + jax-only);
   * wall time per stage (make_steps.timing) for every pass, and the device.
-The two arms share the primaries: "sig" values treat them as independent (conservative), the PrimaryFilter term and
-the straws per muon are also compared paired;
+The two arms share the primaries. Legacy step-level "sig" and occupancy statistics are descriptive only: repeated
+steps of one event are correlated, particularly after independent world random streams. The supplemental
+`event_clustered` block uses paired event-cluster influence covariance for step-weighted means and normalized panel
+occupancy. The PrimaryFilter term and straws per muon are also compared paired;
   * --cross DIR: the jax pass against the jax table of the same seed made on another device (--save of that run): steps
     matched on (event, particle, straw), largest differences, the PrimaryFilter decisions;
   * --kernel-times: one more jax pass with every steps_jax kernel synchronised and timed (device + dispatch per kernel).
@@ -20,6 +22,7 @@ Writes jaxcheck.json and jaxcheck.txt to the outdir; --save also writes both ste
     jaxcheck gen.001400_00001001.root --gdml G.gdml --stage C --outdir DIR [--seed 1] [--repeat 2] [--no-exit-scatter]
 """
 import collections
+import hashlib
 import json
 import os
 import platform
@@ -103,6 +106,81 @@ def compare(a, b, gen):
                                 "rel": (bo - ao) / max(both + ao, 1),
                                 "rel_err": float(np.sqrt(ao + bo) / max(both + ao, 1)),
                                 "diff_sigma": float((bo - ao) / np.sqrt(ao + bo)) if ao + bo else 0.0}
+    out["event_clustered"] = event_clustered(a, b, gen)
+    return out
+
+
+def event_clustered(a, b, gen):
+    """Paired event-cluster errors for step-weighted means and normalized panel occupancy.
+
+    All steps and primaries of an event stay together. The influence-function covariance includes the random
+    step denominators; zero-step generator events contribute zero influence, not extra independent steps.
+    """
+    ev = gen[KEY].drop_duplicates()
+    n = len(ev)
+    if n < 2 or not len(a) or not len(b):
+        raise ValueError("event-cluster covariance requires at least two generated events and nonempty arms")
+    if gen[KEY + ["t"]].isna().any().any() or not np.isfinite(gen.t.to_numpy()).all():
+        raise ValueError("invalid generator event keys or times")
+    index = pd.MultiIndex.from_frame(ev)
+    for df in (a, b):
+        if df[KEY + ["sid"]].isna().any().any() or not pd.MultiIndex.from_frame(df[KEY]).isin(index).all():
+            raise ValueError("step event keys must belong to the generator table")
+        if not np.isfinite(df[["t", "x0", "y0", "z0", "len", "eion"]].to_numpy()).all():
+            raise ValueError("nonfinite step quantity in event-cluster covariance")
+    correction = n / (n - 1)
+    joined = pd.concat([a.groupby(KEY).size().rename("na"), b.groupby(KEY).size().rename("nb")], axis=1).fillna(0)
+    na, nb = joined.na.to_numpy(), joined.nb.to_numpy()
+    out = {"generated_events": n, "events_with_steps_union": len(joined), "means": {}}
+    count_delta = nb - na
+    count_mean = float(count_delta.sum() / n)
+    count_se = float(np.sqrt(max(float(count_delta @ count_delta) - n * count_mean ** 2, 0.0) / (n * (n - 1))))
+    out["steps_per_generated_event"] = {"numpy": float(na.sum() / n), "jax": float(nb.sum() / n),
+                                       "difference": count_mean, "paired_event_se": count_se,
+                                       "diff_sigma": count_mean / count_se if count_se else 0.0}
+    t0 = gen.drop_duplicates(KEY).set_index(KEY).t
+    out["time_origin"] = "first generator row per event (legacy jaxcheck convention)"
+    for col in ("eion", "len", "t", "x0", "y0", "z0"):
+        sums = []
+        means = []
+        for df, count in ((a, na), (b, nb)):
+            val = df[col].to_numpy()
+            if col == "t":
+                val = val - t0.reindex(pd.MultiIndex.from_frame(df[KEY])).to_numpy()
+            grouped = df[KEY].assign(value=val).groupby(KEY).value.sum().reindex(joined.index, fill_value=0).to_numpy()
+            mean = grouped.sum() / count.sum()
+            sums.append((grouped - mean * count) / count.sum())
+            means.append(float(mean))
+        se = float(np.sqrt(correction * np.sum((sums[1] - sums[0]) ** 2)))
+        delta = means[1] - means[0]
+        out["means"]["time_after_gen_ns" if col == "t" else col] = {
+            "numpy": means[0], "jax": means[1], "difference": delta, "paired_event_se": se,
+            "diff_sigma": delta / se if se else (0.0 if delta == 0 else float(np.copysign(np.inf, delta)))}
+    counts = []
+    for df in (a, b):
+        counts.append(df[KEY].assign(panel=df.sid.to_numpy().astype(np.int64) >> 7).groupby(KEY + ["panel"]).size().unstack("panel", fill_value=0))
+    panels = counts[0].columns.union(counts[1].columns)
+    ca, cb = (q.reindex(index=joined.index, columns=panels, fill_value=0).to_numpy(dtype=float) for q in counts)
+    fa, fb = ca.sum(0) / na.sum(), cb.sum(0) / nb.sum()
+    influence = (cb - nb[:, None] * fb) / nb.sum() - (ca - na[:, None] * fa) / na.sum()
+    cov = correction * influence.T @ influence
+    delta = fb - fa
+    vals, vec = np.linalg.eigh(cov)
+    rank_tol = float(vals.max(initial=0) * 1e-10)
+    negative_tol = float(vals.max(initial=0) * 1e-12)
+    if (vals < -negative_tol).any():
+        raise ValueError("event-cluster covariance is not positive semidefinite")
+    keep = vals > rank_tol
+    null_delta = float(np.linalg.norm(vec[:, ~keep].T @ delta))
+    unresolved = null_delta >= 1e-12
+    chi2 = float(np.sum((vec[:, keep].T @ delta) ** 2 / vals[keep]))
+    from scipy.stats import chi2 as chi2_dist
+    pvalue = None if unresolved else (float(chi2_dist.sf(chi2, keep.sum())) if keep.any() else 1.0)
+    out["panel_occupancy"] = {"chi2": chi2, "rank": int(keep.sum()), "discarded_mode_difference": null_delta,
+                              "unresolved_discarded_modes": unresolved, "eigenvalues": vals.tolist(),
+                              "rank_tolerance": rank_tol, "negative_tolerance": negative_tol,
+                              "pvalue": pvalue,
+                              "max_abs_pull": float(np.max(np.abs(delta) / np.sqrt(np.maximum(np.diag(cov), 1e-300)), initial=0))}
     return out
 
 
@@ -116,10 +194,17 @@ def cross_backend(a, b, gen):
            "only_cross": int((m._merge == "right_only").sum()),
            "identical_frames": len(a) == len(b) and all(np.array_equal(a[c].to_numpy(), b[c].to_numpy())
                                                         for c in b.columns if c in a)}
+    unmatched = m[m._merge != "both"]
+    out["unmatched_events"] = len(unmatched[KEY].drop_duplicates())
+    out["unmatched_keys_first100"] = unmatched[on + ["_merge"]].head(100).astype({"_merge": str}).to_dict("records")
     for c in ("x0", "y0", "z0", "t", "eion", "len"):
         dlt = np.abs(both[c + "_a"].to_numpy() - both[c + "_b"].to_numpy())
         out[f"max_abs_diff_{c}"] = float(dlt.max()) if len(dlt) else 0.0
         out[f"frac_exact_{c}"] = float(np.mean(dlt == 0)) if len(dlt) else 1.0
+        out[f"abs_diff_quantiles_{c}"] = np.quantile(dlt, [.5, .9, .99, .999, 1]).tolist() if len(dlt) else [0.0] * 5
+        if len(dlt):
+            worst = both.iloc[int(np.argmax(dlt))]
+            out[f"worst_key_{c}"] = {k: int(worst[k]) for k in on}
     ev = lambda s: set(map(tuple, tables.trk_filter(s).query("pass_trk").reset_index()[KEY].to_numpy()))
     ea, eb = ev(a), ev(b)
     out["primaryfilter_trk"] = {"this": len(ea), "cross": len(eb), "both": len(ea & eb)}
@@ -128,10 +213,12 @@ def cross_backend(a, b, gen):
 
 
 def _kernel_times(sj, run_once):
-    """Run `run_once` with every jitted steps_jax kernel wrapped to block on its result: seconds and calls per kernel."""
+    """Run `run_once` with world/interior kernels synchronized; times include dispatch and can nest on retracing."""
     import jax
     tsum, ncall = collections.defaultdict(float), collections.Counter()
-    orig = {n: f for n, f in vars(sj).items() if n.startswith("_") and not n.startswith("__") and hasattr(f, "lower")}
+    from .. import world_jax
+    orig = {(mod, n): f for mod in (sj, world_jax) for n, f in vars(mod).items()
+            if n.startswith("_") and not n.startswith("__") and hasattr(f, "lower")}
 
     def wrap(n, f):
         def g(*a, **k):
@@ -142,18 +229,26 @@ def _kernel_times(sj, run_once):
             return r
         return g
 
-    for n, f in orig.items():
-        setattr(sj, n, wrap(n, f))
+    for (mod, n), f in orig.items():
+        setattr(mod, n, wrap(mod.__name__.rsplit(".", 1)[-1] + "." + n, f))
     try:
         t = time.perf_counter()
         run_once()
         wall = time.perf_counter() - t
     finally:
-        for n, f in orig.items():
-            setattr(sj, n, f)
+        for (mod, n), f in orig.items():
+            setattr(mod, n, f)
     ks = sorted(tsum, key=lambda n: -tsum[n])
     return {"wall": wall, "kernels_s": float(sum(tsum.values())), "calls": int(sum(ncall.values())),
             "per_kernel": {n: [tsum[n], ncall[n]] for n in ks}}
+
+
+def _sha256(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
 
 
 def _same(x, y):
@@ -185,13 +280,24 @@ def run(inputs, outdir, seed=1, gdml=None, stage="C", repeat=2, numpy_repeat=1, 
     lines = [f"# jaxcheck on {report['device']} ({report['host']}), stage {stage}, seed {seed}, setup {setup_s:.1f} s, "
              f"lanes {steps_jax.LANES}"]
     files = tables.expand(inputs)
+    if not files:
+        raise ValueError("jaxcheck needs input generator tables")
+    from .. import world_jax
+    from mu2efastsim import eloss_jax, transport
+    report["versions"] = {"jax": jax.__version__, "numpy": np.__version__, "pandas": pd.__version__}
+    report["settings"] = {"seed": int(seed), "stage": stage, "sliced_msc": sliced_msc,
+                          "exit_scatter": not no_exit_scatter, "concat": concat,
+                          "world_lanes_max": world_jax.WORLD_LANES}
+    report["sha256"] = {p: _sha256(p) for p in [gdml, *files, st.__file__, steps_jax.__file__,
+                                                 world_jax.__file__, eloss_jax.__file__, transport.__file__]}
     items = [(os.path.basename(f), lambda f=f: tables.read(f, "gen")) for f in files]
     if concat:   # one make_steps call on all inputs (throughput at a large batch; KEY keeps the events apart)
         items = [(f"concat{len(files)}." + os.path.basename(files[0]),
                   lambda: pd.concat([tables.read(f, "gen") for f in files], ignore_index=True))]
     for i, (fname, load) in enumerate(items):
         gen = load()
-        rec = {"file": fname, "generated": int(len(gen)), "numpy": [], "jax": []}
+        rec = {"file": fname, "generated": int(len(gen[KEY].drop_duplicates())),
+               "generator_rows": int(len(gen)), "numpy": [], "jax": []}
         outs = {"numpy": [], "jax": []}
         for backend, n in (("numpy", numpy_repeat), ("jax", repeat)):
             for r in range(n):
@@ -206,6 +312,11 @@ def run(inputs, outdir, seed=1, gdml=None, stage="C", repeat=2, numpy_repeat=1, 
                                                              getattr(st.make_steps, "interior_stats", {}).items()}})
                 lines.append(f"{rec['file']} {backend} pass {r}: " + ", ".join(f"{k} {v:.3f}" for k, v in tm.items())
                              + f" s; {len(sgs)} steps")
+                print(lines[-1], flush=True)
+                checkpoint = os.path.join(outdir, "jaxcheck.partial.json")
+                with open(checkpoint + ".tmp", "w") as stream:
+                    json.dump(dict(report, files=report["files"] + [rec], incomplete=True), stream, indent=1, default=float)
+                os.replace(checkpoint + ".tmp", checkpoint)
         if kernel_times:
             kt = rec["kernel_times"] = _kernel_times(steps_jax, lambda: st.make_steps(
                 gen, geom, np.random.default_rng([int(seed), i]), backend="jax", **kws))
@@ -241,6 +352,9 @@ def run(inputs, outdir, seed=1, gdml=None, stage="C", repeat=2, numpy_repeat=1, 
         json.dump(report, fh, indent=1, default=float)
     with open(os.path.join(outdir, "jaxcheck.txt"), "w") as fh:
         fh.write("\n".join(lines) + "\n")
+    partial_path = os.path.join(outdir, "jaxcheck.partial.json")
+    if os.path.exists(partial_path):
+        os.remove(partial_path)
 
 
 def _summary(rec):
@@ -266,6 +380,15 @@ def _summary(rec):
     out.append(f"  PrimaryFilter trk (paired, {pf['events']} events): numpy {pf['numpy']} jax {pf['jax']} both {pf['both']} "
                f"numpy-only {pf['numpy_only']} jax-only {pf['jax_only']}: {pf['rel'] * 100:+.2f} % +- {pf['rel_err'] * 100:.2f} % "
                f"({pf['diff_sigma']:+.1f} sig)")
+    if "event_clustered" in c:
+        ec = c["event_clustered"]
+        out.append("  paired event-cluster mean pulls: " + ", ".join(f"{k} {v['diff_sigma']:+.2f}" for k, v in ec["means"].items()))
+        pc = ec["panel_occupancy"]
+        pv = f"{pc['pvalue']:.4g}" if pc['pvalue'] is not None else "undefined (discarded-mode difference)"
+        out.append(f"  paired event-cluster panel occupancy chi2/rank {pc['chi2']:.2f}/{pc['rank']}, p={pv}")
+        if "steps_per_generated_event" in ec:
+            sc = ec["steps_per_generated_event"]
+            out.append(f"  steps/generated event paired difference {sc['difference']:+.6g} +- {sc['paired_event_se']:.3g} ({sc['diff_sigma']:+.2f} sig)")
     if "surfsteps" in rec:
         out.append(f"  surfsteps {rec['surfsteps'][0]} vs {rec['surfsteps'][1]}")
     return out

@@ -13,8 +13,8 @@ the Gaussian core (world column and interior) is on by default (--no-msc-tail: G
 threshold at K theta0.
 --library LIB.root: add the G4 library's secondaries (buildlib): in-straw and off-axis (--no-offaxis: in-straw only);
 output prefix fasttrk<stage>L.
---backend jax: the in-tracker transport, the crossings and the gas eIon on the JAX device (trkfastsim.steps_jax);
-numpy (default) is the reference. The world column above the plane and the library pasting stay numpy.
+--backend jax: world/interior transport, crossings and gas eIon on the JAX device (trkfastsim.steps_jax);
+numpy (default) is the reference. Generator selection, library pasting and output-table assembly stay numpy.
 """
 import os
 

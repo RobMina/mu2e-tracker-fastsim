@@ -102,8 +102,8 @@ def build_parser():
             sp.add_argument("--band-spread", action="store_true",
                             help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
             sp.add_argument("--backend", default="numpy", choices=["numpy", "jax"],
-                            help="numpy (default, the reference) or jax: in-tracker transport, crossings and gas eIon on the "
-                                 "JAX device (CPU or GPU; statistically equal, different random streams; trkfastsim.steps_jax)")
+                            help="numpy (default, the reference) or jax: world/interior transport, crossings and gas eIon on the "
+                                 "JAX device (CPU or GPU; different random streams; validate with jaxcheck)")
         if name == "geomcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--fast", nargs="+", required=True, metavar="ROOT", help="fast step tables made from these gen tables")

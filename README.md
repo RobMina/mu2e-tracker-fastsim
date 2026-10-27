@@ -34,7 +34,7 @@ tracks inside the tracker), `--no-msc-tail`, `--near-margin MM` (which muons get
 | `trkfastsim/geometry.py` | straws from the GDML (StrawSD ids, inner and wall radii, sense wire), detector frame, alignment composition |
 | `trkfastsim/crossings.py` | vectorised panel-box cull + ray-cylinder straw crossings, point/nearest-straw lookups |
 | `trkfastsim/steps.py` | the generator: world transport to the plane, `TrackerInterior` (support loss and in-tracker scattering), StrawGasStep rows, secondary pasting |
-| `trkfastsim/steps_jax.py` | opt-in JAX backend of `steps` (`--backend jax`, CPU or GPU): the in-tracker transport, `exit_scatter`, the straight-line crossings and the gas eIon on the device; the world column above the plane, the library pasting and the table assembly stay numpy. Statistically equal to numpy (other random streams), bit-identical per seed on one device |
+| `trkfastsim/steps_jax.py`, `world_jax.py` | opt-in JAX backend of `steps` (`--backend jax`, CPU or GPU): world/interior transport, `exit_scatter`, crossings and gas eIon on the device; generator selection, library pasting and table assembly stay numpy. Different random streams; reproducible per seed on one device/lane count. Validate each geometry/configuration with `jaxcheck` and event-cluster uncertainties; see `docs/device-world.md` |
 | `trkfastsim/library.py` | G4 secondary library: build, in-straw and off-axis samplers |
 | `trkfastsim/tables.py` | table readers, the production PrimaryFilter tracker term |
 | `trkfastsim/analyses/` | one module per CLI subcommand (below) |

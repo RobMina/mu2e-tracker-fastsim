@@ -15,13 +15,21 @@ from trkfastsim.analyses import jaxcheck
 
 def main(out, dirs):
     a, b, g, names = [], [], [], []
+    reference = os.environ.get("JAXCHECK_NUMPY_REFERENCE")
     for d in dirs:
-        for fn in sorted(glob.glob(os.path.join(d, "fasttrkCnp.*.root"))):
-            fj = fn.replace("fasttrkCnp.", "fasttrkCjx.")
+        jax_files = sorted(glob.glob(os.path.join(d, "fasttrkCjx.*.root")))
+        for fj in jax_files:
+            fn = fj.replace("fasttrkCjx.", "fasttrkCnp.")
+            if reference:
+                fn = os.path.join(reference, os.path.basename(os.path.normpath(d)), os.path.basename(fn))
+            if not os.path.isfile(fn):
+                raise FileNotFoundError(f"missing numpy reference for {fj}: {fn}")
             a.append(tables.read(fn, "sgsteps"))
             b.append(tables.read(fj, "sgsteps"))
             g.append(tables.read(fn, "gen"))
             names.append(os.path.basename(fn))
+    if not names:
+        raise ValueError("no matched numpy/JAX shard tables")
     cat = lambda x: pd.concat(x, ignore_index=True)
     rec = {"file": f"{len(names)} shards", "shards": names, "compare": jaxcheck.compare(cat(a), cat(b), cat(g)),
            "reproducible": "see the per-shard jaxcheck.json"}

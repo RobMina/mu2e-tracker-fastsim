@@ -1034,8 +1034,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     entry_ledger: legacy (default), energy or vacuum; opt-in writer-only diagnostics on fixed trajectories.
     Nonlegacy modes require exit_scatter=False and omit path vertices; they are not surface/reco-ready transport.
     capture_entry_ledger: expose cumulative per-entry accounting as make_steps.entry_ledger, before gas sampling.
-    backend: numpy (default, the reference) or jax (trkfastsim.steps_jax: the in-tracker transport, exit_scatter, the
-    straight-line crossings and the gas eIon on the JAX device; statistically equal, different random streams).
+    backend: numpy (default, the reference) or jax (world and interior transport, exit_scatter, crossings and gas
+    eIon on the JAX device; different random streams, validated separately for each geometry/configuration).
     make_steps.timing: wall seconds per stage of this call.
     """
     from . import entryledger
@@ -1057,8 +1057,10 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     t0 = time.perf_counter()
     make_steps.entry_ledger = None
     make_steps.path_vertices = None   # set below only by the interior transport of this call
+    key = steps_jax.key_from(rng) if backend == "jax" else None
     if stage == "C":
-        mu, o, d, p_start, t_off, alive = to_plane(gen, geom, rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
+        plane_transport = steps_jax.to_plane if backend == "jax" else to_plane
+        mu, o, d, p_start, t_off, alive = plane_transport(gen, geom, key if backend == "jax" else rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
                                                    msc_tail=msc_tail, tail_k=tail_k, band_spread=band_spread,
                                                    all_muons=all_muons)
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
@@ -1069,7 +1071,6 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         d = mu[["px", "py", "pz"]].to_numpy() / p0[:, None]
         p_start, t_off, alive = p0.copy(), np.zeros(len(mu)), np.ones(len(mu), bool)
     timing["to_plane"] = time.perf_counter() - t0
-    key = steps_jax.key_from(rng) if backend == "jax" else None
     if stage == "C":   # muon state at the plane, for fate diagnostics (analyses/fatecheck.py)
         make_steps.last_plane = {"key": mu[KEY].to_numpy(), "alive": alive.copy(), "p_plane": p_start.copy(),
                                  "o": o.copy(), "d": d.copy()}

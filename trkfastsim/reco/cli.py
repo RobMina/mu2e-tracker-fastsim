@@ -8,6 +8,9 @@
   vr1b        T-VR1b: SimpleTimeCluster + LineFinder ports vs the stock clusters and seeds (dump_tracks_* tables)
   vr1         T-VR1: dumped StrawDigis -> numpy makeSH + makePH vs the stock hits in the same tables
               (--jax: also the JAX straw hits vs numpy, with warm throughput)
+  ntuple      EventNtuple-compatible evtinfo/trk/trksegs/trkhits/trksegpars_kl[/trkmats] of a fit (stock, F1, F2)
+  ntschema    stock EventNtuple schema inventory (field names, types, nesting) of one file, as JSON
+  ntcompare   trk/trksegs/trkhits summary of one EventNtuple, or a track-matched comparison with --compare
 """
 import argparse
 import json
@@ -442,6 +445,7 @@ def main(argv=None):
                    "straw axis (KKStrawXing strawLine) rebuilt from the aligned wire ends, not the wire")
     g.add_argument("--own-states", action="store_true", help="hit states from the stock updaters, every single-seed "
                    "event (FitOK or not): yield confusion vs stock FitOK (T-VR3)")
+    g.add_argument("--save-tracks", action="store_true", help="also write f1_tracks.npz (per-track results for reco-ntuple)")
     g.add_argument("--outdir", default="plots/reco-vr2f1")
     v3 = sub.add_parser("vr3")
     v3.add_argument("inputs", nargs="+")
@@ -449,11 +453,59 @@ def main(argv=None):
     v3.add_argument("--settings", default="mc", choices=["mc", "data"])
     v3.add_argument("--niter", type=int, default=4)
     v3.add_argument("--outdir", default="plots/reco-vr3")
+    ns = sub.add_parser("ntschema", help="EventNtuple schema inventory of one file (JSON)")
+    ns.add_argument("input")
+    ns.add_argument("--out", required=True)
+    nc = sub.add_parser("ntcompare", help="EventNtuple trk/trksegs/trkhits summary, or matched comparison with --compare")
+    nc.add_argument("input")
+    nc.add_argument("--compare", default=None, help="reference (stock) EventNtuple")
+    nc.add_argument("--outdir", default="plots/reco-ntcompare")
+    nc.add_argument("--no-readers", action="store_true", help="skip the crvextrap/pyutils reader check")
+    nc.add_argument("--report", action="store_true", help="input is an ntcompare.json: print its digest")
+    nc.add_argument("--provenance", action="store_true", help="print the fast file's provenance and field coverage")
+    nt = sub.add_parser("ntuple", help="EventNtuple-compatible trk/trksegs/trkhits output of a fit on one dump file")
+    nt.add_argument("input", help="StrawHitTableDumper file (DumpTracks)")
+    nt.add_argument("--out", required=True)
+    nt.add_argument("--fit", required=True, choices=["stock", "f1", "f2"],
+                    help="stock: the dump's KKLine fits (writer closure); f1: reco-vr2f1 --save-tracks output; f2: the vr3 chain")
+    nt.add_argument("--conditions", required=True)
+    nt.add_argument("--settings", default="mc", choices=["mc", "data"])
+    nt.add_argument("--f1-tracks", default=None, help="f1_tracks.npz from reco-vr2f1 --save-tracks on the same input")
+    nt.add_argument("--niter", type=int, default=4, help="F2 iterations per stage (as reco-vr3)")
+    nt.add_argument("--all-fits", action="store_true", help="also write failed fits (goodfit 0); stock writes good fits only")
+    nt.add_argument("--schema", default=None, help="stock schema JSON (reco-ntschema); default data/eventntuple_v06_13_02_ssmc.json")
+    nt.add_argument("--table-out", default=None, help="also save the fast track table (.npz)")
+    nt.add_argument("--no-split-alias", action="store_true", help="omit the trk.trk sub-record that makes "
+                    "tree['trk/trk.<leaf>'] resolve (bare stock trk fields)")
     a = p.parse_args(argv)
+    if a.cmd == "ntuple":
+        from . import ntuple
+        return ntuple.main(a.input, a.out, a.fit, a.conditions, a.settings, a.f1_tracks, a.niter, a.all_fits,
+                           a.schema or ntuple.DEFAULT_SCHEMA, a.table_out, not a.no_split_alias)
+    if a.cmd == "ntcompare":
+        from . import ntcompare
+        if a.report:
+            return ntcompare.report(json.load(open(a.input)))
+        if a.provenance:
+            from . import ntuple
+            pv = ntuple.read_provenance(a.input)
+            cov = pv.pop("coverage")
+            print(json.dumps({k: pv[k] for k in ("fit_type", "stock_conditioned", "counts", "content_sha256", "package",
+                                                 "branches")}, indent=1))
+            for b_, rows in cov.items():
+                by = {}
+                for path, (cls, _) in rows.items():
+                    by.setdefault(cls, []).append(path)
+                print(f"{b_}: " + "; ".join(f"{c} {len(v)}: {' '.join(v)}" for c, v in sorted(by.items())))
+            return pv
+        return ntcompare.main([a.input], a.compare, a.outdir, not a.no_readers)
+    if a.cmd == "ntschema":
+        from . import ntschema
+        return ntschema.main(a.input, a.out)
     if a.cmd == "vr2f1":
         from . import vr_f1
         return vr_f1.run(a.input, a.outdir, a.conditions, a.settings, a.max_tracks, a.chunk, not a.no_material, a.straw_axis,
-                         a.own_states)
+                         a.own_states, a.save_tracks)
     if a.cmd == "vr3":
         return vr3(a.inputs, a.outdir, a.conditions, a.settings, a.niter)
     if a.cmd == "vr2":

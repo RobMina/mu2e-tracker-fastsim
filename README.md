@@ -42,7 +42,7 @@ tracks inside the tracker), `--no-msc-tail`, `--near-margin MM` (which muons get
 | `scripts/jax_steps_cpu.sh`, `scripts/uva_steps_gpu.sh`, `scripts/uva_steps_stream.sh`, `scripts/eaf_steps_gpu.sh` | `jaxcheck` on one CPU core (GPVM), on one A100 at UVA (Slurm job fed by the stream script from the laptop) and on an EAF A100 session |
 | `art/` | muse satellite area with `StrawGasStepTableDumper` (G4 reference tables), `art/README.md` |
 | `trkfastsim/digi.py`, `trkfastsim/digicond.py` | fast digitisation: a vectorised port of `StrawDigisFromStrawGasSteps` and its conditions from the stock job's sources (`docs/fast-digi.md`); `scripts/digi_validate.sh` and `art/run_digi_ref.sh` run its validation |
-| `trkfastsim/reco/` | fast reconstruction: `hitreco` (StrawHitReco), `combo` (CombineStrawHits), their JAX twins `hitreco_jax` and `combo_jax`, `linefind` (SimpleTimeCluster, LineFinder); subcommands `reco-conditions`, `reco-vr1`, `reco-vr1b` |
+| `trkfastsim/reco/` | fast reconstruction: `hitreco` (StrawHitReco), `combo` (CombineStrawHits), their JAX twins `hitreco_jax` and `combo_jax`, `linefind` (SimpleTimeCluster, LineFinder); `tracktable`, `ntuple`, `ntschema`, `ntcompare` (EventNtuple output); subcommands `reco-conditions`, `reco-vr1`, `reco-vr1b`, `reco-ntuple`, `reco-ntschema`, `reco-ntcompare` |
 | `tests/` | pytest unit tests (synthetic geometry, no data files) |
 
 CLI: `python3 -m trkfastsim <subcommand> -h`.
@@ -65,6 +65,38 @@ CLI: `python3 -m trkfastsim <subcommand> -h`.
 | `reco-conditions` | the straw conditions a fast reco job needs, read from the conditions tree of a `StrawHitTableDumper` output |
 | `reco-vr1` | T-VR1: fast straw-hit and combo-hit reco against the stock hits dumped from the same digis (`--jax` for the JAX twins) |
 | `reco-vr1b` | T-VR1b: fast time clusters and line seeds against stock `SimpleTimeCluster` and `LineFinder` (`DumpTracks` in the dumper, `art/TrkFastSim/fcl/dump_tracks_mc.fcl`) |
+| `reco-ntuple` | EventNtuple-compatible `evtinfo`, `trk`, `trksegs`, `trkhits`, `trksegpars_kl` (and `trkmats` when the fit has straw crossings) from one `DumpTracks` file: `--fit stock` (the dump's own KKLine fits, the writer closure), `--fit f2` (the `reco-vr3` chain from digis), `--fit f1` (`reco-vr2f1 --save-tracks` output, stock-conditioned). See "EventNtuple output" below |
+| `reco-ntschema` | field names, types and nesting of a stock EventNtuple (JSON); the stored stock schemas are in `trkfastsim/reco/data/` |
+| `reco-ntcompare` | `trk`/`trksegs`/`trkhits` summary of an EventNtuple, or with `--compare STOCK.root` the event waterfall, shared-hit track matching and matched-track, matched-hit and reference-crossing differences; `--report` prints the digest of a saved `ntcompare.json` |
+
+## EventNtuple output
+
+`reco-ntuple` (`trkfastsim/reco/ntuple.py`, track-table contract in `tracktable.py`) writes `EventNtuple/ntuple` with
+the stock branch names, field order, types, nesting and units (mm, ns, MeV/c, detector frame), driven by a stored
+stock schema. Every event of the input is written (also those without tracks); by default only good fits, as stock
+(`--all-fits` adds failed fits with `goodfit` 0, `status` -1).
+
+- Layout: uproot cannot write ROOT split-class TTree branches or `std::vector<std::vector<T>>`, so the tree is an
+  RNTuple. `tree["evtinfo"].array()`, `tree["evtinfo/run"]`, `tree["trk"].array()` (a record of `trk.<leaf>` lists)
+  and `tree["trksegs"|"trkhits"|"trksegpars_kl"|"trkmats"].array()` give the same awkward types as on a stock file.
+- Split-branch paths: `tree["trk/trk.<leaf>"].array()` (crvextrap `load_quality` and most trk readers) returns the
+  stock jagged array because the `trk` record carries one extra trailing field `trk`, the same per-track lists under
+  the bare leaf names. `ntuple.without_alias` drops it; `--no-split-alias` writes the bare stock layout.
+- Not supported (uproot 5.7 RNTuple reading): `tree.arrays(["trk", "trksegs", ...])`, as pyutils `Importer` calls it,
+  returns empty records for every record field (`tree.arrays(filter_name="trk*")` works); `tree.arrays(["trk.nactive"])`
+  nests the result under `trk`; `"trk/trk.status" in tree.keys()` is False. ROOT C++ reading of these files (field
+  names containing dots) is not checked.
+- Not written: the MC branches (`trkmcsim`, `trksegsmc`, `trkhitsmc`, `evtinfomc`), CRV and DS surfaces in `trksegs`
+  (stock has the ToCRV extrapolation, sid 201-277), `trk.nseg` (KinKal piecewise segment count, sentinel).
+- Unfilled fields hold -9999.0 (floats), -9999 (integers) or False (booleans). The per-field coverage (filled,
+  approx, constant, sentinel), the fit type, the stock conditioning, the package commit and a content hash are in
+  `EventNtuple/fastreco_provenance` (JSON string).
+- `trksegs`: every intersection of the fitted line with TT_Front, TT_Back (r < 950 mm) and TT_Outer; no CRV surfaces.
+  The momentum is the fit momentum at every crossing (no energy loss along the line): stock is lower by about
+  0.1 MeV/c at the TT_Outer entry.
+- `--fit f1` is stock-conditioned: stock LineFinder seed, stock hit list and stock straw-crossing list, single-seed
+  single-fit events only. `--fit f2` runs from digis but has a fixed momentum (2000 MeV/c) and no material.
+- `scripts/ntuple_validate.sh` runs the three fits and `reco-ntcompare` against the stock EventNtuple of the same digis.
 
 ## Reproducing the validation on a Mu2e GPVM
 

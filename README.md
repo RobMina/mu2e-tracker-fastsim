@@ -41,6 +41,7 @@ tracks inside the tracker), `--no-msc-tail`, `--near-margin MM` (which muons get
 | `scripts/stagec_msc_ab.sh`, `scripts/stagec_msc_ab_summary.py` | the stage C scattering A/B on the 20 reference shards (steps + v1compare + worldcheck + msccheck per arm) and its summary |
 | `scripts/jax_steps_cpu.sh`, `scripts/uva_steps_gpu.sh`, `scripts/uva_steps_stream.sh`, `scripts/eaf_steps_gpu.sh` | `jaxcheck` on one CPU core (GPVM), on one A100 at UVA (Slurm job fed by the stream script from the laptop) and on an EAF A100 session |
 | `art/` | muse satellite area with `StrawGasStepTableDumper` (G4 reference tables), `art/README.md` |
+| `trkfastsim/digi.py`, `trkfastsim/digicond.py` | fast digitisation: a vectorised port of `StrawDigisFromStrawGasSteps` and its conditions from the stock job's sources (`docs/fast-digi.md`); `scripts/digi_validate.sh` and `art/run_digi_ref.sh` run its validation |
 | `trkfastsim/reco/` | fast reconstruction: `hitreco` (StrawHitReco), `combo` (CombineStrawHits), their JAX twins `hitreco_jax` and `combo_jax`, `linefind` (SimpleTimeCluster, LineFinder); subcommands `reco-conditions`, `reco-vr1`, `reco-vr1b` |
 | `tests/` | pytest unit tests (synthetic geometry, no data files) |
 
@@ -58,6 +59,9 @@ CLI: `python3 -m trkfastsim <subcommand> -h`.
 | `msccheck` | in-tracker scattering per consecutive step pair (p theta), straw-only vs support pairs, tail shares, fast vs G4 |
 | `stepcheck` | diagnose the T-V1 path and eIon checks: crossing-angle population, G4 half-vs-half noise floor, band bins |
 | `jaxcheck` | `steps --backend jax` against numpy on the same primaries (straws per muon, eIon MPV and spectrum, time, entry points, occupancy, paired PrimaryFilter tracker term), per-seed reproducibility, cross-device comparison (`--cross`), timing per stage; `--concat --lanes N` for the throughput at a large batch |
+| `digi-cond` | fast digitisation conditions (`.npz`) from the stock job's `fhicl-dump`, the DbService CSVs and the GDML |
+| `digi` | fast digitisation: StrawGasStep tables to digi tables in the `StrawHitTableDumper` layout the fast hit reco reads |
+| `digicmp` | fast against stock digis on the same steps, with a reseeded stock floor: digis per event, occupancy, TDC, TOT, ADC/PMP, dt, hit reco and the F2 fit yield |
 | `reco-conditions` | the straw conditions a fast reco job needs, read from the conditions tree of a `StrawHitTableDumper` output |
 | `reco-vr1` | T-VR1: fast straw-hit and combo-hit reco against the stock hits dumped from the same digis (`--jax` for the JAX twins) |
 | `reco-vr1b` | T-VR1b: fast time clusters and line seeds against stock `SimpleTimeCluster` and `LineFinder` (`DumpTracks` in the dumper, `art/TrkFastSim/fcl/dump_tracks_mc.fcl`) |

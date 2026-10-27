@@ -1,0 +1,278 @@
+# Excerpt of `fhicl-dump TrkFastSim/fcl/digi_from_fasttable_alltrig.fcl` (Offline v13_39_00 via SimJob MDC2025ay):
+# the tables trkfastsim.digicond reads. Used by tests/test_digicond.py and tests/test_digi.py.
+physics: {
+   producers: {
+      EWMProducer: {
+         RecoFromMCTruth: true
+         RecoFromMCTruthErr: 5e-1
+         SpillType: 0
+         module_type: "EventWindowMarkerProducer"
+      }
+      makeSD: {
+         AllHitsPlanes: [
+            0,
+            1
+         ]
+         AllHitsStraw: 91
+         StrawGasStepModules: [
+            "compressDetStepMCs"
+         ]
+         module_type: "StrawDigisFromStrawGasSteps"
+      }
+   }
+}
+services: {
+   GeometryService: {
+      bFieldFile: "Offline/Mu2eG4/geom/bfgeom_no_field.txt"
+      inputFile: "Offline/Mu2eG4/geom/geom_common_extracted_v04.txt"
+   }
+   ProditionsService: {
+      eventTiming: {
+         OffSpillEventLength: 4000
+         TimeFromProtonsToDRMarker: 200
+         useDb: false
+         verbose: 0
+      }
+      strawDrift: {
+         cmus: [
+            1.57,
+            1.9,
+            2.26,
+            2.65,
+            3.05,
+            3.47,
+            3.84,
+            4.25,
+            4.58,
+            4.91,
+            5.15,
+            5.36,
+            5.56,
+            5.68,
+            5.77,
+            5.92,
+            5.98,
+            6.02,
+            6.02,
+            6.09,
+            6.19,
+            6.35,
+            6.48,
+            6.64,
+            6.72,
+            6.83,
+            6.87,
+            6.89,
+            6.85,
+            6.85
+         ]
+         deltaDistance: 1e-3
+         deltaTime: 5e-2
+         driftIntegrationBins: 50
+         kVcm: [
+            4.2e-1,
+            4.9e-1,
+            5.59e-1,
+            6.29e-1,
+            6.99e-1,
+            7.69e-1,
+            8.39e-1,
+            9.09e-1,
+            9.79e-1,
+            1.049,
+            1.119,
+            1.189,
+            1.259,
+            1.329,
+            1.399,
+            1.573,
+            1.748,
+            1.923,
+            2.098,
+            2.448,
+            2.797,
+            3.147,
+            3.497,
+            3.846,
+            4.196,
+            4.545,
+            4.895,
+            5.245,
+            5.735,
+            500
+         ]
+         phiBins: 20
+         useDb: false
+         verbose: 0
+         wireVoltage: 1400
+      }
+      strawElectronics: {
+         ADCLSB: 1.953125
+         ADCOffset: 2
+         ADCPeriod: 20
+         ADCPoles: [
+            160,
+            6,
+            1.45
+         ]
+         ADCZeros: [
+            2e-1
+         ]
+         TDCLSB: 1.953125e-2
+         TDCResolution: 1e-1
+         TOTLSB: 5
+         adcAnalogNoise: 9e-1
+         adcdVdI: []
+         clusterLookbackTime: 5
+         currentMeans: [
+            0,
+            -1.806e-1,
+            -3.613e-1,
+            -5.419e-1,
+            -7.226e-1
+         ]
+         currentNormalizations: [
+            1,
+            9.7931167e-1,
+            9.1455972e-1,
+            8.3082332e-1,
+            7.414788e-1
+         ]
+         currentSigmas: [
+            2.24,
+            2.24,
+            2.24,
+            2.24,
+            2.24
+         ]
+         currentT0s: [
+            8e-1,
+            1.26,
+            1.72,
+            2.17,
+            2.63
+         ]
+         deadTimeAnalog: 100
+         deadTimeDigital: 400
+         defaultAdcdVdI: 1.528e6
+         defaultDiscriminatorThreshold: 12
+         defaultThresholddVdI: 8.43e6
+         digitizationEnd: 1705
+         digitizationStart: 450
+         discriminatorThreshold: []
+         electronicsTimeDelay: 0
+         eventWindowMarkerROCJitter: 5e-1
+         maxADC: 1024
+         maxTOT: 15
+         maxThreshTimeSeparation: 2
+         nADCPackets: 1
+         nADCPresamples: 5
+         numTDCbits: 24
+         overrideDbTimeOffsets: true
+         preampPoles: [
+            160,
+            6
+         ]
+         preampToAdc1Poles: [
+            160,
+            6
+         ]
+         preampToAdc1Zeros: [
+            2e-1
+         ]
+         preampToAdc2Poles: [
+            1.45
+         ]
+         preampToAdc2Zeros: []
+         preampZeros: [
+            2e-1
+         ]
+         reflectionALength: 2568
+         reflectionFrac: 5.8e-1
+         reflectionTimeShift: 5.08
+         reflectionVelocity: 5.138e2
+         responseBins: 10000
+         sampleRate: 10
+         saturationSampleFactor: 25
+         saturationVoltage: 140
+         strawNoise: 1.25
+         thresholdAnalogNoise: 1.25
+         thresholddVdI: []
+         timeOffsetPanel: []
+         timeOffsetStrawCal: []
+         timeOffsetStrawHV: []
+         triggerHysteresis: 2
+         useDb: true
+         verbose: 0
+         wireDistances: [
+            0,
+            300,
+            600,
+            900,
+            1200
+         ]
+      }
+      strawPhysics: {
+         bFieldOverride: -1
+         clusterDriftPolynomial: [
+            0,
+            16
+         ]
+         driftTimeVariance: [
+            1.3,
+            5e-1
+         ]
+         electronCharge: 1.6e-7
+         gainRMSSlope: 8.09e-1
+         gasGain: 70000
+         ionizationEnergyTable: [
+            1.575962e1,
+            2.762967e1,
+            4.074e1,
+            5.981e1,
+            7.502e1,
+            9.1009e1,
+            1.24323e2,
+            1.4346e2,
+            4.2245e2,
+            4.7869e2,
+            5.3896e2,
+            6.1826e2,
+            6.861e2,
+            7.5574e2,
+            8.5477e2,
+            9.1803e2,
+            4.1208857e3,
+            4.4262296e3
+         ]
+         ionizedElectronKE: 0
+         meanFreePath: 3.57e-1
+         nGainGauss: 30
+         polyaA: 1.25
+         probPerCharge: [
+            6.56e-1,
+            1.5e-1,
+            6.4e-2,
+            3.5e-2,
+            2.25e-2,
+            1.55e-2,
+            1.05e-2,
+            8.1e-3,
+            6.1e-3,
+            4.9e-3,
+            3.9e-3,
+            3e-3,
+            2.5e-3,
+            2e-3,
+            1.6e-3,
+            1.2e-3,
+            9.5e-4,
+            7.5e-4
+         ]
+         propagationVelocity: 299
+         useDb: false
+         useNonLinearDrift: true
+         verbose: 0
+      }
+   }
+}

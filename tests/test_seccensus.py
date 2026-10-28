@@ -179,10 +179,11 @@ def test_pair_files_rejects_reference_reuse_even_when_group_modulo_matches(monke
         SC._paired_files(fast, ref)
 
 
-def test_run_reports_inputs_selection_and_paired_intersection(monkeypatch, tmp_path, capsys):
+@pytest.mark.parametrize("ngroups", [1, 2])
+def test_run_reports_inputs_selection_and_paired_intersection(monkeypatch, tmp_path, capsys, ngroups):
     import json
 
-    fast, ref = ["f1", "f2"], ["r1", "r2"]
+    fast, ref = ["f1", "f2"][:ngroups], ["r1", "r2"][:ngroups]
     _subruns(monkeypatch, {"f1": [(1, 1)], "r1": [(1, 1)], "f2": [(2, 1)], "r2": [(2, 1)]})
     monkeypatch.setattr(SC.T, "expand", lambda inputs: list(inputs))
     monkeypatch.setattr(SC.T, "livetime", lambda files: float(len(files)))
@@ -197,20 +198,23 @@ def test_run_reports_inputs_selection_and_paired_intersection(monkeypatch, tmp_p
 
     monkeypatch.setattr(SC, "_load", load)
     # The occupancy estimator has separate tests; avoid low-statistics diagnostic warnings here.
-    monkeypatch.setattr(SC.O, "compare", lambda *args: {
+    monkeypatch.setattr(SC.O, "compare", lambda *args, **kwargs: {
         "chi2ndf_poisson": 0., "chi2ndf_clustered": 0., "overdispersion_median": 0.,
         "max_abs_pull": 0., "panels_beyond_5sigma": 0})
     SC.run(fast, str(tmp_path), compare=ref, gdml="unused", paired=True)
     result = json.loads((tmp_path / "seccensus.json").read_text())
     assert result["input_files"] == {"fast": fast, "g4": ref}
     assert result["file_groups"] == [{"fast": "f1", "g4": ["r1"], "group": 0},
-                                     {"fast": "f2", "g4": ["r2"], "group": 1}]
+                                     {"fast": "f2", "g4": ["r2"], "group": 1}][:ngroups]
     assert "any one primary muon" in result["selection"]["event_filter"]
     assert "earliest primary-muon straw step" in result["selection"]["momentum_bin"]
     assert "intersection" in result["selection"]["event_keys"]
     assert "(run, subrun)" in result["selection"]["file_pairing"]
-    assert result["selected_events"] == {"fast": 4, "g4": 4, "both": 2}
-    assert result["totals"]["fast"]["events"] == result["totals"]["g4"]["events"] == 2
+    assert result["selected_events"] == {"fast": 2 * ngroups, "g4": 2 * ngroups, "both": ngroups}
+    assert result["totals"]["fast"]["events"] == result["totals"]["g4"]["events"] == ngroups
+    if ngroups == 1:
+        assert result["eion_per_straw"]["g4_half_vs_half_band"] is None
+        assert not result["eion_per_straw"]["event_clustered_g4_floor"]["available"]
     output = capsys.readouterr().out
     assert '"input_files"' in output and '"selection"' in output
 
@@ -221,3 +225,15 @@ def test_run_rejects_bad_pairing_before_loading_geometry(monkeypatch, tmp_path):
     monkeypatch.setattr(SC.geometry, "from_gdml", lambda _: pytest.fail("must validate coverage first"))
     with pytest.raises(ValueError, match="unequal"):
         SC.run(["f"], str(tmp_path), compare=["r"], paired=True)
+
+
+def test_jackknife_does_not_count_empty_file_groups():
+    f, r = np.zeros(20), np.zeros(20)
+    f[0], r[0] = 12., 10.
+    value, error = SC._jack(f, r, r, r)
+    assert np.isclose(value, .2)
+    assert np.isnan(error)
+    f[1], r[1] = 8., 11.
+    a = SC._jack(f, r, r, r)
+    b = SC._jack(f[:2], r[:2], r[:2], r[:2])
+    assert np.allclose(a, b)

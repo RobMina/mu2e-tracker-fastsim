@@ -28,7 +28,7 @@ import pandas as pd
 
 from mu2efastsim import stats
 from .. import geometry, tables as T
-from . import occupancy as O
+from . import occupancy as O, clusterband as CB
 
 NG = 20
 P_EDGES = np.array([0.0, 300.0, 600.0, 1000.0, 2000.0, 4000.0, 10000.0, 1e9])     # MeV/c, as library.P_BINS
@@ -170,15 +170,17 @@ def _straw_eion(s):
 
 
 def _occ(s, accs):
-    """Step-level panel occupancy: distinct straws with a step per event and uniquePanel (all particles; muon straws)."""
-    # IDs are local to this accumulation call; no bit packing or cross-file pairing is needed.
-    ev, _ = pd.factorize(pd.MultiIndex.from_frame(s[T.KEY]), sort=False)
+    """Distinct event/straw occupancy, retaining full identities for paired cross moments."""
     straw_keys = pd.MultiIndex.from_frame(s[T.KEY + ["sid"]])
     mu = s.mu.to_numpy()
     secondary_only = ~straw_keys.isin(straw_keys[mu])
+    rows = {}
     for name, m in (("all", np.ones(len(s), bool)), ("muon_straws", mu), ("secondary_only", secondary_only)):
-        d = pd.DataFrame({"ev": ev[m], "sid": s.sid.to_numpy()[m], "up": s.upanel.to_numpy()[m]}).drop_duplicates(["ev", "sid"])
-        accs[name] = O.accumulate(d.ev.to_numpy(), d.up.to_numpy(), acc=accs.get(name))
+        d = s.loc[m, T.KEY + ["sid", "upanel"]].drop_duplicates(T.KEY + ["sid"])
+        ev, _ = pd.factorize(pd.MultiIndex.from_frame(d[T.KEY]), sort=False)
+        accs[name] = O.accumulate(ev, d.upanel.to_numpy(), acc=accs.get(name))
+        rows[name] = (d[T.KEY].to_numpy(dtype=np.int64), d.upanel.to_numpy())
+    return rows
 
 
 def _jack(num_f, den_f, num_r, den_r):
@@ -188,8 +190,9 @@ def _jack(num_f, den_f, num_r, den_r):
     if tot(df_) == 0 or tot(dr) == 0 or tot(nr) == 0:
         return float("nan"), float("nan")
     R = (tot(nf) / tot(df_)) / (tot(nr) / tot(dr))
+    active = (nf != 0) | (df_ != 0) | (nr != 0) | (dr != 0)
     rk = []
-    for k in range(len(nf)):
+    for k in np.flatnonzero(active):
         if tot(df_, k) > 0 and tot(dr, k) > 0 and tot(nr, k) > 0:
             rk.append((tot(nf, k) / tot(df_, k)) / (tot(nr, k) / tot(dr, k)))
     rk = np.array(rk)
@@ -284,12 +287,13 @@ def run(inputs, outdir, compare=None, gdml=None, paired=False, **kw):
     C = {"fast": {}, "g4": {}}
     D = {"fast": {}, "g4": {}}
     TT = {"fast": {}, "g4": {}}
-    straw = {"fast": [], "g4": [], "g4_group": []}
+    straw = {"fast": [], "g4": [], "g4_group": [], "fast_keys": [], "g4_keys": []}
     occ = {"fast": {}, "g4": {}, "g4_even": {}, "g4_odd": {}}
+    cross_occ = {}
     nsel = {"fast": 0, "g4": 0, "both": 0}
     lt = {"fast": 0.0, "g4": 0.0}
     for f_fast, f_g4, g in pairs:
-        arms = {}
+        arms, paired_occ = {}, {}
         for lab, f in (("fast", [f_fast] if f_fast else None), ("g4", f_g4)):
             if f is None:
                 continue
@@ -311,13 +315,19 @@ def run(inputs, outdir, compare=None, gdml=None, paired=False, **kw):
                 D[lab][k] = pd.concat([D[lab].get(k), v]) if k in D[lab] else v
             prev = TT[lab].get(g, {})
             TT[lab][g] = {k: prev.get(k, 0) + v for k, v in t.items() if k != "group"}
-            se = _straw_eion(s)
+            energies = s.groupby(T.KEY + ["sid"], as_index=False).eion.sum()
+            se = 1e3 * energies.eion.to_numpy()
             straw[lab].append(se)
+            straw[lab + "_keys"].append(energies[T.KEY].to_numpy(dtype=np.int64))
             if lab == "g4":
                 straw["g4_group"].append(np.full(len(se), g))
-            _occ(s, occ[lab])
+            paired_occ[lab] = _occ(s, occ[lab])
             if lab == "g4":
                 _occ(s, occ["g4_even" if g % 2 == 0 else "g4_odd"])
+        if paired:
+            for name in paired_occ["fast"]:
+                cross_occ[name] = O.accumulate_cross(*paired_occ["fast"][name], *paired_occ["g4"][name],
+                                                     acc=cross_occ.get(name))
         print(f"# group {g}: {f_fast or ''} {len(f_g4 or [])} G4 files; selected so far {nsel}", flush=True)
     for lab in C:
         for k in list(C[lab]):
@@ -341,10 +351,18 @@ def run(inputs, outdir, compare=None, gdml=None, paired=False, **kw):
     sf_, sr_ = np.concatenate(straw["fast"]), np.concatenate(straw["g4"])
     grp = np.concatenate(straw["g4_group"])
     band = stats.ratio_band(sf_, sr_)
-    floor = stats.ratio_band(sr_[grp % 2 == 0], sr_[grp % 2 == 1])
+    ef, er = np.concatenate(straw["fast_keys"]), np.concatenate(straw["g4_keys"])
+    clustered = CB.ratio_band(sf_, sr_, ef, er, paired=paired, edges=band["edges"])
+    energy_mean = CB.mean_compare(sf_, sr_, ef, er, paired=paired)
+    floor = (stats.ratio_band(sr_[grp % 2 == 0], sr_[grp % 2 == 1])
+             if np.any(grp % 2 == 0) and np.any(grp % 2 == 1) else
+             {"max_abs_dev_minus_2sigma": None, "max_abs_dev": None})
+    clustered_floor = CB.ratio_band(sr_[grp % 2 == 0], sr_[grp % 2 == 1],
+                                   er[grp % 2 == 0], er[grp % 2 == 1], paired=False, edges=band["edges"])
     res = {"paired": bool(paired),
-           "statistics": {"occupancy": "independent-arm covariance; diagnostic only for paired/shared-event inputs",
-                          "energy_band": "legacy independent-entry variance, not event-clustered; G4 split floor reported",
+           "statistics": {"occupancy": ("paired event covariance including cross-arm moments; fixed-library conditional" if paired
+                                         else "independent-arm event covariance; fixed-library conditional"),
+                          "energy_band": "legacy band retained; event_clustered uses random-denominator event influence and paired cross covariance",
                           "breakdown_errors": "delete-one-file-group jackknife; paired groups only with --paired"},
            "input_files": {"fast": ff, "g4": fr},
            "selection": {"primary_muon": "isprim == 1 and abs(pdg) == 13 (not ismcprim)",
@@ -368,7 +386,9 @@ def run(inputs, outdir, compare=None, gdml=None, paired=False, **kw):
                                        "ratio_minus_1": row_share[0], "err": row_share[1], "threshold": 0.10,
                                        "pass": bool(abs(row_share[0]) <= 0.10)},
                     "sec_eion_per_mu_step": {"ratio_minus_1": row_eion_per_mu[0], "err": row_eion_per_mu[1]}},
-           "eion_per_straw": {"mean": [float(sf_.mean()), float(sr_.mean())],
+           "eion_per_straw": {"event_clustered": clustered, "event_clustered_mean": energy_mean,
+                              "event_clustered_g4_floor": clustered_floor,
+                              "mean": [float(sf_.mean()), float(sr_.mean())],
                               "quantiles_q25_q50_q75_q90": [np.quantile(sf_, [0.25, 0.5, 0.75, 0.9]).tolist(),
                                                             np.quantile(sr_, [0.25, 0.5, 0.75, 0.9]).tolist()],
                               "band_minus_2sigma": band["max_abs_dev_minus_2sigma"], "band": band["max_abs_dev"],
@@ -376,8 +396,10 @@ def run(inputs, outdir, compare=None, gdml=None, paired=False, **kw):
                               "g4_half_vs_half_band": floor["max_abs_dev"],
                               "bins": {"edges": band["edges"].tolist(), "fast": band["h_fast"].tolist(), "g4": band["h_ref"].tolist()}},
            "breakdowns": rep, "g4_only": g4only,
-           "occupancy_steps": {k: O.compare(occ["fast"][k], occ["g4"][k]) for k in occ["fast"]},
-           "occupancy_steps_g4_floor": {k: O.compare(occ["g4_even"][k], occ["g4_odd"][k]) for k in occ["g4_even"]}}
+           "occupancy_steps": {k: O.compare(occ["fast"][k], occ["g4"][k], cross=cross_occ.get(k)) for k in occ["fast"]},
+           "occupancy_steps_g4_floor": {k: O.compare(occ["g4_even"].get(k, O.accumulate([], [])),
+                                                         occ["g4_odd"].get(k, O.accumulate([], [])))
+                                        for k in occ["g4"]}}
     with open(os.path.join(outdir, "seccensus.json"), "w") as fh:
         json.dump(res, fh, indent=1, default=float)
     _print(res)

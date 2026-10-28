@@ -11,15 +11,47 @@ from pathlib import Path
 def summarize(path):
     data = Path(path).read_bytes()
     d = json.loads(data)
+    if 'all_defaults_passed' in d:
+        files = d['files']
+        numeric = ('drawn', 'placed', 'reflected', 'off_lattice', 'in_muon_straw', 'merged_same_particle')
+        placement = {arm: {k: sum(f[arm][k] if arm == 'placement' else f['default']['placement']['original'][k]
+                                  for f in files) for k in numeric}
+                     for arm in ('placement', 'default')}
+        return {'path': str(path), 'sha256': hashlib.sha256(data).hexdigest(), 'status': d['status'],
+                'all_defaults_passed': d['all_defaults_passed'], 'files': len(files),
+                'file_indices': [f['file_index'] for f in files], 'elapsed_s': d['elapsed_s'],
+                'candidate_counts': {k: sum(f['candidate_counts'][k] for f in files)
+                                     for k in ('primary_steps', 'instraw_steps', 'offaxis_steps')},
+                'placement': placement,
+                'all_preserved': all(v['passed'] for f in files for v in f['preserved'].values())}
     out = {"path": str(path), "sha256": hashlib.sha256(data).hexdigest(), "paired": d["paired"]}
     if "tv1b" in d:
         out.update({k: d[k] for k in ("selected_events", "totals", "tv1b")})
-        out["eion_per_straw"] = {k: v for k, v in d["eion_per_straw"].items() if k != "bins"}
+        out["eion_per_straw"] = {k: v for k, v in d["eion_per_straw"].items() if k != "bins" and not k.startswith("event_clustered")}
+        for k, v in d["eion_per_straw"].items():
+            if k.startswith("event_clustered"):
+                out["eion_per_straw"][k] = {f: v.get(f) for f in ("available", "max_abs_dev", "max_abs_dev_minus_2sigma",
+                        "covariance_rank", "unavailable_reason", "difference", "difference_error", "ratio_minus_1", "ratio_error")}
+
         out["breakdowns"] = {k: d["breakdowns"][k] for k in ("location", "plane_distance")}
         occupancy = d["occupancy_steps"]
     else:
         out.update({k: d[k] for k in ("selected_events", "selected_in_ntuple", "tracks", "yield_per_s",
                                        "yield_factorised", "thresholds")})
+        out["clustered_shapes"] = {k: {f: v.get(f) for f in ("available", "max_abs_dev", "max_abs_dev_minus_2sigma",
+                                                         "covariance_rank", "unavailable_reason", "flow_fast", "flow_ref")}
+                                   for k, v in d.items() if "event_clustered" in k}
+        for key in ("yield_paired", "paired_exposure", "width_jackknife_groups", "livetime_s", "digis_per_event", "nactive_mean"):
+            if key in d:
+                out[key] = d[key]
+        if "yield_paired" in d:
+            paired = d["yield_paired"]
+            out["yield_attribution_counts"] = {
+                "total_track_difference": paired["tracks"][0] - paired["tracks"][1],
+                "selection_only_track_difference": paired["a_selection_only"]["tracks_fast_only"] - paired["a_selection_only"]["tracks_g4_only"],
+                "both_selected_track_difference": paired["b_both_selected_content"]["tracks"][0] - paired["b_both_selected_content"]["tracks"][1],
+                "diagnostic_bin_variable": "max good StrawGasStep count for one primary muon; not unique straw count",
+                "interpretation": "selection/content split is algebraic attribution, not causal identification of transport or secondary errors"}
         out["widths"] = {k: v for k, v in d.items() if k.startswith("resid_")}
         occupancy = {k: v for k, v in d.items() if k.startswith("panel_occupancy") and isinstance(v, dict)}
     out["occupancy"] = {k: {f: v[f] for f in ("chi2ndf_poisson", "chi2ndf_clustered", "chi2ndf_covariance",
@@ -45,6 +77,9 @@ def main():
         if label == "analysis_source_sha256":
             continue
         print(f"=== {label}: {d['path']}")
+        if 'all_defaults_passed' in d:
+            print(json.dumps(d, indent=2))
+            continue
         print("selected", d["selected_events"])
         if "tv1b" in d:
             for k, row in d["tv1b"].items():

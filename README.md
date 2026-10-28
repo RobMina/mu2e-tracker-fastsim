@@ -242,10 +242,12 @@ panel it crosses: a Poisson chi2 over panels is about the mean cluster size (3-4
 `tv2compare` therefore reports a full event-clustered panel covariance and its rank-based chi2
 (`trkfastsim/analyses/occupancy.py`, tested in `tests/test_occupancy.py`), with marginal pulls,
 diagonal/Poisson diagnostic scores and G4-against-G4 floors from disjoint files. Paired occupancy
-is non-certifying until cross-arm covariance is included. Input coverage and yield-factorization
-checks prevent incomplete outputs from becoming apparent physics losses.
-See [secondary validation](docs/secondary-validation.md) for assumptions, the legacy energy-band
-convention and the opt-in `--offaxis-edge-anchor` placement diagnostic.
+includes cross-arm event covariance, conditional on the fixed secondary library. Input coverage,
+checked event-ID bounds, matched paired width blocks and yield-factorization checks prevent
+incomplete outputs or unmatched groups from becoming apparent physics losses or zero errors.
+See [secondary validation](docs/secondary-validation.md) for the full saved-default-L paired result,
+exact generator-content audit, event-clustered shape limitations and opt-in edge/topology diagnostics.
+The saved sample's yield is −2.038 ± 0.366%, mostly selection-only; no placement change is promoted.
 
 Paired campaign on the `g4ref_v2` primaries (10 M generated, 200 subruns; same CRY events in both arms), from the
 umbrella environment on a GPVM:

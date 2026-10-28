@@ -72,3 +72,84 @@ def test_empty_occupancy_is_not_available():
     assert not r["available"]
     assert r["covariance_rank"] == 0
     assert np.isnan(r["chi2ndf_covariance"])
+
+
+def _dense(ev, panel, ids, npan):
+    from scipy.sparse import csr_matrix
+    row = np.searchsorted(ids, ev)
+    return csr_matrix((np.ones(len(ev)), (row, panel)), shape=(len(ids), npan)).toarray()
+
+
+def test_paired_covariance_matches_dense_influences_and_disjoint_events():
+    ef, pf = np.array([1, 1, 2, 2, 2, 3, 4]), np.array([0, 1, 0, 2, 2, 1, 2])
+    er, pr = np.array([1, 1, 1, 2, 3, 3, 5]), np.array([1, 1, 2, 0, 1, 2, 0])
+    af, ar = O.accumulate(ef, pf, 3), O.accumulate(er, pr, 3)
+    cross = O.accumulate_cross(ef, pf, er, pr, 3)
+    ids = np.union1d(ef, er)
+    f, r = _dense(ef, pf, ids, 3), _dense(er, pr, ids, 3)
+    uf = (f - f.sum(axis=1)[:, None] * f.sum(axis=0) / f.sum()) / f.sum()
+    ur = (r - r.sum(axis=1)[:, None] * r.sum(axis=0) / r.sum()) / r.sum()
+    assert np.allclose(O.cross_covariance(af, ar, cross), uf.T @ ur)
+    cov = O.covariance(af) + O.covariance(ar) - O.cross_covariance(af, ar, cross) - O.cross_covariance(af, ar, cross).T
+    assert np.allclose(cov, (uf - ur).T @ (uf - ur))
+    result = O.compare(af, ar, min_ref=1, cross=cross)
+    expected = O._quadratic(O.shares(af)[0] - O.shares(ar)[0], cov)
+    assert np.isclose(result['chi2ndf_covariance'], expected[0])
+    disjoint = O.accumulate_cross(ef, pf, er + 100, pr, 3)
+    assert np.allclose(O.cross_covariance(af, ar, disjoint), 0)
+    assert np.isclose(O.compare(af, ar, min_ref=1, cross=disjoint)['chi2ndf_covariance'],
+                      O.compare(af, ar, min_ref=1)['chi2ndf_covariance'])
+
+
+def test_identical_paired_arms_are_zero_variance_not_a_rank_zero_pass():
+    ev, pan = _sample(np.random.default_rng(4), 4000, np.ones(6) / 6, 3)
+    a = O.accumulate(ev, pan, 6)
+    cross = O.accumulate_cross(ev, pan, ev, pan, 6)
+    result = O.compare(a, a, cross=cross)
+    assert result['cross_arm_covariance_included']
+    assert result['covariance_rank'] == 0 and not result['available']
+    assert not result['null_space_incompatible']
+    assert result['max_abs_pull'] == 0
+
+
+def test_cross_moments_merge_and_full_event_identity():
+    ef = np.array([[1, 2, 3], [1, 2, 3], [2, 2, 3], [2, 2, 4]])
+    er = ef[[2, 0, 3, 1]]
+    pf, pr = np.array([0, 1, 2, 0]), np.array([0, 1, 2, 1])
+    cross = O.accumulate_cross(ef, pf, er, pr, 3)
+    split = None
+    for run in (1, 2):
+        mf, mr = ef[:, 0] == run, er[:, 0] == run
+        split = O.accumulate_cross(ef[mf], pf[mf], er[mr], pr[mr], 3, acc=split)
+    for k in cross:
+        assert np.array_equal(cross[k], split[k])
+    assert cross['S'].sum() == 6
+
+
+def test_paired_covariance_invariant_under_duplicate_hits():
+    rng = np.random.default_rng(19)
+    ev = np.repeat(np.arange(4000), 2)
+    pf, pr = rng.integers(0, 6, len(ev)), rng.integers(0, 6, len(ev))
+    results = []
+    for k in (1, 3):
+        ef, f = np.repeat(ev, k), np.repeat(pf, k)
+        er, r = np.repeat(ev, k), np.repeat(pr, k)
+        results.append(O.compare(O.accumulate(ef, f, 6), O.accumulate(er, r, 6),
+                                 cross=O.accumulate_cross(ef, f, er, r, 6)))
+    assert np.isclose(results[0]['chi2ndf_covariance'], results[1]['chi2ndf_covariance'])
+    assert np.allclose(results[0]['pulls'], results[1]['pulls'])
+
+
+def test_paired_mismatched_coverage_rejected():
+    import pytest
+    a = O.accumulate([1, 2], [0, 1], 3)
+    cross = O.accumulate_cross([1], [0], [1, 2], [0, 1], 3)
+    with pytest.raises(ValueError, match='cover'):
+        O.compare(a, a, min_ref=1, cross=cross)
+
+
+def test_empty_fast_arm_cannot_certify_against_nonempty_reference():
+    empty = O.accumulate([], [], 3)
+    ref = O.accumulate([1, 2, 3], [0, 1, 2], 3)
+    cross = O.accumulate_cross([], [], [1, 2, 3], [0, 1, 2], 3)
+    assert not O.compare(empty, ref, min_ref=1, cross=cross)['available']

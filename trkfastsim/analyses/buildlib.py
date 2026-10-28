@@ -17,15 +17,15 @@ from mu2efastsim import plots
 from .. import geometry, library, tables as T
 
 
-def run(inputs, outdir, out=None, gdml=None, format=2, **kw):
+def run(inputs, outdir, out=None, gdml=None, format=2, topology=False, **kw):
     paths = T.expand(inputs)
     geom = None
     if int(format) == 2:
         from .steps import default_gdml
         geom = geometry.from_gdml(gdml or default_gdml())
-    lib = library.build(paths, geom)
+    lib = library.build(paths, geom, topology=topology)
     out = out or os.path.join(outdir, "trklib.root")
-    library.write(out, lib, {"inputs": ";".join(os.path.basename(p) for p in paths), "nfiles": len(paths)})
+    library.write(out, lib, {"inputs": ";".join(os.path.basename(p) for p in paths), "nfiles": len(paths), "anchor_topology": bool(topology)})
     ins, st, off, ev = lib["instraw"], lib["instraw_steps"], lib["offaxis"], lib["events"]
     c = {"files": len(paths), "muon_events": int(len(ev)), "muon_crossings": int(len(ins)),
          "crossings_with_secondaries": float((ins.nsec > 0).mean()), "instraw_steps": int(len(st)),

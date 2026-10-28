@@ -1001,6 +1001,9 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     k = np.clip(k, 0, nk[i] - 1)
     if getattr(sampler, "edge_anchor", False):
         k = _edge_anchor(mu, MK, f, i, k, st.dpl.to_numpy(), pl["min"].to_numpy(), pl["max"].to_numpy())
+    if getattr(sampler, "topology_anchor", False):
+        from .placement import topology_anchor
+        k = topology_anchor(mu, MK, f, st)
     v2 = "du0" in st
     acols = ["x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"] if v2 else []
     anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in MK}, "k": k}).merge(

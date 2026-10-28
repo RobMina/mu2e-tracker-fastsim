@@ -220,7 +220,7 @@ class TrackerInterior:
                 sm2 += mom[m][2] / x0m
         return solid, x_sup, sm1, sm2
 
-    def exit_scatter(self, rng, o, d, p, xcum, length=EXIT_SCATTER_MM, tail=True, tail_k=None):
+    def exit_scatter(self, rng, o, d, p, xcum, length=EXIT_SCATTER_MM, tail=True, tail_k=None, capture=None):
         """Material behind each muon's last straw (support rings, end plates, calorimeter) crossed as kinks of at most
         KINK_SUP_XX0, so the path beyond the tracker (the tracker VD exit crossings) carries its scattering; energy loss
         sampled per kink. Straws are not looked for (the muon has left the straw volume or is done). Returns kink dicts
@@ -235,13 +235,22 @@ class TrackerInterior:
         # material beyond the exit crossing does not change it, and scattering there only grows the displacement
         length = np.minimum(np.full(n, float(length)), _envelope_exit(o, d) + ENVELOPE_PAD_MM)
         act = np.flatnonzero((p > 1.0) & (length > 1.0))
-        for _ in range(64):
+        if capture is not None:
+            captured_loss = np.zeros(n)
+            capture.observe("initial", np.arange(n), path_mm=trav, position_mm=o, direction=d,
+                            model_ke_MeV=ledger.kinetic(p), momentum_MeV_c=p,
+                            lost_support_MeV=captured_loss, lost_thin_MeV=np.zeros(n))
+            capture.record("extent", np.arange(n), requested_length_mm=length)
+            capture.terminate(np.setdiff1d(np.arange(n), act), "not_processed")
+        for exit_iteration in range(64):
             if not len(act):
                 break
             left = length[act] - trav[act]
             col, _ = self._support(o[act], d[act], left, False)
             solid, x_sup, _, _ = self._support_sums(col, {}, len(act))
             go = x_sup > 1e-6
+            if capture is not None:
+                capture.terminate(act[~go], "no_support", iteration=exit_iteration + 1)
             act = act[go]
             if not len(act):
                 break
@@ -287,10 +296,29 @@ class TrackerInterior:
             pos, dn = _kink(end, d[act], dth, dy)
             out.append({"it": act[alive].copy(), "end": end[alive], "pos": pos[alive], "dir": dn[alive],
                         "path": (trav[act] + seg)[alive], "p": pk[alive]})
+            if capture is not None:
+                capture.record("piece_attempt", act, iteration=exit_iteration + 1,
+                               lower_local_path_mm=trav[act], attempted_local_path_mm=trav[act] + seg,
+                               attempted_position_mm=end, model_ke_after_MeV=tk - lost,
+                               sampled_support_MeV=lost, accepted=alive)
+                captured_loss[act] += lost
+                values = dict(iteration=exit_iteration + 1, path_mm=out[-1]["path"],
+                              model_ke_MeV=(tk - lost)[alive], momentum_MeV_c=pk[alive],
+                              lost_support_MeV=captured_loss[act[alive]], lost_thin_MeV=np.zeros(alive.sum()))
+                capture.observe("kink_end", act[alive], position_mm=end[alive], direction=d[act[alive]], **values)
+                capture.observe("restart", act[alive], position_mm=pos[alive], direction=dn[alive], **values)
+                capture.terminate(act[~alive], "unresolved_stop", iteration=exit_iteration + 1)
+                capture.terminate(act[alive & (trav[act] + seg >= length[act] - 1.0)],
+                                  "extent_complete", iteration=exit_iteration + 1)
             o[act], d[act], p[act] = pos, dn, pk
             xc[act] += X
             trav[act] += seg
             act = act[alive & (trav[act] < length[act] - 1.0)]
+        else:
+            if capture is not None:
+                capture.terminate(act, "iteration_cap", iteration=64)
+        if capture is not None:
+            capture.finish(o=o, d=d, p=p, path=trav, xcum=xc)
         if not out:
             z3 = np.zeros((0, 3))
             return {"it": np.zeros(0, np.int64), "end": z3, "pos": z3, "dir": z3, "path": np.zeros(0), "p": np.zeros(0)}
@@ -329,7 +357,7 @@ class TrackerInterior:
 
     def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
                   max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-                  kink_p_mean=False, thin_loss=False):
+                  kink_p_mean=False, thin_loss=False, capture=None):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
@@ -382,16 +410,25 @@ class TrackerInterior:
         x0 = {m.name: eloss.radiation_length_mm(m) for m, _ in thin}
         st = ({"kinks": 0, "tail_scatters": 0, "stopped": 0, "iterations": 0, "capped": 0, "wire_hits": 0}
               if stats is None else stats)
+        if capture is not None:
+            capture.observe("initial", act, path_mm=travelled, position_mm=o, direction=d,
+                            model_ke_MeV=tk_start, momentum_MeV_c=p,
+                            lost_support_MeV=comp["lost_support"], lost_thin_MeV=comp["lost_thin"])
         for _ in range(max_iter):
             if not len(act):
                 break
             st["iterations"] += 1
             xs = crossings.straw_crossings(o[act], d[act], geom)
             if not len(xs):
+                if capture is not None:
+                    capture.terminate(act, "no_candidates", iteration=st["iterations"])
                 break
             loc = xs[:, 0].astype(np.int64)
             keep = (xs[:, 3] > 1e-9) & ~np.isin(act[loc] * ns + xs[:, 1].astype(np.int64), done)
             xs, loc = xs[keep], loc[keep]
+            if capture is not None:
+                missing = act[~np.isin(np.arange(len(act)), loc)]
+                capture.terminate(missing, "no_candidates", iteration=st["iterations"])
             if not len(xs):
                 break
             it = act[loc]
@@ -492,6 +529,32 @@ class TrackerInterior:
                              "path": travelled[it[ok]] + s_in[ok], "lost": loss_at[ok],
                              **{k: comp[k][it[ok]] + cumc[k][ok] for k in COMPONENTS}})
                 done = np.r_[done, it[ok] * ns + js[ok]]
+            if capture is not None:
+                good = np.flatnonzero(ok)
+                if len(good):
+                    entry = rows[-1]
+                    capture.observe("entry", it[good], iteration=st["iterations"], path_mm=entry["path"],
+                                    position_mm=entry["pos0"], direction=entry["dir"],
+                                    model_ke_MeV=tk_start[it[good]] - loss_at[good],
+                                    momentum_MeV_c=_p_of(tk_start[it[good]] - loss_at[good]),
+                                    lost_support_MeV=entry["lost_support"], lost_thin_MeV=entry["lost_thin"])
+                lane = it[start]
+                failed = dead_from[lane]
+                stop = failed < row_end
+                bad = failed[stop]
+                if len(bad):
+                    lower_row = np.maximum(bad - 1, 0)
+                    lower_local = np.where(first[bad], 0., s_in[lower_row])
+                    capture.record("stop_attempt", it[bad], iteration=st["iterations"],
+                                   lower_local_path_mm=travelled[it[bad]] + lower_local,
+                                   attempted_local_path_mm=travelled[it[bad]] + s_kink[bad],
+                                   attempted_position_mm=o[it[bad]] + d[it[bad]] * s_kink[bad, None],
+                                   candidate_straw=js[bad], model_ke_after_MeV=tk_start[it[bad]] - loss_at[bad],
+                                   attempted_support_MeV=comp["lost_support"][it[bad]] + cumc["lost_support"][bad],
+                                   attempted_thin_MeV=comp["lost_thin"][it[bad]] + cumc["lost_thin"][bad],
+                                   committed_candidate=upto[bad])
+                capture.terminate(lane[stop], "unresolved_stop", iteration=st["iterations"])
+                capture.terminate(lane[~stop & ~kinked], "final_non_kink", iteration=st["iterations"])
             kr = fm[kinked]
             km = it[kr]
             go = dead_from[km] > kr
@@ -550,6 +613,13 @@ class TrackerInterior:
             pos = _exit_gas_backwards(pos, dn, geom)
             kinks.append({"it": km.copy(), "end": end.copy(), "pos": pos.copy(), "dir": dn.copy(),
                           "path": travelled[km] + s_k - back, "p": p_k.copy()})
+            if capture is not None:
+                values = dict(iteration=st["iterations"], path_mm=kinks[-1]["path"],
+                              model_ke_MeV=tk_start[km] - lost[km] - cum[kr], momentum_MeV_c=p_k,
+                              lost_support_MeV=comp["lost_support"][km] + cumc["lost_support"][kr],
+                              lost_thin_MeV=comp["lost_thin"][km] + cumc["lost_thin"][kr])
+                capture.observe("kink_end", km, position_mm=end, direction=d[km], **values)
+                capture.observe("restart", km, position_mm=pos, direction=dn, **values)
             o[km] = pos
             d[km] = dn
             restarted[km] = ~cut[kr]          # after a split the rest of the segment is still ahead
@@ -562,10 +632,14 @@ class TrackerInterior:
             act = km
         else:
             st["capped"] += len(act)
+            if capture is not None:
+                capture.terminate(act, "iteration_cap", iteration=st["iterations"])
         self.last_stats = st
         self.last_final = {"o": o.copy(), "d": d.copy(), "p": _p_of(np.maximum(tk_start - lost, 0.0)),
                            "path": travelled.copy(), "xcum": xcum.copy(), "ke": tk_start - lost, "stopped": stopped,
                            **{k: comp[k].copy() for k in COMPONENTS}}
+        if capture is not None:
+            capture.finish(**self.last_final)
         self.last_kinks = ({k: np.concatenate([q[k] for q in kinks]) for k in kinks[0]} if kinks else
                            {"it": np.zeros(0, np.int64), "end": np.zeros((0, 3)), "pos": np.zeros((0, 3)),
                             "dir": np.zeros((0, 3)), "path": np.zeros(0), "p": np.zeros(0)})
@@ -1142,7 +1216,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
                kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
                exit_scatter=True, all_muons=True, entry_ledger="legacy", capture_entry_ledger=False, backend="numpy",
-               arms=None, history=False):
+               arms=None, history=False, capture_transport=False):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
     an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
     primary-muon StrawGasSteps on g4ref_v1 had them only from a second muon); all_muons=False keeps the first muon only
@@ -1174,8 +1248,19 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     history: set make_steps.segment_ledger (one row per emitted primary-muon step: path, kinetic energy before and at
     the entry, ledger components, deposited and escaping gas energy, times in both conventions) and
     make_steps.muon_ledger (one row per muon: plane, world time, final interior state); no random numbers.
+    capture_transport: explicit NumPy stage-C primary-only algorithm-state capture in make_steps.transport_capture.
+    Entries, kinks, unresolved stop attempts and phase dispositions are copied without changing outputs or RNG;
+    neither physical stop endpoints nor ordered material histories are inferred. Exit remains a separate phase
+    started from the unchanged legacy restart. No interpolation, extension or terminal repair is performed.
     """
     from . import entryledger
+    make_steps.transport_capture = None
+    if not isinstance(capture_transport, bool):
+        raise ValueError("capture_transport must be bool")
+    if capture_transport and (backend != "numpy" or stage != "C" or interior is None or not interior_msc):
+        raise ValueError("transport capture requires NumPy stage C with interior scattering")
+    if capture_transport and (sampler is not None or offaxis is not None or entry_ledger != "legacy"):
+        raise ValueError("transport capture requires primary-only legacy entry writer")
     thin_loss, time_mode = False, "generated"
     if arms is None and stage == "C" and interior is not None and interior_msc and entry_ledger == "legacy" \
             and not capture_entry_ledger:
@@ -1207,6 +1292,21 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
                                 entry_ledger=entry_ledger, capture_entry_ledger=capture_entry_ledger)
         if thin_loss or time_mode != "generated" or history:
             raise NotImplementedError("ledger thin/time arms and the segment history need backend='numpy'")
+    observation = None
+    if capture_transport:
+        if entry_ledger != "legacy":
+            raise ValueError("transport capture requires legacy entry writer after arm resolution")
+        from .transportcapture import TransportCapture
+        def finite_setting(value):
+            return float(value) if value is not None and np.isfinite(value) else str(value)
+        observation = TransportCapture(dict(stage=stage, backend=backend, air_loss=air_loss,
+            thin_loss=thin_loss, time_mode=time_mode, exit_scatter=exit_scatter,
+            sliced_msc=sliced_msc, band_spread=band_spread, all_muons=all_muons,
+            msc_tail=msc_tail, tail_k=finite_setting(tail_k), kink_xx0=finite_setting(kink_xx0),
+            kink_sup_xx0=finite_setting(kink_sup_xx0), lever_moments=lever_moments,
+            interior_msc_cal=interior_msc_cal, near_margin=finite_setting(near_margin),
+            scope="algorithm model states; stop locations and physical times unresolved"))
+        make_steps.transport_capture = observation
     timing = make_steps.timing = {}
     t0 = time.perf_counter()
     make_steps.entry_ledger = None
@@ -1233,8 +1333,13 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         # transport where they begin, so their top part is crossed (the world column stops at the plane)
         t_plane_off = t_off.copy()
         o, t_off = _back_to_interior_top(o, d, t_off, alive, interior, geom)
+    if observation is not None:
+        observation.bind(mu, origin_mm=o, direction=d, momentum_MeV_c=p_start,
+                         alive_plane=alive, generated_momentum_MeV_c=p0, path_offset_mm=t_off,
+                         plane_path_offset_mm=t_plane_off)
     if interior is not None and interior_msc:
         sel = np.flatnonzero(alive)
+        phase = observation.phase("interior", sel) if observation is not None else None
         t1 = time.perf_counter()
         if backend == "jax":
             dev = steps_jax.device_interior(interior, geom)
@@ -1243,7 +1348,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         else:
             tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0,
                                      msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0,
-                                     **({"thin_loss": True} if thin_loss else {}))
+                                     **({"thin_loss": True} if thin_loss else {}),
+                                     **({"capture": phase} if phase is not None else {}))
         timing["transport"] = time.perf_counter() - t1
         # integrated time at the interior start: world flight time to the plane (generated beta if it is unknown),
         # then back up to the ring tops at the plane momentum (no material there)
@@ -1260,13 +1366,21 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             # stream (does not advance rng), so the StrawGasSteps are identical with and without it. The transport's final
             # origin is its last restart point; no support lies between it and the last straw (else it would have kinked)
             fin = interior.last_final
+            exit_phase = (observation.phase("exit", sel, path_offset=fin["path"],
+                          settings={"origin": "legacy last_final computational restart; not interior terminal"})
+                          if observation is not None else None)
+            if exit_phase is not None:
+                exit_phase.record("interior_status", np.arange(len(sel)),
+                                  disposition=phase.summary().disposition.to_numpy(dtype=str),
+                                  legacy_stopped=fin["stopped"])
             t1 = time.perf_counter()
             if backend == "jax":
                 ek = dev.exit_scatter(key, fin["o"], fin["d"], fin["p"], fin["xcum"], tail=msc_tail, tail_k=tail_k)
                 make_steps.interior_stats = dict(make_steps.interior_stats, **{f"exit_{k}": v for k, v in dev.last_exit_stats.items()})
             else:
                 ek = interior.exit_scatter(np.random.default_rng(rng.bit_generator.seed_seq.spawn(1)[0]), fin["o"], fin["d"], fin["p"],
-                                           fin["xcum"], tail=msc_tail, tail_k=tail_k)
+                                           fin["xcum"], tail=msc_tail, tail_k=tail_k,
+                                           **({"capture": exit_phase} if exit_phase is not None else {}))
             timing["exit_scatter"] = time.perf_counter() - t1
             ek = dict(ek, path=ek["path"] + fin["path"][ek["it"]])
             kinks = {k: np.concatenate([kinks[k], ek[k]]) for k in kinks}
@@ -1381,5 +1495,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         steps, parts, make_steps.offaxis_stats = add_offaxis_secondaries(steps, parts, offaxis, geom)
     if sampler is not None:
         steps, parts = add_instraw_secondaries(steps, parts, sampler, geom)
+    if observation is not None:
+        observation.finish()
     timing["total"] = time.perf_counter() - t0
     return steps, parts

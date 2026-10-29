@@ -229,7 +229,9 @@ def main(argv=None):
             raise ValueError(f"{name}: incomplete eligible population or changed stock acceptance")
         r = {"dir": d, "n_tracks": int(len(key)), "missing_trace": int((rows < 0).sum()),
              "configuration": {k: meta.get(k) for k in ("input", "own_states", "all_fits", "time_model",
-                 "time_legacy", "xing_activity", "env_f1", "seed_time_provenance", "stock_exact")},
+                 "time_legacy", "xing_activity", "env_f1", "seed_time_provenance", "stock_exact",
+                 "reference_model", "reference_unsupported_tracks", "crossing_time", "native_seed",
+                 "construction_unsupported_tracks", "construction_unsupported_crossings", "constructed_crossings", "straw_geometry")},
              "numerical_validity": meta.get("numerical_validity")}
         if len(key) != meta["n_tracks"] or np.any(rows < 0):
             raise ValueError(f"{name}: incomplete metadata or missing stock identities")

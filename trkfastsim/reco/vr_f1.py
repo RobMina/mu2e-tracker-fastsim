@@ -30,7 +30,7 @@ def _pad(rows_trk, vals, ntrk, fill):
     return out, cnt
 
 
-def _straw_axes(path, cond, table):
+def _straw_axes(path, cond, table, model="approximate"):
     """Straw axes for the crossings (strawaxis.straw_axes) from the dump's aligned wire ends + TrkAlignStraw."""
     from . import strawaxis
     c = uproot.open(path)["trkdump/conditions"].arrays(["sid", "wcalx", "wcaly", "wcalz", "whvx", "whvy", "whvz"],
@@ -41,10 +41,25 @@ def _straw_axes(path, cond, table):
     wc, wh = np.zeros((S, 3)), np.zeros((S, 3))
     wc[us] = np.stack([c["wcalx"][0], c["wcaly"][0], c["wcalz"][0]], 1)
     wh[us] = np.stack([c["whvx"][0], c["whvy"][0], c["whvz"][0]], 1)
-    return strawaxis.straw_axes(cond["straw"], wc, wh, strawaxis.read_trkalignstraw(table))
+    alignment = strawaxis.read_trkalignstraw(table)
+    if model == "panel":
+        from . import nativegeometry
+        if not np.array_equal(np.sort(us), np.arange(S)):
+            raise ValueError("panel inference requires exactly one geometry row per straw")
+        result = nativegeometry.straw_axes(cond["straw"], wc, wh, alignment.astype(np.float32).astype(np.float64))
+        return result["midpoint"], result["direction"]
+    if model != "approximate":
+        raise ValueError("unknown straw geometry: " + str(model))
+    return strawaxis.straw_axes(cond["straw"], wc, wh, alignment)
 
 
-def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None, fitok_only=True):
+def _seed_membership(hit_indices, seed_indices):
+    """Flattened source-index membership, vectorized across jagged event collections."""
+    pairs = ak.cartesian({"hit": hit_indices, "seed": seed_indices}, axis=1, nested=True)
+    return ak.to_numpy(ak.flatten(ak.any(pairs.hit == pairs.seed, axis=-1)))
+
+
+def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None, fitok_only=True, straw_geometry="approximate"):
     """One dump file -> per-track seed, padded hits (linefit.build_hits) with stock states, padded crossings, stock
     reference values. Only events with one seed and one KKLine fit, and only FitOK fits."""
     d = hitreco.read_digis([path])
@@ -79,7 +94,7 @@ def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None, fitok_on
     H["valid"] = H["sh"] >= 0
     H["shloc"], _ = _pad(trk, flat("kh_ind").astype(np.int64), ntrk, -1)          # makeSH index within the event
     # hits of the LineFinder seed (the rest were added by the extension, KKFit::addStrawHits)
-    inseed = ak.to_numpy(ak.flatten(ak.Array([np.isin(np.asarray(k), np.asarray(sd)) for k, sd in zip(b.kh_ind, b.sd_ind)])))
+    inseed = _seed_membership(b.kh_ind, b.sd_ind)
     H["inseed"], _ = _pad(trk, inseed.astype(bool), ntrk, False)
     # stock reference DOCA per hit (TrkStrawHitSeed stores refDOCA * endSign; sign flipped as in reco-vr2)
     H["stock_rdoca"], _ = _pad(trk, flat("kh_rdoca").astype(np.float64), ntrk, np.nan)
@@ -90,7 +105,7 @@ def read_inputs(path, cond, settings, max_tracks=None, straw_axis=None, fitok_on
     us = hitreco.unique_straw(flat("kst_sid").astype(np.int64))
     stc = cond["straw"]
     if straw_axis:
-        smid, sdir = _straw_axes(path, cond, straw_axis)
+        smid, sdir = _straw_axes(path, cond, straw_axis, straw_geometry)
         mid, wdir = smid[us], sdir[us]
     else:
         mid = np.stack([stc["midx"][us], stc["midy"][us], stc["midz"][us]], 1)
@@ -123,7 +138,8 @@ def _jnp_tree(dct, keys=None):
 
 def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, material=True, straw_axis=None,
         own_states=False, time_model="legacy", save_ids=False, all_fits=False, xing_activity="hit_or_doca",
-        time_legacy=(), native_time_check=None, save_tracks=False):
+        time_legacy=(), native_time_check=None, save_tracks=False, reference_model="previous",
+        crossing_time="current", native_seed_check=None, straw_geometry="approximate"):
     """own_states: the fit decides its hit states with the stock updaters (CADSHU, BkgANN, DriftANN) on every
     single-seed event, FitOK or not (T-VR3 yield); default: stock final states on FitOK tracks (T-VR2 F1).
     time_model: kalman_jax.fit_track time semantics; 'stock' also gives the seed-hit labels to fixed-state fits (the
@@ -140,10 +156,14 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     from . import kalman_jax as K, kkmaterial
     from .linefit_jax import DRIFT_KEYS, HIT_KEYS
     os.makedirs(outdir, exist_ok=True)
+    if straw_geometry not in ("approximate", "panel"):
+        raise ValueError("unknown straw geometry: " + str(straw_geometry))
+    if straw_geometry == "panel" and not (straw_axis or os.environ.get("F1_STRAWAXIS")):
+        raise ValueError("panel geometry requires straw alignment table")
     cond = hitreco.load_conditions(conditions)
     t0 = time.perf_counter()
     x0, H, X, ref, drift, ntrk = read_inputs(path, cond, settings, max_tracks, straw_axis or os.environ.get("F1_STRAWAXIS"),
-                                             fitok_only=not (own_states or all_fits))
+                                             fitok_only=not (own_states or all_fits), straw_geometry=straw_geometry)
     stockok = (ref["kl_status"].astype(np.int64) & FITOK) != 0
     native_meta = None
     if native_time_check is not None:
@@ -152,6 +172,14 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         from .nativetime import load_times
         keys = np.column_stack([ref["run"], ref["subrun"], ref["event"], np.zeros(ntrk, np.int64)])
         native_times, native_meta = load_times(native_time_check, path, keys)
+    seed_meta = None
+    if native_seed_check is not None:
+        if native_time_check is None or os.path.realpath(native_time_check) != os.path.realpath(native_seed_check):
+            raise ValueError("native seed requires native time from the same gate")
+        from .nativeseed import load_seed
+        native_x, native_cov, native_range, seed_meta = load_seed(native_seed_check, path, keys)
+        np.savez(os.path.join(outdir, "native_seed.npz"), keys=keys, parameters=native_x,
+                 covariance=native_cov, ranges=native_range, reconstructed_parameters=x0)
     t_read = time.perf_counter() - t0
     dj = {k: jnp.asarray(np.asarray(drift[k], np.float64)) for k in DRIFT_KEYS}
     ann = K.load_anns()
@@ -172,15 +200,24 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         fixed["constraint_time"] = native_times[:, None]
         np.savez(os.path.join(outdir, "native_time.npz"), keys=keys, constraint_time=native_times)
 
+    if seed_meta is not None:
+        fixed.update(seed_parameters=native_x[:, None, :], seed_covariance=native_cov[:, None, :, :],
+                     seed_range=native_range[:, None, :])
+
     def one(x, h, c, fx, maxniter):
+        seed_input = None if seed_meta is None else {"parameters": fx["seed_parameters"][0],
+            "covariance": fx["seed_covariance"][0], "range": fx["seed_range"][0]}
         cf, hist, good = K.fit_track(x, h, c, dj, stages, ann, fixed=None if own_states else fx, maxniter=maxniter,
                                      time_model=time_model, xing_activity=xing_activity,
-                                     time_legacy=time_legacy,
+                                     time_legacy=time_legacy, reference_model=reference_model,
+                                     crossing_time=crossing_time, seed_input=seed_input,
                                      constraint_time=fx["constraint_time"][0] if native_meta is not None else None)
         xt0, Ct0, _ = K.t0_piece(cf)
         return (xt0, Ct0, hist[0], hist[1], hist[2], hist[3], good, cf["xe"], cf["Ce"], cf["st"]["active"],
                 cf["st"]["lr"], cf["good_seed"], hist[4], hist[5], hist[6], hist[7], hist[8], hist[9], hist[10], hist[11], hist[12], hist[13],
-                cf["xact"])
+                cf["xact"], jnp.any(cf["reference_unsupported"]),
+                jnp.sum(cf.get("construction_unsupported", jnp.zeros_like(c["valid"]))),
+                jnp.sum(cf.get("xing_constructed", jnp.zeros_like(c["valid"]))))
 
     # two passes, exact: a vmapped while_loop runs every lane until the slowest converges, so one track at MaxNIter
     # makes the whole batch pay 11 iterations. Pass 1 caps at FAST_NITER; tracks that reached the cap in any stage
@@ -285,7 +322,7 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
         o2 = [np.asarray(a)[:nr] for a in o2]
         k = 0
         for io, redo, _ in items:
-            for j in range(23):
+            for j in range(len(o2)):
                 v = o2[j][k:k + len(redo)]
                 if j == 22:
                     full = np.zeros((len(redo), Mf), dtype=v.dtype)
@@ -311,8 +348,8 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
               "pass2_shape": stats.get("pass2_shape"), "total_fit_s": round(sum(stats["pass1_s"]) + sum(stats["pass2_s"]), 3),
               "refit_with_maxniter10": stats["redo"], "fast_niter": FAST_NITER, "bucket_tracks": {f"{a}x{b}": c for (a, b), c in btr.items()}, "n_compiles": len(shapes),
               "warm_fit_s": t_fit}
-    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce, fact, flr, gseed, dpmax, dmomf, sact, slr, smref, mterm, smomf, dmfb, mhist, shist, fxact = (
-        np.concatenate([o[i] for o in outs])[inv] for i in range(23))
+    xf, Cf, stat, chi2, ndof, niter, good, xe, Ce, fact, flr, gseed, dpmax, dmomf, sact, slr, smref, mterm, smomf, dmfb, mhist, shist, fxact, ref_unsupported, construction_unsupported, constructed_count = (
+        np.concatenate([o[i] for o in outs])[inv] for i in range(len(outs[0])))
     # KinematicLine parameters on the piece holding the t0 point (KalSeed::t0Segment / PiecewiseTrajectory::t0): the
     # POCA to the z axis, s1 along the track; the piece is the smoothed state at the last effect before s1
     N = H["valid"].shape[1]
@@ -326,9 +363,15 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
     Ck = np.einsum("tij,tjk,tlk->til", Jk, Cf, Jk)
     res = {"input": path, "n_tracks": ntrk, "material": material, "time_model": time_model, "xing_activity": xing_activity,
            "own_states": own_states, "all_fits": all_fits,
-           "seed_time_provenance": "native_ParameterHit_time_only" if native_meta is not None else (
+           "seed_time_provenance": "native_seed_and_explicit_ParameterHit_time" if seed_meta is not None else "native_ParameterHit_time_only" if native_meta is not None else (
                "reconstructed_from_saved_seed_and_final_candidates_not_native" if time_model == "stock" else "legacy_local_s"),
-           "native_time": native_meta, "stock_exact": False,
+           "native_time": native_meta, "stock_exact": False, "reference_model": reference_model,
+           "reference_unsupported_tracks": int(ref_unsupported.sum()), "crossing_time": crossing_time,
+           "native_seed": seed_meta, "straw_geometry": straw_geometry,
+           "construction_unsupported_tracks": int((construction_unsupported > 0).sum()),
+           "construction_unsupported_crossings": int(construction_unsupported.sum()),
+           "constructed_crossings": int(constructed_count.sum()),
+           "crossing_construction_scope": "seed-speed initial; uncaptured extension offsets reconstructed from F1 owner/prior hint; not native-exact" if crossing_time == "constructed" else "current-speed offsets",
            "env_f1": {k: v for k, v in sorted(os.environ.items()) if k.startswith("F1_")}, "time_legacy": list(time_legacy), "straw_axis": straw_axis or os.environ.get("F1_STRAWAXIS"), "read_s": t_read, "first_chunk_s": first,
            "timing": timing, "backend": jax.default_backend(),
            **res_piece, "final_status_counts": np.bincount(stat[:, -1], minlength=8).tolist(), "good_frac": float(good.mean()),
@@ -453,6 +496,12 @@ def run(path, outdir, conditions, settings="mc", max_tracks=None, chunk=512, mat
                                 if (~ours & sa & allx).any() else None,
                                 "ours_only_doca_q16_50_84": np.quantile(np.abs(doca_all)[ours & ~sa & allx], [.16, .5, .84]).tolist()
                                 if (ours & ~sa & allx).any() else None}
+    if crossing_time == "constructed":
+        np.savez(os.path.join(outdir, "construction_search.npz"), unsupported_count=construction_unsupported,
+                 constructed_count=constructed_count, run=ref["run"], subrun=ref["subrun"], event=ref["event"])
+    if reference_model != "previous":
+        np.savez(os.path.join(outdir, "reference_search.npz"), unsupported=ref_unsupported,
+                 subrun=ref["subrun"], event=ref["event"])
     if save_ids:
         np.savez(os.path.join(outdir, "ids.npz"), event_index=ref["event_index"], subrun=ref["subrun"],
                  event=ref["event"], good=good, stockok=stockok, stat=stat, niter=niter, chi2=chi2[:, -1],

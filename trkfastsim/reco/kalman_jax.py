@@ -562,6 +562,49 @@ def nearest_index(ranges, count, t):
     return jnp.where(t >= ranges[count, 1], count, idx).astype(jnp.int32)
 
 
+def reference_search_state(owner, mid, wdir, hint, max_moves=10):
+    """Analytic search state with distinct pointer and solved-piece identities, not native CA arithmetic."""
+    if max_moves < 0:
+        raise ValueError("max_moves must be nonnegative")
+    def nearest(t):
+        idx = nearest_index(owner["ranges"], owner["count"], t)
+        return jnp.where(t <= owner["ranges"][0, 0], 0, idx)
+
+    index = nearest(hint)
+
+    def solve(idx):
+        xx = owner["P"][idx]
+        s, _, c = straw_poca_batch(xx, {"mid": mid, "wdir": wdir})
+        t = xx[:, 4] + s / speed(xx[:, 5])
+        return t, jnp.isfinite(t) & (1 - c * c >= 1e-5)
+
+    time, usable = solve(index)
+    initial = (index, time, usable, jnp.ones_like(usable), jnp.zeros_like(usable), index, jnp.zeros_like(index))
+
+    def step(attempt, carry):
+        idx, t, ok, active, exhausted, solved, moves = carry
+        target = nearest(t)
+        changed = active & (target != idx)
+        idx = jnp.where(active, target, idx)
+        move = changed & ok
+        exhausted = move & (attempt == max_moves)
+        active = move & ~exhausted
+        nt, nu = solve(idx)
+        return (idx, jnp.where(active, nt, t), jnp.where(active, nu, ok), active, exhausted,
+                jnp.where(active, idx, solved), moves + active.astype(moves.dtype))
+
+    state = jax.lax.fori_loop(0, max_moves + 1, step, initial) if max_moves else initial
+    index, time, usable, _, exhausted, solved, moves = state
+    return {"index": index, "solution_index": solved, "time": time, "usable": usable,
+            "exhausted": exhausted, "moves": moves, "unsupported": ~usable | exhausted}
+
+
+def reference_search(owner, mid, wdir, hint, max_moves=10):
+    """Compatibility view of the analytic search; no hint fallback, hit retry or native arithmetic."""
+    state = reference_search_state(owner, mid, wdir, hint, max_moves)
+    return state["index"], state["time"], state["unsupported"]
+
+
 def seed_owner(x0, C0, t_begin, t_end, M):
     """Seed trajectory as an owned piecewise trajectory: one piece over the seed time range (KKFit::range)."""
     ranges = jnp.zeros((M + 1, 2)).at[0].set(jnp.stack([t_begin, t_end]))
@@ -600,6 +643,8 @@ def _iterate_time(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, dwt, tm,
     big = 1e12
     t_h = xe[:N, 4] + s_h / speed(xe[:N, 5])
     t_x = xe[N:, 4] + ce["s"] / speed(xe[N:, 5])
+    if "xing_offset" in tm:
+        t_x = xe[N:, 4] + (ce["s"] - kkmaterial.STRAW["wrad"]) / speed(xe[N:, 5]) + tm["xing_offset"]
     leg = tm.get("legacy", ())
     t_c = xe[0, 4] + hs["s_cons"] / speed(xe[0, 5]) if "cons" in leg else tm["t_cons"]
     cons = MOM_CONSTRAINT > 0
@@ -646,7 +691,7 @@ def _iterate_time(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, dwt, tm,
     # piece ownership in time: a crossing's boundary is its time (TOCA + wire radius / speed); the crossing itself
     # and every other effect belong to the piece holding their TOCA
     bnd = jnp.sort(jnp.where(inb, t_x, big))
-    toff = kkmaterial.STRAW["wrad"] / speed(xe[N:, 5])
+    toff = tm.get("xing_offset", kkmaterial.STRAW["wrad"] / speed(xe[N:, 5]))
     t_true = jnp.concatenate([t_h, t_x - toff, t_c[None]])
     pid_nat = jnp.searchsorted(bnd, t_true, side="right")
     xs_, Cs_ = Px[pid_nat[order]], PC[pid_nat[order]]
@@ -668,8 +713,30 @@ def _iterate_time(xe, Ce, h, crs, d, hs, xact, varscale, nsig, sxscale, dwt, tm,
         query = jnp.stack([tmin, tmax])
     inv = jnp.argsort(order)
     x, C = xs_[inv][:N + M], Cs_[inv][:N + M]
+    candidate = {"P": Px, "C": PC, "ranges": ranges, "count": count}
+    ref_unsupported = jnp.zeros(N + M, bool)
+    if tm.get("reference_model", "previous") != "previous":
+        model = tm["reference_model"]
+        mids = jnp.concatenate([h["mid"], crs["mid"]])
+        dirs = jnp.concatenate([h["wdir"], crs["wdir"]])
+        pi, _, ref_unsupported = reference_search(candidate, mids, dirs, t_true[:N + M],
+                                                 max_moves=10 if model == "search" else 0)
+        pid_nat = pid_nat.at[:N + M].set(pi)
+        x, C = Px[pi], PC[pi]
     xu, Cu = unbiased_hits(x[:N], C[:N], Hj, r, xe[:N], w)
+    trace = {}
+    if tm.get("trace", False):
+        trace = {"order": order, "ordering_time": t_all, "physical_time": jnp.concatenate([t_h, t_x, t_c[None]]),
+                 "reference_query_time": t_true, "is_material": isx, **{"eff_" + k: v for k, v in effs.items()},
+                 "bounds": jnp.stack([tmin, tmax]), "deweight": dw,
+                 "prior_parameters": jnp.stack([prior["xf"], prior["xb"]]),
+                 "prior_covariance": jnp.stack([prior["Cf"], prior["Cb"]]),
+                 "crossing_offset": toff, "crossing_transit": transit,
+                 "crossing_inbounds": inb,
+                 **{"crossing_" + k: ce[k] for k in ("doca", "docavar", "wall", "gas", "dirdot")}}
     return {"x": x, "C": C, "xu": xu, "Cu": Cu, "chi2": chi2, "ndof": ndof, "s_front": tmin, "s_back": tmax,
+            **({"trace": trace} if tm.get("trace", False) else {}),
+            "reference_unsupported": ref_unsupported,
             "xfront": Px[0], "Cfront": PC[0], "xback": Px[count], "Cback": PC[count], "avggap": avggap,
             "s_hit": s_h, "inbounds": inb, "xing": ce, "nact": jnp.sum(act), "pid": pid_nat[:N + M], "bnd": bnd,
             "owner": {"P": Px, "C": PC, "ranges": ranges, "count": count}, "query": query}
@@ -834,8 +901,19 @@ def in_detector(xe, s_hit, active, N):
     return jnp.all(ok | ~active)
 
 
+def construct_crossings(owner, xe, crs, offsets, constructed, unsupported, enabled):
+    """Freeze diagnostic extension offsets once, retaining unsupported construction searches."""
+    hint_s = straw_poca_batch(xe, crs)[0]
+    hint_t = xe[:, 4] + hint_s / speed(xe[:, 5])
+    pi, _, failed = reference_search(owner, crs["mid"], crs["wdir"], hint_t)
+    take = enabled & crs["valid"] & ~constructed
+    value = kkmaterial.STRAW["wrad"] / speed(owner["P"][pi, 5])
+    return (jnp.where(take, value, offsets), constructed | take, unsupported | (take & failed))
+
+
 def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None, time_model="legacy",
-              xing_activity="hit_or_doca", time_legacy=(), constraint_time=None):
+              xing_activity="hit_or_doca", time_legacy=(), constraint_time=None, reference_model="previous",
+              crossing_time="current", seed_input=None, trace=False):
     """Full schedule for one track. h: padded hit dict with 'valid'; crs: mid, wdir, valid, hit (index or -1).
     stages: dict of per-stage arrays (see stock_stages). fixed: optional dict active, lr, nulldv [N] that replaces the
     updaters in every stage (fit-only comparisons on stock hit states). Returns final pieces, states, status per stage.
@@ -847,7 +925,21 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None, time
     active) or 'doca' (diagnostic: the DOCA test alone). time_legacy: parts of the stock time model reverted to the
     legacy rule (TIME_PARTS; 'seedx': seed-fit crossings of extension-added hits kept), for leave-one-out arms.
     constraint_time: optional certified native ParameterHit time; changes only this immutable scalar in the stock
-    time model, not the reconstructed seed state or owner range. Full stock-exactness is not implied."""
+    time model, not the reconstructed seed state or owner range. Full stock-exactness is not implied.
+    reference_model: previous (unchanged), boundary (earlier-piece hint selection), or search (analytic piece
+    recomputation, at most ten moves); the last two are isolated stock-time diagnostics, not native-exact fits.
+    trace: default-off single-track operand history in cf['trace']; mask records by valid. The dedicated
+    single-target driver enforces the memory bound; vmapped capture requires an outer batch-size guard."""
+    if crossing_time not in ("current", "constructed"):
+        raise ValueError("unknown crossing_time: " + str(crossing_time))
+    if crossing_time != "current" and time_model != "stock":
+        raise ValueError("constructed crossing offsets require stock time model")
+    if seed_input is not None and (time_model != "stock" or constraint_time is None or "cons" in time_legacy):
+        raise ValueError("native seed requires stock time model and explicit constraint time")
+    if reference_model not in ("previous", "boundary", "search"):
+        raise ValueError("unknown reference_model: " + str(reference_model))
+    if reference_model != "previous" and time_model != "stock":
+        raise ValueError("reference diagnostics require stock time model")
     if time_model not in ("legacy", "stock"):
         raise ValueError("unknown time_model: " + str(time_model))
     if xing_activity not in ("hit_or_doca", "doca"):
@@ -857,12 +949,16 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None, time
     time_legacy = tuple(time_legacy)
     if constraint_time is not None and (time_model != "stock" or "cons" in time_legacy):
         raise ValueError("native constraint time requires stock time model without cons reversion")
+    if trace and (time_model != "stock" or FILTER != "cov"):
+        raise ValueError("iteration trace requires stock time model and covariance filter")
     hit_or = xing_activity == "hit_or_doca"
     stock_time = time_model == "stock"
     N, M = h["valid"].shape[0], crs["valid"].shape[0]
     if x0.shape[0] == 5:
         x0 = jnp.concatenate([x0, jnp.array([MOM])])
-    C0 = seed_covariance(x0)
+    if seed_input is not None:
+        x0 = seed_input["parameters"]
+    C0 = seed_covariance(x0) if seed_input is None else seed_input["covariance"]
     s_seed = straw_poca(x0, h["mid"], h["wdir"])[0]
     sv_ = h["valid"] & (h["inseed"] if "inseed" in h else True)
     s_cons = 0.5 * (jnp.min(jnp.where(sv_, s_seed, 1e12)) + jnp.max(jnp.where(sv_, s_seed, -1e12)))
@@ -877,7 +973,8 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None, time
               "s_hit": jnp.zeros(N), "xact": jnp.zeros(M, bool), "pid": jnp.zeros(N + M, jnp.int32),
               "bnd": jnp.full(M, 1e12), "dpmax": jnp.array(0.0), "dmomf": jnp.array(0.0),
               "smref": jnp.array(0.0), "mterm": jnp.array(0.0),
-              "mhist": jnp.zeros(16), "shist": jnp.full(16, -1)}
+              "mhist": jnp.zeros(16), "shist": jnp.full(16, -1),
+              "reference_unsupported": jnp.zeros(N + M, bool)}
     if stock_time:
         # KKFit::range: extrema of the initial seed hit and crossing times on the seed; ParameterHit at its mid
         v0 = speed(x0[5])
@@ -888,13 +985,29 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None, time
         t_seed = jnp.concatenate([t_sh, t_sx])
         tb, te = jnp.nanmin(t_seed), jnp.nanmax(t_seed)
         t_cons = 0.5 * (tb + te) if constraint_time is None else constraint_time
+        if seed_input is not None:
+            tb, te = seed_input["range"][0], seed_input["range"][1]
         carry0["owner"] = seed_owner(x0, C0, tb, te, M)
+        if crossing_time == "constructed":
+            carry0["xing_offset"] = jnp.full(M, kkmaterial.STRAW["wrad"] / v0)
+            carry0["xing_constructed"] = sx_
+            carry0["construction_unsupported"] = jnp.zeros(M, bool)
+
+    if trace:
+        from . import fittrace
+        trace_empty = fittrace.empty(N, M, stages["T"].shape[0], maxniter)
+        carry0["trace_buffer"] = trace_empty
 
     def stage_fn(c, sg):
         # goodFit gate before the extension (and the schedule stops after any unusable status)
         gate_fail = sg["gate"] & ~in_detector(c["xe"], c["s_hit"], c["st"]["active"], N)
         stop = c["stop"] | gate_fail
         good_seed = c["good_seed"] & ~(sg["gate"] & gate_fail)
+        if crossing_time == "constructed":
+            offsets, constructed, unsupported = construct_crossings(
+                c["owner"], c["xe"][N:], crs, c["xing_offset"], c["xing_constructed"],
+                c["construction_unsupported"], sg["gate"] & ~stop)
+            c = dict(c, xing_offset=offsets, xing_constructed=constructed, construction_unsupported=unsupported)
         st2, dvar, _ = update_states(c["st"], c["xu"], c["Cu"], h, d, sg, ann)
         if fixed is not None:
             # null hits take the variance of the stage's flag (NullDriftVar only from the 3rd CHDRIFTEXT stage), unless
@@ -929,7 +1042,10 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None, time
 
         def body(ic):
             it, cc = ic
-            tm = {"t_cons": t_cons, "owner": cc["owner"], "legacy": time_legacy} if stock_time else None
+            tm = {"t_cons": t_cons, "owner": cc["owner"], "legacy": time_legacy,
+                  "reference_model": reference_model, "trace": trace} if stock_time else None
+            if crossing_time == "constructed":
+                tm["xing_offset"] = cc["xing_offset"]
             o = iterate_once(cc["xe"], cc["Ce"], h, crs, d, hs, xact, vs, sg["sx_nsig"], sxs, cc["ref"], dwt, tm=tm)
             if stock_time:
                 # Track::setStatus: old pieces nearest the candidate front/back piece range midpoints
@@ -960,6 +1076,23 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None, time
                       shist=cc["shist"].at[jnp.minimum(it, 15)].set(status))
             if stock_time:
                 cn["owner"] = jax.tree_util.tree_map(take, o["owner"], cc["owner"])
+                valid_effect = jnp.concatenate([h["valid"], crs["valid"]])
+                cn["reference_unsupported"] = cc["reference_unsupported"] | (ok & o["reference_unsupported"] & valid_effect)
+            if trace:
+                record = dict(o["trace"], valid=~stop, iteration=it, status=status, swapped=ok & ~stop,
+                    chi2=o["chi2"], ndof=o["ndof"], previous_cpn=cc["cpn"], cpn=cpn,
+                    endpoint_chi2=jnp.stack([chif, chib]), avggap=o["avggap"],
+                    reference_parameters=cc["xe"], reference_covariance=cc["Ce"], reference_index=cc["pid"],
+                    owner_parameters=ow["P"], owner_covariance=ow["C"], owner_ranges=ow["ranges"], owner_count=ow["count"],
+                    candidate_parameters=o["owner"]["P"], candidate_covariance=o["owner"]["C"],
+                    candidate_ranges=o["owner"]["ranges"], candidate_count=o["owner"]["count"],
+                    next_reference_index=o["pid"], query=o["query"], status_reference_index=ri,
+                    status_reference_parameters=jnp.stack([sref["xf"], sref["xb"]]),
+                    status_reference_covariance=jnp.stack([sref["Cf"], sref["Cb"]]),
+                    hit_active=hs["active"], hit_lr=hs["lr"], crossing_active=xact)
+                if set(record) != set(cc["trace_buffer"]):
+                    raise ValueError("iteration trace schema mismatch")
+                cn["trace_buffer"] = {k: v.at[it].set(record[k].astype(v.dtype)) for k, v in cc["trace_buffer"].items()}
             return it + 1, cn
 
         def cond(ic):
@@ -968,16 +1101,23 @@ def fit_track(x0, h, crs, d, stages, ann, dwt=1e6, maxniter=10, fixed=None, time
 
         cs = dict(c, st=st2, dvar=dvar, xact=xact, dpmax=jnp.array(0.0), dmomf=jnp.array(0.0), smref=jnp.array(0.0),
                   mterm=jnp.array(0.0), mhist=jnp.zeros(16), shist=jnp.full(16, -1))
+        if trace:
+            cs["trace_buffer"] = trace_empty
         _, cn = jax.lax.while_loop(cond, body, (jnp.array(0), cs))
         cn["stop"] = stop | (cn["status"] >= LOWNDOF)
         cn["good_seed"] = good_seed
         keep = lambda a, b: jax.tree_util.tree_map(lambda u, v: jnp.where(stop, v, u), a, b)
         out = keep(cn, dict(c, stop=stop, good_seed=good_seed))
-        return out, (out["status"], out["chi2"], out["ndof"], out["niter"], cn["dpmax"], cn["dmomf"],
-                     out["st"]["active"], out["st"]["lr"], cn["smref"], cn["mterm"],
-                     jnp.sqrt(out["ref"]["Cf"][5, 5]), out["ref"]["xf"][5] - out["ref"]["xb"][5], cn["mhist"], cn["shist"])
+        history = (out["status"], out["chi2"], out["ndof"], out["niter"], cn["dpmax"], cn["dmomf"],
+                   out["st"]["active"], out["st"]["lr"], cn["smref"], cn["mterm"],
+                   jnp.sqrt(out["ref"]["Cf"][5, 5]), out["ref"]["xf"][5] - out["ref"]["xb"][5], cn["mhist"], cn["shist"])
+        return out, (history, cn["trace_buffer"]) if trace else history
 
     cf, hist = jax.lax.scan(stage_fn, carry0, stages)
+    if trace:
+        hist, records = hist
+        cf.pop("trace_buffer")
+        cf["trace"] = records
     good = (cf["status"] < LOWNDOF) & ~cf["stop"] & in_detector(cf["xe"], cf["s_hit"], cf["st"]["active"], N)
     return cf, hist, good
 

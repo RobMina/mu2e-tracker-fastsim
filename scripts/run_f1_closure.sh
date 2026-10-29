@@ -40,6 +40,11 @@ for arm in "$@"; do
       xstock) envs+=(F1_XACT=stock);;
       pstock) envs+=(F1_XACT=stock F1_PATHS=stock);;
       gasp109) envs+=(F1_GASFRAC=p109);;
+      refboundary) opt="$opt --reference-model boundary";;
+      refsearch) opt="$opt --reference-model search";;
+      panelgeom) opt="$opt --straw-geometry panel";;
+      xconstructed) opt="$opt --crossing-time constructed";;
+      seednative) opt="$opt --native-seed-check ${F1C_NATIVE_CHECK:?seed arm needs F1C_NATIVE_CHECK}";;
       native) opt="$opt --native-time-check ${F1C_NATIVE_CHECK:?native arm needs F1C_NATIVE_CHECK}";;
       L*) opt="$opt --time-legacy ${sfx#L}";;
       *) echo "unknown suffix $sfx in $arm"; exit 2;;
@@ -50,7 +55,7 @@ for arm in "$@"; do
     exit 2
   fi
   mkdir "$OUT/$arm"
-  (cd "$HERE" && sha256sum trkfastsim/reco/{kalman_jax,vr_f1,cli,kkmaterial,nativetime}.py scripts/run_f1_closure.sh) > "$OUT/$arm/source.sha256"
+  (cd "$HERE" && sha256sum trkfastsim/reco/{kalman_jax,vr_f1,cli,kkmaterial,nativetime,nativeseed,strawaxis,nativegeometry}.py scripts/run_f1_closure.sh) > "$OUT/$arm/source.sha256"
   sha256sum "$MU2E_SEARCH_PATH/Offline/Mu2eKinKal/data/"Train{BkgSeed,BkgFinal,Sign_Stage0,Cluster_Stage0,Sign_Stage1,Cluster_Stage1}.dat > "$OUT/$arm/ann.sha256"
   printf '%s\n' "host=$(hostname -s)" "input=$INPUT" "conditions=$COND" "options=$opt ${F1C_EXTRA:-}" "environment=${envs[*]}" > "$OUT/$arm/command.txt"
   echo "== $arm [$opt ${envs[*]}] $(date -Is)"

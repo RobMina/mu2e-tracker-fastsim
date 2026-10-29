@@ -452,6 +452,13 @@ def main(argv=None):
                    "activity: hit_or_doca (p109 KKStrawXing::active) or doca (diagnostic: the DOCA test alone)")
     g.add_argument("--time-legacy", default="", help="comma list of stock-time-model parts reverted to the legacy "
                    "rule (leave-one-out arms): cons, prior, bounds, statusref, seedx, transit")
+    g.add_argument("--straw-geometry", choices=["approximate", "panel"], default="approximate",
+                   help="opt-in inferred shared panel frame; requires straw-axis table, not native-exact")
+    g.add_argument("--reference-model", choices=["previous", "boundary", "search"], default="previous",
+                   help="opt-in stock-time reference diagnostic: earlier boundary or analytic piece search")
+    g.add_argument("--crossing-time", choices=["current", "constructed"], default="current",
+                   help="opt-in fixed construction-offset diagnostic; extension reference remains reconstructed")
+    g.add_argument("--native-seed-check", help="native seed parameters/covariance/range; requires same native-time gate")
     g.add_argument("--native-time-check", help="successful full stock_iteration_check.json: use only the certified "
                    "native immutable constraint time, keeping other stock-time-model operands unchanged")
     g.add_argument("--all-fits", action="store_true", help="fixed stock states on every single-seed fit, FitOK or "
@@ -518,8 +525,9 @@ def main(argv=None):
         from . import vr_f1
         return vr_f1.run(a.input, a.outdir, a.conditions, a.settings, a.max_tracks, a.chunk, not a.no_material, a.straw_axis,
                          a.own_states, save_tracks=a.save_tracks, time_model=a.time_model, save_ids=a.save_yield_ids,
-                         all_fits=a.all_fits, xing_activity=a.xing_activity,
-                         time_legacy=tuple(x for x in a.time_legacy.split(",") if x), native_time_check=a.native_time_check)
+                         all_fits=a.all_fits, xing_activity=a.xing_activity, reference_model=a.reference_model,
+                         time_legacy=tuple(x for x in a.time_legacy.split(",") if x), native_time_check=a.native_time_check,
+                         crossing_time=a.crossing_time, native_seed_check=a.native_seed_check, straw_geometry=a.straw_geometry)
     if a.cmd == "vr3":
         return vr3(a.inputs, a.outdir, a.conditions, a.settings, a.niter)
     if a.cmd == "vr2":

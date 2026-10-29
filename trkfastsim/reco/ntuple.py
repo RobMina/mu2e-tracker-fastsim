@@ -411,9 +411,25 @@ def compute(tb, only_good=True):
         nx = xv.sum(1).astype(np.int64)
         f = lambda a: np.asarray(a)[xv]
         xpl, xpa, xla, xst = _strawid(X["sid"])
-        hashit, hidx = _straw_lookup(xpl * 6 * 96 + xpa * 96 + xst, xv, plane * 6 * 96 + panel * 96 + straw, hv)
-        hact = np.take_along_axis(act, hidx, 1) & hashit
-        hdrift = hact & (np.abs(np.take_along_axis(state, hidx, 1)) == 1)
+        if "hit" in X:
+            hidx = np.asarray(X["hit"])
+            if hidx.shape != xv.shape or hidx.dtype.kind not in "iu":
+                raise ValueError("crossing hit associations must be integer slots matching crossing shape")
+            if np.any(xv & ((hidx < -1) | (hidx >= tb["hvalid"].shape[1]))):
+                raise ValueError("crossing hit association outside original padded hit block")
+            safe = np.where(xv & (hidx >= 0), hidx, 0)
+            original_valid, original_state, original_sid = sel(tb["hvalid"]), sel(tb["state"]), sel(tb["sid"])
+            hashit = xv & (hidx >= 0)
+            if np.any(hashit & (~np.take_along_axis(original_valid, safe, 1)
+                               | (np.take_along_axis(original_sid, safe, 1) != X["sid"]))):
+                raise ValueError("crossing association must reference a valid hit on the same straw")
+            associated_state = np.take_along_axis(original_state, safe, 1)
+            hact = hashit & (associated_state > -2)
+            hdrift = hact & (np.abs(associated_state) == 1)
+        else:
+            hashit, hidx = _straw_lookup(xpl * 6 * 96 + xpa * 96 + xst, xv, plane * 6 * 96 + panel * 96 + straw, hv)
+            hact = np.take_along_axis(act, hidx, 1) & hashit
+            hdrift = hact & (np.abs(np.take_along_axis(state, hidx, 1)) == 1)
         out["trkmats"] = {"active": f(X["active"].astype(bool)), "hashit": f(hashit), "activehit": f(hact),
                           "drifthit": f(hdrift), "plane": f(xpl), "panel": f(xpa), "layer": f(xla), "straw": f(xst),
                           "doca": f(X["doca"]), "docavar": f(X["docavar"]), "radlen": f(X["radlen"]),

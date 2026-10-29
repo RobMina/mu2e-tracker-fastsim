@@ -1,0 +1,16 @@
+# Unfiltered KPP data digis and stock KKLine reference for all-event autonomous reconstruction checks.
+#include "reco_data_vst.fcl"
+services.GeometryService.inputFile : "Offline/Mu2eG4/geom/geom_common_extracted_v04.txt"
+services.TFileService.fileName : "tracks_ref_data_autonomous.root"
+physics.analyzers.trkdump : {
+  module_type : StrawHitTableDumper
+  ProtonBunchTimeTag : @local::physics.producers.makeSH.ProtonBunchTimeTag
+  DumpTracks : true
+}
+physics.producers.KKLine.KKFitSettings.UseCaloCluster : false
+physics.producers.KKLine.ModuleSettings.SaveAllFits : true
+physics.RecoPath : [ PBTFSD, makeSH, makePH, makeSTH, flagPH, SimpleTimeCluster, LineFinder, KKLine ]
+physics.trigger_paths : [ RecoPath ]
+physics.DumpPath : [ trkdump ]
+physics.end_paths : [ DumpPath ]
+outputs : {}

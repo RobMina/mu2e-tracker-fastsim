@@ -76,6 +76,7 @@ def build_parser():
             sp.add_argument("--no-offaxis", action="store_true", help="with --library: in-straw secondaries only")
             sp.add_argument("--offaxis-plane-bin", type=int, default=6,
                             help="off-axis draw: planes per plane-extent bin of the matching key (0 = no plane matching)")
+            sp.add_argument("--offaxis-topology-anchor", action="store_true", help="opt-in donor topology anchor; requires buildlib --topology")
             sp.add_argument("--offaxis-edge-anchor", action="store_true",
                             help="off-axis paste: steps outside the library muon's planes anchor on the fast muon's first/last plane (opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
@@ -170,6 +171,7 @@ def build_parser():
             sp.add_argument("--seed", type=int, default=1)
             sp.add_argument("--splits", default="1,2,4", help="sub-step counts to test, comma-separated")
         if name == "buildlib":
+            sp.add_argument("--topology", action="store_true", help="retain donor plane topology for placement diagnostics (opt-in)")
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
             sp.add_argument("--format", type=int, default=2, choices=[1, 2], help="library format (2: straw-local placement)")
         if name in ("v1compare", "worldcheck", "msccheck", "stepcheck", "fatecheck", "slowcheck", "survivalcheck", "surfcheck"):

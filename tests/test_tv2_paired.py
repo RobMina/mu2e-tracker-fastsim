@@ -224,6 +224,11 @@ def test_occupancy_threshold_uses_full_covariance_and_labels_paired_approximatio
     r = TV._thresholds(res)
     assert not r[key]["certifying"] and r[key]["pass"] is None
     assert "independent-arm approximation" in r[key]["interpretation"]
+    res["panel_occupancy"]["cross_arm_covariance_included"] = True
+    r = TV._thresholds(res)
+    assert r[key]["certifying"] and not r[key]["pass"]
+    res["panel_occupancy"]["chi2ndf_covariance"] = 1.0
+    assert TV._thresholds(res)[key]["pass"]
 
 
 def test_run_paired_uses_influence_error_for_headline_yield(monkeypatch, tmp_path):
@@ -233,8 +238,10 @@ def test_run_paired_uses_influence_error_for_headline_yield(monkeypatch, tmp_pat
     def ntuple(paths, sel):
         counts = np.array([0, 1, 2, 3]) * (2 if paths == ["f"] else 1)
         n = int(counts.sum())
-        out = {"key": keys, "ntrk": counts, "nactive": np.full(n, 20.), "tfile": np.zeros(n)}
-        out.update({k: np.ones(n) for k in ("chi2ndf", "fitcon", "dx", "dy", "dt", "dang", "xrank", "xfile")})
+        out = {"key": keys, "ntrk": counts, "nactive": np.full(n, 20.), "tfile": np.zeros(n), "tkey": np.repeat(keys, counts),
+               "file_subruns": [np.array([[1, 1], [1, 2]])]}
+        out.update({k: np.ones(n) for k in ("chi2ndf", "fitcon", "dx", "dy", "dt", "dang", "xrank")})
+        out["xfile"] = np.zeros(n, dtype=int)
         return out
     monkeypatch.setattr(TV, "_selected", selected)
     monkeypatch.setattr(TV, "_ntuple", ntuple)
@@ -266,3 +273,51 @@ def test_paired_selected_rate_error_includes_reference_fluctuations():
     # Influence vector [-1, -1, 1, 1] / Ng, not sqrt(fast-only + G4-only) / Ng.
     assert r["selected_rate_err"] == 1
     assert r["tracks_per_selected_event_err"] == 0
+
+
+@pytest.mark.parametrize("bad", [[[1, 1, 2**24]], [[1, 2**24, 1]], [[2**15, 1, 1]],
+                                  [[65537, 1, 1]], [[1, -1, 1]], [[1, 1, 1.5]], [[1, 1, np.nan]]])
+def test_packed_event_identity_rejects_aliases_and_invalid_fields(bad):
+    with pytest.raises(ValueError, match="packed bounds"):
+        TV._keyid_rows(bad)
+    with pytest.raises(ValueError, match="packed bounds"):
+        TV._keyid(bad)
+
+
+def test_packed_event_identity_maximum_and_empty():
+    assert TV._keyid_rows([[2**15-1, 2**24-1, 2**24-1]]).item() == np.iinfo(np.int64).max
+    assert len(TV._keyid_rows(np.empty((0, 3), dtype=int))) == 0
+    with pytest.raises(ValueError, match="numeric"):
+        TV._keyid_rows([1, 2, 3])
+
+
+def test_width_error_excludes_empty_groups_and_refuses_invalid_deletions():
+    x = np.linspace(-1, 1, 20)
+    fn = lambda v: TV._width(v)[0]
+    for ng in (1, 2, 20):
+        r, e = TV._jack_ratio(fn, x, np.zeros(len(x)), x, np.zeros(len(x)), ng)
+        assert r == 0 and np.isnan(e)
+    x = np.r_[np.linspace(-1, 1, 20), np.linspace(-2, 2, 20)]
+    g = np.repeat([0, 1], 20)
+    assert TV._jack_ratio(fn, x, g, x, g, 2) == TV._jack_ratio(fn, x, g, x, g, 20) == (0, 0)
+    g = np.r_[np.zeros(37), 1, 2, 2]
+    assert np.isnan(TV._jack_ratio(fn, x, g, x, g, 3)[1])
+
+
+def test_width_group_matching_invariant_to_file_order():
+    x = np.r_[np.linspace(-1, 1, 20), np.linspace(-2, 2, 20)]
+    g = np.repeat([0, 1], 20)
+    nf = {"xfile": g, "file_subruns": [np.array([[1, 1], [1, 2]]), np.array([[1, 3], [2, 1]])]}
+    nr = {"xfile": 1-g, "file_subruns": nf["file_subruns"][::-1]}
+    gf, gr, ng, meta = TV._width_groups(nf, nr, True)
+    assert meta["available"] and meta["reference_file_to_fast_group"] == [1, 0]
+    assert np.array_equal(gf, gr) and ng == 2
+    assert TV._jack_ratio(lambda v: TV._width(v)[0], x, gf, x, gr, ng) == (0, 0)
+
+
+@pytest.mark.parametrize("blocks", [[[[1, 1]], [[1, 1]]], [[], [[1, 1]]], [[[1, 1], [1, 2]]]])
+def test_width_unmatched_or_overlapping_blocks_are_unavailable(blocks):
+    nf = {"xfile": np.array([0, 1]), "file_subruns": [np.array([[1, 1]]), np.array([[1, 2]])]}
+    nr = {"xfile": np.array([0, 0]), "file_subruns": [np.array(b).reshape(-1, 2) for b in blocks]}
+    _, _, ng, meta = TV._width_groups(nf, nr, True)
+    assert ng == 0 and not meta["available"]

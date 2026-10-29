@@ -16,7 +16,7 @@ Residual widths carry jackknife errors over input files and a split by crossing 
 --paired (both arms on the same CRY primaries, e.g. g4ref_v2 and the fast sim on its gen stream): the yield difference
 split into (a) events selected in one arm only and (b) the track-count difference of events selected in both.
 Paired mode checks equal subrun exposure and livetime, but these metadata do not prove generated event identities.
-Paired occupancy uses an independent-arm covariance approximation, not a certification statistic.
+Paired occupancy includes cross-arm event covariance, conditional on the fixed secondary library.
 The thresholds block lists every row against its agreed threshold.
 
     tv2compare FAST_NTS [...] --compare G4_NTS [...] --steps FAST_TABLES [...] --steps-ref G4_SGSTEPS [...]
@@ -31,7 +31,7 @@ import uproot
 
 from mu2efastsim import stats
 from .. import tables as T
-from . import occupancy as OCC
+from . import occupancy as OCC, clusterband as CB
 
 TREE = "EventNtuple/ntuple"
 SID_OUTER = 4
@@ -50,7 +50,7 @@ def _selected(step_paths, with_nmax=False):
     s = s[(s.isprim == 1) & (s.pdg.abs() == 13)]
     f = T.trk_filter(s)
     sel = f[f.pass_trk].reset_index()
-    k = _keyid_rows(sel[T.KEY].to_numpy().astype(np.int64))
+    k = _keyid_rows(sel[T.KEY].to_numpy())
     o = np.argsort(k)
     if with_nmax:
         return k[o], T.livetime(step_paths), sel.nmax.to_numpy()[o]
@@ -58,13 +58,19 @@ def _selected(step_paths, with_nmax=False):
 
 
 def _keyid(k):
-    """(N,3) run/subrun/event -> one int64 key per event (subrun < 2^24, event < 2^24)."""
-    k = np.asarray(k, np.int64)
-    return np.unique((k[:, 0] << 48) | (k[:, 1] << 24) | k[:, 2])
+    """Unique packed event IDs, with the representable field bounds checked."""
+    return np.unique(_keyid_rows(k))
 
 
 def _keyid_rows(k):
-    k = np.asarray(k, np.int64)
+    """Pack nonnegative run < 2^15, subrun/event < 2^24 into signed int64."""
+    k = np.asarray(k)
+    if k.ndim != 2 or k.shape[1] != 3 or k.dtype.kind not in "iuf":
+        raise ValueError("event identities require a numeric (N,3) array")
+    if (not np.isfinite(k).all() or np.any(k != np.floor(k)) or np.any(k < 0)
+            or np.any(k >= np.array([2**15, 2**24, 2**24]))):
+        raise ValueError("event identity outside packed bounds: run < 2^15, subrun/event < 2^24")
+    k = k.astype(np.int64)
     return (k[:, 0] << 48) | (k[:, 1] << 24) | k[:, 2]
 
 
@@ -126,13 +132,14 @@ def _ntuple(paths, sel):
     br = ["evtinfo/run", "evtinfo/subrun", "evtinfo/event", "trk/trk.status", "trk/trk.nactive", "trk/trk.chisq",
           "trk/trk.ndof", "trk/trk.fitcon", "trk/trk.nhits"]
     out = {k: [] for k in ("key", "ntrk", "nactive", "chi2ndf", "fitcon", "nhits", "dx", "dy", "dt", "dang", "pt", "xrank",
-                           "xfile", "tfile")}
-    seen = []
+                           "xfile", "tfile", "tkey")}
+    seen, file_subruns = [], []
     for ifile, path in enumerate(T.expand(paths)):
         t = uproot.open(path)[TREE]
         a = t.arrays(br, library="ak")
-        keys = np.stack([ak.to_numpy(a[f"evtinfo/{k}"]).astype(np.int64) for k in ("run", "subrun", "event")], 1)
+        keys = np.stack([ak.to_numpy(a[f"evtinfo/{k}"]) for k in ("run", "subrun", "event")], 1)
         seen.append(_keyid_rows(keys))
+        file_subruns.append(np.unique(keys[:, :2].astype(np.int64), axis=0))
         m = np.isin(seen[-1], sel)
         st = a["trk/trk.status"][m]
         good = st > 0
@@ -141,6 +148,7 @@ def _ntuple(paths, sel):
         for k, b in (("nactive", "nactive"), ("fitcon", "fitcon"), ("nhits", "nhits")):
             out[k].append(ak.to_numpy(ak.flatten(a[f"trk/trk.{b}"][m][good])))
         out["tfile"].append(np.full(len(out["nactive"][-1]), ifile))
+        out["tkey"].append(np.repeat(_keyid_rows(keys)[m], ak.to_numpy(ak.sum(good, axis=1))))
         out["chi2ndf"].append(ak.to_numpy(ak.flatten((a["trk/trk.chisq"] / np.maximum(a["trk/trk.ndof"], 1))[m][good])))
         reco, mc = t["trksegs"].array()[m], t["trksegsmc"].array()[m]
         rp, rm, rt, tp, tm, tt, xr = _pairs_at(reco, mc, SID_OUTER)
@@ -161,7 +169,9 @@ def _ntuple(paths, sel):
             out["xrank"].append(xr)
             out["xfile"].append(np.full(len(xr), ifile))
     _validate_coverage(np.concatenate(seen) if seen else [], sel, "EventNtuple")
-    return {k: (np.concatenate(v) if v else np.zeros(0)) for k, v in out.items()}
+    result = {k: (np.concatenate(v) if v else np.zeros(0)) for k, v in out.items()}
+    result["file_subruns"] = file_subruns
+    return result
 
 
 def _pairs_at(reco_segs, mc_segs, sid):
@@ -216,7 +226,7 @@ def _trkhits(paths, sel):
     cols = {"tot": [], "edep": [], "state": [], "rel": [], "len": [], "plane": []}
     for path in T.expand(paths):
         t = uproot.open(path)[TREE]
-        keys = np.stack([t[f"evtinfo/{k}"].array(library="np").astype(np.int64) for k in ("run", "subrun", "event")], 1)
+        keys = np.stack([t[f"evtinfo/{k}"].array(library="np") for k in ("run", "subrun", "event")], 1)
         m = np.isin(_keyid_rows(keys), sel)
         h = t["trkhits"].array()[m]
         hm = t["trkhitsmc"].array()[m]
@@ -236,7 +246,7 @@ def _hits(paths, sel):
     seen = []
     for ifile, path in enumerate(T.expand(paths)):
         a = uproot.open(path)["trkdump/events"].arrays(["run", "subrun", "event", "d_sid", "d_tdc0", "d_tot0"], library="ak")
-        keys = np.stack([ak.to_numpy(a[k]).astype(np.int64) for k in ("run", "subrun", "event")], 1)
+        keys = np.stack([ak.to_numpy(a[k]) for k in ("run", "subrun", "event")], 1)
         seen.append(_keyid_rows(keys))
         m = np.isin(seen[-1], sel)
         nd = ak.to_numpy(ak.num(a.d_sid[m]))
@@ -259,19 +269,50 @@ def _band_or_none(fast, ref, min_ref=100):
     return stats.ratio_band(fast, ref, min_ref=min_ref)["max_abs_dev_minus_2sigma"]
 
 
+def _width_groups(nf, nr, paired):
+    """Assign paired file blocks only when their complete observed subrun sets match."""
+    if not paired:
+        ng = max(2, min(len(nf["file_subruns"]), len(nr["file_subruns"])))
+        return nf["xfile"], nr["xfile"], ng, {"available": True, "method": "file-index blocks, independent arms"}
+    blocks = []
+    for data in (nf, nr):
+        arm = [frozenset(map(tuple, keys)) for keys in data["file_subruns"]]
+        seen = set()
+        for block in arm:
+            if not block or seen.intersection(block):
+                return nf["xfile"], nr["xfile"], 0, {"available": False, "reason": "empty or overlapping ntuple subrun blocks"}
+            seen.update(block)
+        blocks.append(arm)
+    if not blocks[0] or set(blocks[0]) != set(blocks[1]):
+        return nf["xfile"], nr["xfile"], 0, {"available": False, "reason": "ntuple subrun partitions do not match"}
+    ids = {block: i for i, block in enumerate(blocks[0])}
+    mapping = np.array([ids[block] for block in blocks[1]], dtype=np.int64)
+    gr = mapping[np.asarray(nr["xfile"], dtype=np.int64)]
+    return nf["xfile"], gr, len(ids), {"available": True, "method": "matched disjoint observed (run,subrun) file blocks",
+                                     "groups": len(ids), "reference_file_to_fast_group": mapping.tolist()}
+
+
 def _jack_ratio(fn, xf, gf, xr, gr, ng):
-    """fn(x_fast) / fn(x_ref) - 1 with a delete-one-group jackknife error (groups = input-file index mod ng)."""
+    """Ratio with delete-one-nonempty-block errors; every deletion must remain usable."""
     a, b = fn(xf), fn(xr)
     if not (np.isfinite(a) and np.isfinite(b)) or b == 0:
         return float("nan"), float("nan")
+    ratio = float(a / b - 1)
+    if ng < 2:
+        return ratio, float("nan")
+    gf, gr = np.asarray(gf) % ng, np.asarray(gr) % ng
+    active = np.union1d(gf, gr)
+    if len(active) < 2:
+        return ratio, float("nan")
     rk = []
-    for k in range(ng):
-        fa, fb = fn(xf[gf % ng != k]), fn(xr[gr % ng != k])
-        if np.isfinite(fa) and np.isfinite(fb) and fb:
-            rk.append(fa / fb)
+    for k in active:
+        fa, fb = fn(xf[gf != k]), fn(xr[gr != k])
+        if not (np.isfinite(fa) and np.isfinite(fb)) or fb == 0:
+            return ratio, float("nan")
+        rk.append(fa / fb)
     rk = np.array(rk)
     g = len(rk)
-    return float(a / b - 1), (float(np.sqrt((g - 1) / g * ((rk - rk.mean()) ** 2).sum())) if g > 1 else float("nan"))
+    return ratio, float(np.sqrt((g - 1) / g * ((rk - rk.mean()) ** 2).sum()))
 
 
 def _per_key(keys, vals, q):
@@ -413,7 +454,7 @@ def _thresholds(res):
             rows[f"T-V2 {k} binned ratio (minus 2 sigma)"] = [res[f"{k}_band"], None, 0.03, band_ok(res[f"{k}_band"], 0.03)]
         po = res["panel_occupancy"]
         cov_score = po.get("chi2ndf_covariance", float("nan"))
-        cov_available = po.get("covariance_rank", 0) > 0 and not np.isnan(cov_score)
+        cov_available = po.get("available", True) and po.get("covariance_rank", 0) > 0 and not np.isnan(cov_score)
         occupancy_rows = {
             "T-V2 panel occupancy full covariance": [cov_score, None, 1.5,
                  cov_available and cov_score <= 1.5 and po["panels_beyond_5sigma"] == 0],
@@ -423,17 +464,29 @@ def _thresholds(res):
                  po["chi2ndf_poisson"] <= 1.5]}
         rows.update(occupancy_rows)
     out = {k: {"value": v[0], "err": v[1], "threshold": v[2], "pass": bool(v[3])} for k, v in rows.items()}
+    for k in ("dx_mm", "dy_mm", "dang_mrad", "dt_ns"):
+        row = out[f"T-V3 TT_Outer width {k}"]
+        row["certifying"] = bool(np.isfinite(row["err"]))
+        if not row["certifying"]:
+            row["within_threshold_diagnostic"], row["pass"] = row["pass"], None
+            row["interpretation"] = "width uncertainty unavailable; point estimate only"
+    for key, row in out.items():
+        if "binned ratio" in key:
+            row["within_threshold_diagnostic"], row["pass"] = row["pass"], None
+            row["certifying"] = False
+            row["interpretation"] = "legacy independent-entry band; consult event_clustered; not simultaneous coverage"
     if "digis_per_event" in res:
         for key in occupancy_rows:
-            certifying = "full covariance" in key and cov_available and not res.get("paired", False)
+            paired_ok = not res.get("paired", False) or po.get("cross_arm_covariance_included", False)
+            certifying = "full covariance" in key and cov_available and paired_ok
             out[key]["certifying"] = certifying
             if not certifying:
                 out[key]["within_threshold_diagnostic"] = out[key]["pass"]
                 out[key]["pass"] = None
             out[key]["interpretation"] = (
                 "independent-arm approximation; paired cross-arm covariance missing; not certification"
-                if res.get("paired", False) else
-                "full panel covariance" if certifying else "diagnostic only; no covariance-based certification")
+                if not paired_ok else
+                "full event covariance; fixed-library conditional inference" if certifying else "diagnostic only; no covariance-based certification")
     return out
 
 
@@ -448,8 +501,8 @@ def run(inputs, outdir, compare=None, steps=None, steps_ref=None, hits=None, hit
     sel_r, lt_r, nmax_r = _selected(steps_ref, with_nmax=True)
     exposure = _paired_exposure(steps, steps_ref, lt_f, lt_r) if paired else None
     nf, nr = _ntuple(inputs, sel_f), _ntuple(compare, sel_r)
-    ng = max(2, min(len(T.expand(inputs)), len(T.expand(compare))))
-    res = {"paired": bool(paired), "livetime_s": [lt_f, lt_r], "selected_events": [int(len(sel_f)), int(len(sel_r))],
+    gf, gr, ng, width_groups = _width_groups(nf, nr, paired)
+    res = {"paired": bool(paired), "width_jackknife_groups": width_groups, "livetime_s": [lt_f, lt_r], "selected_events": [int(len(sel_f)), int(len(sel_r))],
            "selected_in_ntuple": [int(len(nf["ntrk"])), int(len(nr["ntrk"]))],
            "input_files": {k: T.expand(v) if v else [] for k, v in
                            (("ntuple_fast", inputs), ("ntuple_g4", compare), ("steps_fast", steps),
@@ -469,16 +522,18 @@ def run(inputs, outdir, compare=None, steps=None, steps_ref=None, hits=None, hit
                                                                               nr["nactive"].std() / na[1] / np.sqrt(len(nr["nactive"]))))]
     res["chi2ndf_band"] = stats.ratio_band(nf["chi2ndf"], nr["chi2ndf"], min_ref=100)["max_abs_dev_minus_2sigma"]
     res["fitcon_band"] = stats.ratio_band(nf["fitcon"], nr["fitcon"], min_ref=100)["max_abs_dev_minus_2sigma"]
+    res["chi2ndf_event_clustered"] = CB.ratio_band(nf["chi2ndf"], nr["chi2ndf"], nf["tkey"], nr["tkey"],
+                                                  paired=paired, min_ref=100)
     wfn = lambda x: _width(x)[0]
     for k, unit in (("dx", "mm"), ("dy", "mm"), ("dang", "mrad"), ("dt", "ns")):
         wf, bf = _width(nf[k])
         wr, br = _width(nr[k])
-        r, e = _jack_ratio(wfn, nf[k], nf["xfile"], nr[k], nr["xfile"], ng)
+        r, e = _jack_ratio(wfn, nf[k], gf, nr[k], gr, ng)
         d = {"width": [wf, wr, wf / wr - 1 if wr else float("nan")], "width_err": e, "bias": [bf, br],
              "bias_over_width": (bf - br) / wr if wr else float("nan"), "n": [int(len(nf[k])), int(len(nr[k]))]}
         for rank, lab in ((0, "entry"), (1, "exit")):   # time order along the track: upper (entry) and lower (exit) crossing
             mf, mr = nf["xrank"] == rank, nr["xrank"] == rank
-            r, e = _jack_ratio(wfn, nf[k][mf], nf["xfile"][mf], nr[k][mr], nr["xfile"][mr], ng)
+            r, e = _jack_ratio(wfn, nf[k][mf], gf[mf], nr[k][mr], gr[mr], ng)
             d[lab] = {"width": [_width(nf[k][mf])[0], _width(nr[k][mr])[0], r], "width_err": e, "n": [int(mf.sum()), int(mr.sum())]}
         res[f"resid_{k}_{unit}"] = d
     if hits and hits_ref:
@@ -499,10 +554,14 @@ def run(inputs, outdir, compare=None, steps=None, steps_ref=None, hits=None, hit
         for k in ("tdc0", "tot0"):
             res[f"{k}_band"] = stats.ratio_band(hf[k], hr[k], min_ref=100)["max_abs_dev_minus_2sigma"]
             res[f"{k}_band_g4_even_vs_odd_files"] = _band_or_none(hr[k][even], hr[k][odd])
+            res[f"{k}_event_clustered"] = CB.ratio_band(hf[k], hr[k], hf["ev"], hr["ev"], paired=paired, min_ref=100)
+            res[f"{k}_event_clustered_g4_floor"] = CB.ratio_band(hr[k][even], hr[k][odd], hr["ev"][even],
+                                                               hr["ev"][odd], paired=False, min_ref=100)
         af, ar = OCC.accumulate(hf["ev"], hf["panel"]), OCC.accumulate(hr["ev"], hr["panel"])
-        res["panel_occupancy"] = OCC.compare(af, ar)
+        cross = OCC.accumulate_cross(hf["ev"], hf["panel"], hr["ev"], hr["panel"]) if paired else None
+        res["panel_occupancy"] = OCC.compare(af, ar, cross=cross)
         res["panel_occupancy"]["arm_covariance_assumption"] = (
-            "independent-arm approximation; paired cross-arm covariance not included; not certification"
+            "paired event influence; cross-arm covariance included; conditional on the fixed library"
             if paired else "independent arms")
         res["panel_occupancy_g4_even_vs_odd_files"] = OCC.compare(OCC.accumulate(hr["ev"][even], hr["panel"][even]),
                                                                   OCC.accumulate(hr["ev"][odd], hr["panel"][odd]))

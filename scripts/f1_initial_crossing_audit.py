@@ -137,7 +137,7 @@ def run(args):
             bound_input(args.expanded, manifest, watched)
             for relative in ("Offline/Mu2eKinKal/inc/KKFit.hh", "Offline/Mu2eKinKal/inc/KKStrawXing.hh",
                              "Offline/Mu2eKinKal/src/KKFitUtilities.cc", "TrkFastSim/inc/IterationCaptureWriter.hh",
-                             "TrkFastSim/src/KinematicLineFitTrace_module.cc"): 
+                             "TrkFastSim/src/KinematicLineFitTrace_module.cc"):
                 bound_input(args.native_source/relative, manifest, watched)
             for relative, sha in D.SOURCE_PINS.items():
                 D.watch(args.native_source/relative, watched, sha)

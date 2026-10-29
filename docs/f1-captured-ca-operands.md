@@ -141,4 +141,3 @@ bash scripts/run_f1_operand_audit.sh captured-population NEW_POPULATION_REPORT.j
   --operand-check FULL_CAPTURE/hit_operands_check_v2.json \
   --conditions FROZEN_CONDITIONS.json
 ```
-

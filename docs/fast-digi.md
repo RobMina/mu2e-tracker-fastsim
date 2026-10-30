@@ -128,10 +128,19 @@ identity is not promised. Conditions must not be mutated while cached kernels us
 
 ### Shape and resource contracts
 
-- Ionisation uses 128-step batches and power-of-two initial-cluster buckets; step-index-folded keys preserve each
-  step's draws across ionisation buckets. Minion residual energy is exhausted with a masked exact loop, no tail clip.
+- Ionisation uses fixed step batches (128 on CPU, 4,096 on GPU) and power-of-two initial-cluster buckets.
+  Sampling lanes are at most `min(step_batch, 262144 // cluster_capacity)`; step-index-folded keys preserve each
+  step's random stream across ionisation buckets. Minion residual energy is exhausted with a masked exact loop, no tail clip.
 - Individual-electron expansion, compaction, straw grouping and bucket packing are host boundaries. Gain/drift use
-  4096-cluster blocks. Waveforms use dense padded `[2*32, cluster_capacity]` rows, not a device-resident CSR pipeline.
+  4096-cluster random domains, grouped 16 at a time on GPU with the exact original per-domain keys.
+  Waveforms use dense padded `[2*batch, cluster_capacity]` rows, not a device-resident CSR pipeline.
+  `batch = max(1, min(max_straws, lane_budget // cluster_capacity))` bounds memory independently of population:
+  CPU `(max_straws,lane_budget)=(32,2048)`, GPU `(2048,262144)`.
+- Event-marker jitter uses fixed `[128,216]` blocks, keyed by event-block index, generating only occupied blocks.
+  Different straws in the same event/panel share one jitter. Adding empty events does not compile a new jitter shape.
+  This block-keyed stream is a new opt-in JAX random sequence; the NumPy sequence is unchanged.
+- Saturated waveforms evaluate 16 (CPU) or 64 (GPU) time ticks at a time, then convolve the complete response. Integer response-lattice
+  indices retain the original time origin across tiles; no charge or time tail is clipped to obtain the memory bound.
 - Electronics searches run as masked JAX loops, preserving both-end matching, analog/digital dead time and stock's
   asymmetric NaN crossing behavior. TOT, linear ADC and saturation use integer lattice strides.
 - More than 4096 initial clusters per step, four million expanded drift clusters per call, or 4096 clusters in one
@@ -168,6 +177,97 @@ A100-SXM4-80GB / JAX 0.11.2 validation: **19 tests pass**, explicit GPU selectio
 per-seed reproducible. The same synthetic 100-event benchmark measured JAX cold **52.884 s**, warm **0.862/0.851 s**;
 NumPy on that node's CPU cold **0.624 s**, warm **0.592/0.578 s**. The allocated test completed in 2:47 with peak
 host RSS 2.69 GiB and verified temporary-directory cleanup. This small host-bucketed workload shows **no GPU speedup**.
+
+### Bounded real-table validation (small-batch baseline)
+
+The initial bounded implementation is opt-in; the GPU throughput update below supersedes its resource policy and timings. A separate ten-group saved-step sample contains **27,786**
+unique events; it is not the historical 27,779-event `fast_as_v18L` sample above. Regenerated current NumPy,
+NumPy seed 9 and JAX digitisation use the same full event populations and conditions. Persisted counts are
+619,710 / 619,541 / 619,603 digis respectively. JAX versus NumPy: digis/event **−0.017 ± 0.031%**,
+panel hits/event **−0.051 ± 0.031%** (paired standard errors). All 16 digi/hit histograms are unflagged under
+the plain, event-clustered and paired rules. The NumPy independent-seed floor is **−0.027 ± 0.031%** for
+digis/event. F2 on all the same persisted events gives **26,740 good JAX fits versus 26,723 NumPy**, paired
+**+0.064 ± 0.116%** (normal-approximate 95% interval **[−0.164%, +0.291%]**). Events with a fit:
+26,732 versus 26,714, **+0.067 ± 0.116%**. Independent NumPy seed 9 gives 26,693 fits (**−0.112 ± 0.121%**).
+F2 uses fixed 64-track blocks and only 64/128 hit capacities, with unchanged equations and acceptance cuts.
+This checks distribution-level agreement, not equal RNG streams or proof of all possible tails.
+
+For a real 2,707-event / 72,977-step group, each allocation ran JAX and NumPy sequentially, with three identical
+seed/input passes per backend. Timings include table loading and synchronised host outputs; warm means the same
+process already compiled its kernels, not a persistent on-disk cache. Different allocations are not a controlled
+CPU-versus-GPU hardware comparison; compare JAX versus NumPy within each row:
+
+| Allocation | JAX cold (s) | JAX warm (s) | NumPy cold (s) | NumPy warm (s) |
+|---|---:|---:|---:|---:|
+| UVA CPU, 2 allocated cores | 108.231 | 25.112, 24.800 | 17.023 | 16.469, 16.535 |
+| UVA A100-SXM4-80GB, 2 host cores | 160.065 | 26.113, 25.604 | 11.172 | 10.986, 11.011 |
+
+All repeated arrays match exactly within each backend/device. Jitter, gain and ionisation-count JIT caches each
+hold one shape; this group uses 10 ionisation-sample and 10 electronics kernels, with no extra warm compilations.
+The CPU timing job peaks at 1.94 GiB host RSS; the A100 allocation at 2.11 GiB host RSS (not GPU device memory).
+These measurements do **not** establish GPU speedup; NumPy remains the recommended default.
+
+`scripts/digi_real_bench.py` accepts explicit step/event/condition paths, refuses an existing output directory,
+checks unique event identities, persists the first-pass digis, hashes every repeated output array and writes
+`timing.json` including peak process RSS and kernel-cache counts. `--limit 0` uses the full saved event population;
+`--limit N` is only a named timing probe, never a full closure claim. `scripts/digi_cert_report.py` verifies ten
+complete file receipts against strict-admission comparison counts and rejects partial cold/warm timing receipts.
+
+```bash
+python3 scripts/digi_real_bench.py --steps MATCHED_STEPS.root --events MATCHED_EVENTS.root \
+  --cond digicond.npz --backend jax --limit 0 --repeats 3 --outdir NEW_JAX
+python3 scripts/digi_real_bench.py --steps MATCHED_STEPS.root --events MATCHED_EVENTS.root \
+  --cond digicond.npz --backend numpy --limit 0 --repeats 3 --outdir NEW_NUMPY
+```
+
+The `uva_digi_{cert,timing,compare,selected}.sh` wrappers accept snapshot, image, input and output roots through
+required environment variables. `uva_digi_cert.sh`'s named real-group layout requires the corresponding saved
+step/event inputs; it is a reproducibility wrapper, not an input downloader or a generic quickstart. Submit to
+an explicit Slurm account/partition with bounded memory; never compile this workload on a shared interactive host.
+
+### GPU throughput update
+
+Small CPU-sized dispatches, not GPU arithmetic throughput, dominated the first implementation. A synchronized
+2,707-event A100 profile measured 11.27 s in cluster production, 4.11 s across 2,329 electronics calls, and substantial
+array-transfer/dispatch cost (36,134 `jnp.asarray` calls and 31,918 device-to-host conversions). ROOT input was ~0.06 s.
+The GPU resource policy above reduces electronics to 53 calls and groups charge/drift into 38 calls. A fresh
+synchronized profile measures cluster production 1.431 s, electronics 0.211 s and charge/drift 0.041 s; total 2.683 s.
+These are diagnostics with deliberate synchronization, not independent times to add to another timing run.
+
+On the same A100-SXM4-80GB allocation (2 host cores), the production-policy 2,707-event / 72,977-step benchmark
+measures JAX cold **139.353 s**, warm **2.662/2.692 s**, versus host NumPy cold **10.814 s**, warm
+**10.736/10.666 s**: **4.00× warm speedup**, with synchronised host outputs and table loading included. Every
+repeat within each backend is identical. The result is digitiser-only, not full detector transport/reco acceleration.
+One real 50,000-generator-event point completes in both arms with exactly 50,000 persisted entries, 6,394 straw
+steps and 267 versus 266 fitted events; its cold JAX digitisation (158.665 s) is much slower than NumPy (1.536 s).
+Do not select JAX for a small one-off cold job on the basis of warm throughput.
+
+The full 27,786-event ten-group GPU digi sample gives 619,575 digis against current NumPy 619,710:
+**−0.022 ± 0.031%** paired; panelhits **−0.053 ± 0.031%**, with no flags in all 16 histograms under any rule.
+Fresh F2 on these same persisted events gives **26,749 versus 26,723 fits**, **+0.097 ± 0.116%**
+(95% normal interval **[−0.130%, +0.325%]**); events with a fit **26,741 versus 26,714**, **+0.101 ± 0.116%**.
+The independent NumPy-seed9 floor gives 26,693 fits, **−0.112 ± 0.121%**. Each arm retains all 27,786 unique
+full event identities; the fixed-shape fitter uses only `64x64` and `64x128` batches.
+The larger GPU batch/reduction shapes are not promised bit-identical to the small-batch implementation.
+Grouped charge preserves keys exactly; arithmetic agrees within two float32 ULP in the GPU regression (CPU exact).
+No charge tail, ionisation residual or waveform window is truncated for speed. No precision downgrade is used.
+
+Cold compilation remains substantial. An optional **private, trusted** `JAX_COMPILATION_CACHE_DIR` is forwarded
+by `uva_digi_cert.sh`; use the same image/device/code. A measured fresh process with a populated 33 MB cache
+reduces the first dense group from 142.218 to 20.784 s; subsequent groups are ~2.6–2.8 s. Never treat a persistent
+cache hit as an in-process warm pass. Cache files are executable input: do not reuse an untrusted writable cache.
+GPU allocator peak for the ten-group empty-cache run is ~1.01 GiB live, ~2.00 GiB pooled; host Slurm RSS is ~2.7 GiB.
+A cache-loaded run may report smaller peaks. These bounds are sample measurements, not upper bounds for arbitrary
+admitted conditions or tails. NumPy remains default; JAX is an explicit choice for adequately batched GPU workloads.
+
+A same-allocation **ten-group** campaign (27,786 events / 755,276 steps per pass) confirms the speedup beyond one
+group. With the populated private cache, the first process pass takes **46.094 s** in JAX versus **112.298 s** in
+NumPy, including JAX's ~20 s first-group loading cost: **2.44×**. The next two complete passes take
+**26.661 / 26.632 s** versus NumPy **114.066 / 112.109 s**, **4.28× / 4.21×**. Three-pass measured total:
+**99.387 s JAX versus 338.472 s NumPy (3.41×)**. This test used one sequential CPU NumPy process;
+it is not a GPU-versus-fully-utilised-multicore-node comparison. The totals include table loading and synchronised host outputs,
+not output ROOT serialization. The benchmark verifies every repeated array and exact full event populations;
+JAX uses 544 electronics dispatches per full pass. Empty-cache one-off performance remains a separate limitation.
 
 ### Paired comparison and timing
 

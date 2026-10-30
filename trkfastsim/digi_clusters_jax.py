@@ -1,9 +1,9 @@
 """Explicit-key JAX ionisation clusters, with the distributions of :mod:`digi`.
 
 Only shape selection, padding, compaction and minion electron expansion run on the
-host. Device kernels use fixed-size step batches and power-of-two cluster buckets.
-Random streams are folded by the original step index and cluster ordinal, so batch
-boundaries, bucket membership and selection order do not change a step's draws.
+host. Device kernels use bounded step batches and power-of-two cluster buckets.
+Random streams are folded by the original step index and cluster ordinal; resource
+batch changes preserve those keys. Arithmetic need not be bitwise across devices.
 Minion residual energy is exhausted by an uncapped, masked JAX while loop.
 
 JAX is optional until a public function is called; this backend enables float64.
@@ -24,7 +24,8 @@ else:
     jax.config.update("jax_enable_x64", True)
 
 __all__ = ["make_clusters", "cluster_gain", "wire_coordinates"]
-BATCH_SIZE = 128
+BATCH_SIZE = 4096 if jax is not None and jax.default_backend() == "gpu" else 128
+MAX_SAMPLE_LANES = 262144
 MAX_CLUSTER_BUCKET = 4096
 MAX_DRIFT_CLUSTERS = 4_000_000
 
@@ -152,9 +153,14 @@ def _sample(key, idx, eion, nc, minion, p0, p1, sdir, width, eaverage, energies,
     return pos, ne
 
 
-def _pad(a):
+def _sample_batch(capacity):
+    return max(1, min(BATCH_SIZE, MAX_SAMPLE_LANES // capacity))
+
+
+def _pad(a, batch=None):
     """Zero-pad the leading dimension to the fixed device lane count."""
-    return np.pad(a, ((0, BATCH_SIZE - len(a)),) + ((0, 0),) * (a.ndim - 1))
+    batch = BATCH_SIZE if batch is None else batch
+    return np.pad(a, ((0, batch - len(a)),) + ((0, 0),) * (a.ndim - 1))
 
 
 def make_clusters(key, c, st, idx):
@@ -212,12 +218,13 @@ def make_clusters(key, c, st, idx):
         pieces_s, pieces_p, pieces_n = [], [], []
         for capacity in np.unique(capacities):
             group = multi[capacities == capacity]
-            for start in range(0, len(group), BATCH_SIZE):
-                m = group[start:start + BATCH_SIZE]
+            batch = _sample_batch(int(capacity))
+            for start in range(0, len(group), batch):
+                m = group[start:start + batch]
                 sdir = np.asarray(c.straw_dir[st["_us"][idx[m]]], np.float64) if c.randrad else np.zeros((len(m), 3))
                 width = np.asarray(st["width"][idx[m]], np.float64) if c.randrad else np.zeros(len(m))
-                pos, ne = _sample(key, _pad(idx[m]), _pad(eion[m]), _pad(nc[m]), _pad(minion[m]),
-                                  _pad(p0[m]), _pad(p1[m]), _pad(sdir), _pad(width),
+                pos, ne = _sample(key, _pad(idx[m], batch), _pad(eion[m], batch), _pad(nc[m], batch), _pad(minion[m], batch),
+                                  _pad(p0[m], batch), _pad(p1[m], batch), _pad(sdir, batch), _pad(width, batch),
                                   c.EAverage, energies, probabilities, int(capacity))
                 keep = np.arange(capacity)[None, :] < nc[m, None]
                 pieces_s.append(np.broadcast_to(m[:, None], keep.shape)[keep])

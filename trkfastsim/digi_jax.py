@@ -17,8 +17,33 @@ from . import digi as reference
 
 jax.config.update("jax_enable_x64", True)
 
-BATCH = 32
+GPU = jax.default_backend() == "gpu"
+BATCH = 2048 if GPU else 32
 MAX_ROW_CLUSTERS = 4096
+WAVEFORM_CLUSTER_LANES = 262144 if GPU else 2048
+SATURATION_TILE = 64 if GPU else 16
+JITTER_BATCH = 128
+CHARGE_BLOCK = 4096
+CHARGE_BLOCKS = 16 if GPU else 1
+
+
+@jax.jit
+def _jitter_block(key):
+    return random.normal(key, (JITTER_BATCH, reference.NUPANELS), dtype=jnp.float64)
+
+
+def _panel_jitter(key, events, panels, scale):
+    blocks = events // JITTER_BATCH
+    out = np.empty(len(events))
+    for block in np.unique(blocks):
+        which = blocks == block
+        values = np.asarray(_jitter_block(random.fold_in(key, int(block))))
+        out[which] = values[events[which] % JITTER_BATCH, panels[which]] * scale
+    return out
+
+
+def _waveform_batch(cap):
+    return max(1, min(BATCH, WAVEFORM_CLUSTER_LANES // cap))
 
 
 def _empty(c):
@@ -56,6 +81,21 @@ def _charge_kernel(c):
         prop = (wd / c.vprop).astype(jnp.float32)
         gt = (time[:, None] + td[:, None].astype(jnp.float64) + prop.astype(jnp.float64)).astype(jnp.float32)
         return gt, (jnp.float32(0.5) * charge), wd
+    return run
+
+
+@lru_cache(maxsize=8)
+def _charge_blocks_kernel(c):
+    charge = _charge_kernel(c)
+
+    @jax.jit
+    def run(key, first, us, pos, ne, time):
+        offsets = first + jnp.arange(CHARGE_BLOCKS, dtype=jnp.int64) * CHARGE_BLOCK
+        keys = jax.vmap(lambda offset: random.fold_in(random.fold_in(key, 1), offset))(offsets)
+        args = (us.reshape(CHARGE_BLOCKS, CHARGE_BLOCK), pos.reshape(CHARGE_BLOCKS, CHARGE_BLOCK, 3),
+                ne.reshape(CHARGE_BLOCKS, CHARGE_BLOCK), time.reshape(CHARGE_BLOCKS, CHARGE_BLOCK))
+        result = jax.vmap(charge)(keys, *args)
+        return tuple(a.reshape((-1,) + a.shape[2:]) for a in result)
     return run
 
 
@@ -105,7 +145,7 @@ def _electronics_kernel(c, cap, pair_cap, batch):
             cmp = t <= tlim[:, None] if inclusive else t < tlim[:, None]
             return jnp.sum(valid & cmp, axis=1).astype(jnp.int32)
 
-        def volt(tq, path="thresh", cmin=None, lattice=None, kmax=None):
+        def volt(tq, path="thresh", cmin=None, lattice=None, lattice_origin=None, lattice_offset=0):
             tq = tq.reshape(R, -1)
             T = tables[path]
             if lattice is None:
@@ -113,8 +153,9 @@ def _electronics_kernel(c, cap, pair_cap, batch):
                 ix = jnp.clip(u, 0, rb - 1).astype(jnp.int32)
                 ir = jnp.clip(u - (tr * sr).astype(jnp.float32)[:, :, None], 0, rb - 1).astype(jnp.int32)
             else:
-                u = (tq[:, 0, None] - t) * sr + rb / 2.
-                stride = jnp.arange(tq.shape[1]) * lattice
+                origin = tq[:, 0] if lattice_origin is None else lattice_origin
+                u = (origin[:, None] - t) * sr + rb / 2.
+                stride = (jnp.arange(tq.shape[1]) + lattice_offset) * lattice
                 ix = jnp.clip(jnp.floor(u)[:, :, None] + stride, 0, rb - 1).astype(jnp.int32)
                 ir = jnp.clip(jnp.floor(u - tr * sr)[:, :, None] + stride, 0, rb - 1).astype(jnp.int32)
             k = dk[:, :, None]
@@ -124,8 +165,6 @@ def _electronics_kernel(c, cap, pair_cap, batch):
                 ok &= (ci >= cmin[:, None])[:, :, None]
             v = jnp.sum(jnp.where(ok, v, 0).astype(jnp.float64), axis=1)
             v *= (dv_a if path == "adc" else dv_t)[:, None]
-            if kmax is not None:
-                v = jnp.where(jnp.arange(tq.shape[1])[None, :] < kmax[:, None], v, 0)
             return v
 
         def crosses(ic, time, thr, vcross, active):
@@ -262,9 +301,18 @@ def _electronics_kernel(c, cap, pair_cap, batch):
                 i0 = jnp.minimum(count(times[:, 0] + LB - c.ttrunc, inclusive=True), jnp.maximum(n - 1, 0))
                 t0 = at(t, i0) - LB
                 nstep = jnp.maximum(0, jnp.ceil((times[:, -1] - t0) / dts).astype(jnp.int32))
+                def tile(k, response):
+                    offset = k * SATURATION_TILE
+                    tick = offset + jnp.arange(SATURATION_TILE)
+                    tq = t0[:, None] + dts * tick[None, :]
+                    values = volt(tq, "sat", cmin=i0, lattice=c.saturationSampleFactor,
+                                  lattice_origin=t0, lattice_offset=offset)
+                    values = jnp.where(tick[None, :] < nstep[:, None], values, 0)
+                    return lax.dynamic_update_slice(response, values, (0, offset))
+                padded_steps = ((sat_steps + SATURATION_TILE - 1) // SATURATION_TILE) * SATURATION_TILE
+                resp = lax.fori_loop(0, padded_steps // SATURATION_TILE, tile, jnp.zeros((R, padded_steps)))
+                resp = jnp.minimum(resp[:, :sat_steps], c.saturationVoltage)
                 tq = t0[:, None] + dts * jnp.arange(sat_steps)[None, :]
-                resp = volt(tq, "sat", cmin=i0, lattice=c.saturationSampleFactor, kmax=nstep)
-                resp = jnp.minimum(resp, c.saturationVoltage)
                 scale = c.saturationSampleFactor * dv_a / dv_t
                 def sample(tm):
                     ii = jnp.clip(jnp.trunc((tm[:, None] - tq) * sr + rb / 2.), 0, rb - 1).astype(jnp.int32)
@@ -332,13 +380,14 @@ def digitize(st, nev, c, key, stats=None):
     if not len(cs):
         return _empty(c)
     charge_blocks = []
-    for first in range(0, len(cs), 4096):
-        last = min(first + 4096, len(cs))
+    group_size = CHARGE_BLOCK * CHARGE_BLOCKS
+    for first in range(0, len(cs), group_size):
+        last = min(first + group_size, len(cs))
         size = last - first
-        pad = 4096 - size
+        pad = group_size - size
         args = (np.pad(us[cs[first:last]], (0, pad)), np.pad(pos[first:last], ((0, pad), (0, 0))),
                 np.pad(ne[first:last], (0, pad), constant_values=1), np.pad(time[cs[first:last]], (0, pad)))
-        result = _charge_kernel(c)(random.fold_in(random.fold_in(key, 1), first), *map(jnp.asarray, args))
+        result = _charge_blocks_kernel(c)(key, jnp.int64(first), *map(jnp.asarray, args))
         charge_blocks.append(tuple(np.asarray(x)[:size] for x in result))
     gt, charge, wd = (np.concatenate([b[i] for b in charge_blocks]) for i in range(3))
     if not all(np.isfinite(x).all() for x in (gt, charge, wd)):
@@ -349,8 +398,7 @@ def digitize(st, nev, c, key, stats=None):
     straw_us = reference.unique_straw(straw_sid)
     straw_ra = ((straw_sid & 0x7f) >= c.allStraw) & np.isin(straw_sid >> 10, c.allPlanes)
     panel = reference.unique_panel(straw_sid)
-    jp = random.normal(random.fold_in(key, 2), (nev, reference.NUPANELS), dtype=jnp.float64) * c.eventWindowMarkerROCJitter
-    jitter = np.asarray(jp)[straw_ev, panel]
+    jitter = _panel_jitter(random.fold_in(key, 2), straw_ev, panel, c.eventWindowMarkerROCJitter)
     counts = np.bincount(inst, minlength=ns)
     if counts.max() > MAX_ROW_CLUSTERS:
         raise OverflowError(f"waveform cluster count exceeds MAX_ROW_CLUSTERS={MAX_ROW_CLUSTERS}; no output returned")
@@ -360,15 +408,16 @@ def digitize(st, nev, c, key, stats=None):
     outs = []
     for cap in np.unique(caps):
         bucket = np.flatnonzero(caps == cap)
-        for b0 in range(0, len(bucket), BATCH):
-            which = bucket[b0:b0 + BATCH]
+        batch = _waveform_batch(int(cap))
+        for b0 in range(0, len(bucket), batch):
+            which = bucket[b0:b0 + batch]
             nb = len(which)
             gather = starts[which, None] + np.arange(cap)[None, :]
             mask = np.arange(cap)[None, :] < counts[which, None]
             ci_ = order[np.minimum(gather, len(order) - 1)]
-            t = np.zeros((BATCH, 2, cap)); q = np.zeros_like(t); w = np.zeros_like(t)
-            steps = np.zeros((BATCH, 2, cap), np.int64)
-            n = np.zeros((BATCH, 2), np.int32)
+            t = np.zeros((batch, 2, cap)); q = np.zeros_like(t); w = np.zeros_like(t)
+            steps = np.zeros((batch, 2, cap), np.int64)
+            n = np.zeros((batch, 2), np.int32)
             for end in (0, 1):
                 oo = np.argsort(np.where(mask, gt[ci_, end], np.inf), axis=1, kind="stable")
                 ix = np.take_along_axis(ci_, oo, 1)
@@ -377,13 +426,13 @@ def digitize(st, nev, c, key, stats=None):
                 w[:nb, end] = wd[ix, end]
                 steps[:nb, end] = cs[ix]
                 n[:nb, end] = counts[which]
-            su = np.zeros(BATCH, np.int64); sr = np.zeros(BATCH, bool); sk = np.zeros(BATCH, np.int64)
-            live = np.arange(BATCH) < nb; ji = np.zeros(BATCH)
+            su = np.zeros(batch, np.int64); sr = np.zeros(batch, bool); sk = np.zeros(batch, np.int64)
+            live = np.arange(batch) < nb; ji = np.zeros(batch)
             su[:nb], sr[:nb], sk[:nb], ji[:nb] = straw_us[which], straw_ra[which], ukey[which], jitter[which]
             pair_cap = 4
             while True:
-                result = _electronics_kernel(c, int(cap), pair_cap, BATCH)(random.fold_in(key, 3),
-                    *[jnp.asarray(x.reshape(2 * BATCH, cap)) for x in (t, q, w, steps)], jnp.asarray(n.ravel()),
+                result = _electronics_kernel(c, int(cap), pair_cap, batch)(random.fold_in(key, 3),
+                    *[jnp.asarray(x.reshape(2 * batch, cap)) for x in (t, q, w, steps)], jnp.asarray(n.ravel()),
                     jnp.asarray(su), jnp.asarray(sr), jnp.asarray(sk), jnp.asarray(live), jnp.asarray(ji))
                 result = {k: np.asarray(v) for k, v in result.items()}
                 if result["sat_overflow"]:

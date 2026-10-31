@@ -1,5 +1,7 @@
 # F1 stock-conditioned closure campaign
 
+The F1 native-closure tooling this record uses (capture modules, `f1_*`/`run_f1_*` scripts, the per-step f1-* records) is on branch `park/f1-native-closure`; the F1 fit itself (`reco/kalman_jax.py`, `reco/vr_f1.py`) is on main.
+
 ## Executed result — 2026-10-27
 
 **Not closed; do not promote a new default.** All 20 CPU arms finished with exit 0. The report independently

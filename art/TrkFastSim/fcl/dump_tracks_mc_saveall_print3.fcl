@@ -1,6 +1,0 @@
-# dump_tracks_mc_saveall.fcl with KinKal PrintLevel 3 (complete): the fit trajectory (every piece, parameters and
-# their VARIANCES) after every iteration, to follow the momentum and the parameter-change test iteration by iteration.
-#include "TrkFastSim/fcl/dump_tracks_mc_saveall.fcl"
-physics.producers.KKLine.FitSettings.PrintLevel : 3
-physics.producers.KKLine.ExtensionSettings.PrintLevel : 3
-services.TFileService.fileName : "tracks_ref_mc_saveall_print3.root"

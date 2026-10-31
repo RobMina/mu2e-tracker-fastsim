@@ -1,5 +1,7 @@
 # Relocated saved-product validation
 
+The `ordered_*` audit scripts referred to below are on branch `park/ordered-navigation`.
+
 `secondary_tv3_site_rescore.py` reruns current comparison code on an immutable saved campaign after relocation:
 
 ```bash

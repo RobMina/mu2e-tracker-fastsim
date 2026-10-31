@@ -1,0 +1,8 @@
+# Append after the original or replayed stock-reco FCL; use the same process name in both arms.
+process_name : trkpayloadcheck
+physics.analyzers.payload : {
+  module_type : TrackerRecoPayloadDumper
+  flagPHModuleType : @local::physics.producers.flagPH.module_type
+  usedPBT : @local::physics.producers.makeSH.ProtonBunchTimeTag
+}
+physics.DumpPath : [ trkdump, payload ]

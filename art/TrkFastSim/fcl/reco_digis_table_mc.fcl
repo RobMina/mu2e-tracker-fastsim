@@ -1,0 +1,10 @@
+# Detector-only stock KKLine on injected digis; input retains EWM, PBT and optional original MC truth.
+#include "TrkFastSim/fcl/dump_tracks_mc_saveall.fcl"
+process_name : trkdigireco
+physics.producers.tableSD : { module_type : StrawDigisFromTable tableFile : "digis.root" }
+physics.producers.PBTFSD.StrawDigiTag : "tableSD"
+physics.producers.makeSH.StrawDigiCollectionTag : "tableSD"
+physics.producers.makeSH.StrawDigiADCWaveformCollectionTag : "tableSD"
+physics.analyzers.trkdump.StrawDigiTag : "tableSD"
+physics.RecoPath : [ tableSD, PBTFSD, makeSH, makePH, makeSTH, flagPH, SimpleTimeCluster, LineFinder, KKLine ]
+services.TFileService.fileName : "tracks_replayed_mc.root"

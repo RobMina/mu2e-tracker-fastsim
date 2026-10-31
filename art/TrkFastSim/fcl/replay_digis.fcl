@@ -1,0 +1,12 @@
+# Exact in-event detector-product check against the original input collection.
+#include "TrkFastSim/fcl/dump_digis.fcl"
+process_name : trkdigireplay
+physics.producers.tableSD : {
+  module_type : StrawDigisFromTable
+  tableFile : "digis.root"
+}
+physics.ReplayPath : [ tableSD ]
+physics.trigger_paths : [ ReplayPath ]
+physics.analyzers.trkdigi.StrawDigiTag : "tableSD"
+physics.analyzers.trkdigi.compareTo : "makeSD"
+services.TFileService.fileName : "replayed_digis.root"

@@ -1,0 +1,13 @@
+# Lossless detector-only dump; retains every RootInput event, including zero-digi events.
+#include "Offline/fcl/minimalMessageService.fcl"
+process_name : trkdigidump
+source : { module_type : RootInput }
+services : {
+  message : @local::default_message
+  TFileService : { fileName : "digis.root" }
+}
+physics : {
+  analyzers : { trkdigi : { module_type : StrawDigiTableDumper StrawDigiTag : "makeSD" } }
+  DumpPath : [ trkdigi ]
+  end_paths : [ DumpPath ]
+}

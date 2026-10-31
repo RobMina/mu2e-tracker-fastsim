@@ -1,0 +1,10 @@
+# Uncalibrated extracted-v04 KPP reference with identical detector-only reco and injected digis.
+#include "TrkFastSim/fcl/dump_tracks_data_autonomous.fcl"
+process_name : trkdigireco
+physics.producers.tableSD : { module_type : StrawDigisFromTable tableFile : "digis.root" }
+physics.producers.PBTFSD.StrawDigiTag : "tableSD"
+physics.producers.makeSH.StrawDigiCollectionTag : "tableSD"
+physics.producers.makeSH.StrawDigiADCWaveformCollectionTag : "tableSD"
+physics.analyzers.trkdump.StrawDigiTag : "tableSD"
+physics.RecoPath : [ tableSD, PBTFSD, makeSH, makePH, makeSTH, flagPH, SimpleTimeCluster, LineFinder, KKLine ]
+services.TFileService.fileName : "tracks_replayed_data.root"

@@ -47,6 +47,10 @@ tracks inside the tracker), `--no-msc-tail`, `--near-margin MM` (which muons get
 
 CLI: `python3 -m trkfastsim <subcommand> -h`.
 
+Parquet rate-ledger analysis needs `trkfastsim[parquet]`; `trkfastsim[test]` includes PyArrow for the
+provenance tests. For an immutable image, a versioned shared binary-wheel add-on avoids changing its
+NumPy/JAX stack; see [saved-product environment and validation](docs/saved-validation.md).
+
 | subcommand | purpose |
 |---|---|
 | `refcheck` | content check of the reference tables (census, linkage, PrimaryFilter tracker term) |
@@ -304,6 +308,16 @@ particle trees, records input JSON hashes, and refuses to overwrite its output. 
 common fit domain (median exit momentum at least 60% of entrance momentum). They are unweighted point summaries,
 not significance tests. Historical outputs without settings remain explicitly unidentified in that field; matching
 G4 observables does not establish matched random seeds or code for the historical fast arm.
+
+## Ordered stored-material opt-in
+
+[Ordered path policies](docs/ordered-stored-path.md) include the isolated straight-ray diagnostic and
+`steps --navigation ordered-stored-mean-v1` (or `ordered-stored-sampled-v1`): ordered material slices, absorbing model stops, angular scattering
+with crossing recomputation and shared entry/surface clocks in `make_steps`. Legacy stays the default.
+The stored geometry, numerical boundary resolution, capped gas response and missing secondary partition
+remain experimental; no physics or digi/reco certification or default promotion follows from contract tests.
+[Saved-product validation](docs/saved-validation.md) documents site-relocated T-V3 rescoring and its fixed-bank
+uncertainty/independent-holdout limits.
 
 ## Entry-energy writer diagnostic
 

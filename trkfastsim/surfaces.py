@@ -109,6 +109,13 @@ def _from_vertices(v):
     p = pa + t * (pb - pa)
     path = v.path.to_numpy()[j0] + t * L                 # L = 0 on a jump: the crossing is at the kink's path length
     tt = v.t0.to_numpy()[j0] + path / (v.beta.to_numpy()[j0] * C_MM_PER_NS)
+    if {"kinetic_MeV", "time_ns"} <= set(v.columns):
+        from .flighttime import linear_kinetic_dt_ns
+        ke0, ke1 = v.kinetic_MeV.to_numpy()[j0], v.kinetic_MeV.to_numpy()[j1]
+        ke = ke0 + t * (ke1 - ke0)
+        p = np.sqrt(ke) * np.sqrt(ke + 2 * MMU)
+        arc = v.path.to_numpy()[j1] - v.path.to_numpy()[j0]
+        tt = v.time_ns.to_numpy()[j0] + linear_kinetic_dt_ns(t * arc, ke0, ke)
     return _rows(v.iloc[j0], sid, c, u, p, tt)
 
 

@@ -16,7 +16,10 @@ output prefix fasttrk<stage>L.
 --backend jax: world/interior transport, crossings and gas eIon on the JAX device (trkfastsim.steps_jax);
 numpy (default) is the reference. Generator selection, library pasting and output-table assembly stay numpy.
 """
+import hashlib
+import json
 import os
+from pathlib import Path
 
 import numpy as np
 
@@ -35,7 +38,18 @@ def default_gdml():
 
 def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, offaxis_edge_anchor=False, offaxis_topology_anchor=False, tag="",
         sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True, kink_xx0=st.KINK_XX0,
-        tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, first_muon_only=False, backend="numpy", ledger_arms=None, **kw):
+        tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, first_muon_only=False, backend="numpy", ledger_arms=None, navigation="legacy", ordered_signed_endpoint_budget_mm=None, ordered_stopping_evaluation="entry", **kw):
+    if ordered_signed_endpoint_budget_mm is not None and navigation == "legacy":
+        raise ValueError("signed endpoint arm requires explicit ordered navigation")
+    if ordered_stopping_evaluation not in ("entry", "midpoint"):
+        raise ValueError("stopping evaluation must be entry or midpoint")
+    if ordered_stopping_evaluation != "entry" and navigation == "legacy":
+        raise ValueError("midpoint evaluation requires explicit ordered navigation")
+    ordered_options = {}
+    if ordered_signed_endpoint_budget_mm is not None:
+        ordered_options["signed_endpoint_budget_mm"] = ordered_signed_endpoint_budget_mm
+    if ordered_stopping_evaluation != "entry":
+        ordered_options["stopping_evaluation"] = ordered_stopping_evaluation
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom, mods=world_mods) if stage == "C" else None
@@ -65,16 +79,37 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
                                    interior_msc_cal=st.INTERIOR_MSC_CAL if interior_msc_cal else None,
                                    lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0, exit_scatter=exit_scatter,
                                    all_muons=not first_muon_only, backend=backend,
-                                   arms=ledger_arms)
+                                   arms=ledger_arms, navigation=navigation,
+                                   **({"ordered_options": ordered_options} if ordered_options else {}))
         if interior is not None:
             print(f"#   interior: {getattr(st.make_steps, 'interior_stats', {})}", flush=True)
         print(f"#   timing [s] ({backend}): " + ", ".join(f"{k} {v:.3f}" for k, v in st.make_steps.timing.items()), flush=True)
         if offaxis is not None:
             print(f"#   off-axis: {getattr(st.make_steps, 'offaxis_stats', {})}", flush=True)
-        name = f"fasttrk{stage}{'L' if lib else ''}{tag}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")
+        mode_tag = {"legacy": "", "ordered-stored-mean-v1": "_orderedmean",
+                    "ordered-stored-sampled-v1": "_orderedsampled"}[navigation]
+        if ordered_stopping_evaluation == "midpoint":
+            mode_tag += "_midpoint"
+        name = f"fasttrk{stage}{'L' if lib else ''}{mode_tag}{tag}." + os.path.basename(f).replace("gen_tables.", "").replace("gen.", "")
+        target = Path(outdir) / name
+        if navigation != "legacy" and (target.exists() or Path(str(target) + ".json").exists()):
+            raise FileExistsError(f"refusing to overwrite ordered output: {target}")
         verts = getattr(st.make_steps, "path_vertices", None) if stage == "C" and not no_interior_msc else None
         surf = surfaces.surface_steps(sgs, verts) if not no_surfsteps else None
         core_tables.write(os.path.join(outdir, name), {"sgsteps": sgs, "particles": parts, "gen": gen,
                                                         "subruns": sub, "surfsteps": surf}, as_ttree=True)
+        if navigation != "legacy":
+            sources = [Path(st.__file__), Path(surfaces.__file__), Path(__file__)]
+            sources += [Path(st.__file__).parent / (n + ".py") for n in
+                        ("orderedinterior", "storednavigation", "strawpath", "materialpath", "convexpath", "flighttime", "boundarypolicy")]
+            receipt = dict(navigation=navigation, stopping_evaluation=ordered_stopping_evaluation,
+                ordered_options=ordered_options, seed=[int(seed), i],
+                geometry_sha256=hashlib.sha256(Path(gdml).read_bytes()).hexdigest(),
+                sources={str(p.name): hashlib.sha256(p.read_bytes()).hexdigest() for p in sources},
+                stats=st.make_steps.interior_stats,
+                scope="bounded stored-material experimental primary transport; not GDML/response/reco certification")
+            with Path(str(target) + ".json").open("x") as stream:
+                json.dump(receipt, stream, indent=2)
+                stream.write("\n")
         print(f"# {f}: {len(parts):,} primary muons, {sgs[tables.KEY].drop_duplicates().shape[0]:,} with straw "
               f"crossings, {len(sgs):,} steps", flush=True)

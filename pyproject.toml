@@ -12,7 +12,8 @@ dependencies = ["mu2efastsim", "numpy", "pandas", "uproot"]
 
 [project.optional-dependencies]
 jax = ["jax"]
-test = ["pytest"]
+parquet = ["pyarrow"]
+test = ["pytest", "pyarrow"]
 
 [tool.setuptools.packages.find]
 include = ["trkfastsim*"]

@@ -1,8 +1,8 @@
 """Open T3 limits: terminal bookkeeping, stopping, and support-only flight time.
 
-Synthetic stage-C boundary states only; no GDML, event files, or production changes.
-Strict xfails state required behavior, not the current erroneous numerical values.
-They must be revisited when complete terminal/segment-ledger transport lands.
+Synthetic stage-C boundaries exercise the real transport/writers in both modes.
+Strict legacy xfails preserve default failure evidence; ordered mode must pass.
+Ordered clocks integrate material slices, not loss smeared across vacuum gaps.
 """
 
 from types import SimpleNamespace
@@ -32,8 +32,20 @@ def _geometry(ys):
     )
 
 
+@pytest.fixture(params=[("legacy", "entry"), ("ordered-stored-mean-v1", "entry"),
+                        ("ordered-stored-sampled-v1", "entry"), ("ordered-stored-mean-v1", "midpoint"),
+                        ("ordered-stored-sampled-v1", "midpoint")])
+def navigation_spec(request):
+    return request.param
+
+
 @pytest.fixture
-def run_transport(monkeypatch):
+def navigation(navigation_spec):
+    return navigation_spec[0]
+
+
+@pytest.fixture
+def run_transport(monkeypatch, navigation, navigation_spec):
     """Keep real interior transport/writers; inject only boundary state and test material."""
     def run(momentum=80.0, ys=(0.0, -10.0, -20.0), arms="AM", support_loss=None):
         geom = _geometry(ys)
@@ -76,9 +88,24 @@ def run_transport(monkeypatch):
             monkeypatch.setattr(steps.tr, "slab_loss", slab_loss)
             monkeypatch.setattr(steps, "_kink_core", zero_deflection)
 
+        ordered = navigation != "legacy"
+        if ordered:
+            if support_loss is not None:
+                tube = [(materials.COPPER.name, np.eye(3), np.array([0., -100.5, 0.]),
+                         0., .5, 100., 0., 2 * np.pi)]
+                interior.shells = CoaxialShells(tube, axis_point=[0., 0., 0.])
+                monkeypatch.setattr(steps.eloss, "dedx_restricted", lambda mat, p, cut, *args:
+                    np.full_like(p, support_loss if mat.name == materials.COPPER.name else 0.))
+            if navigation == "ordered-stored-sampled-v1":
+                monkeypatch.setattr(steps.eloss, "sample_loss", lambda rng, mat, p, length, cut:
+                    steps.eloss.dedx_restricted(mat, p, cut) * length)
+            monkeypatch.setattr(steps, "_kink_core", lambda rng, v, a, b:
+                (np.zeros((len(v), 2)), np.zeros((len(v), 2)), np.zeros(len(v))))
         rows, particles = steps.make_steps(
             generated, geom, np.random.default_rng(19), stage="C", interior=interior,
-            arms=arms, history=True, msc_tail=False, exit_scatter=False,
+            arms=None if ordered else arms, history=True, msc_tail=False, exit_scatter=False,
+            navigation=navigation, ordered_options={"max_path_mm": 2500.,
+                "stopping_evaluation": navigation_spec[1]} if ordered else None,
             # No thin-material kinks; support still triggers its own kink.
             kink_xx0=np.inf, kink_sup_xx0=None,
         )
@@ -109,10 +136,10 @@ def test_non_kink_entries_charge_thin_material(nonkink_run):
     np.testing.assert_allclose(r.seg.ke_written_MeV, r.seg.ke_entry_MeV, atol=1e-10)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "T3: final non-kink group does not advance the terminal muon path/energy ledger"
-))
-def test_terminal_muon_ledger_includes_final_non_kink_group(nonkink_run):
+def test_terminal_muon_ledger_includes_final_non_kink_group(nonkink_run, navigation, request):
+    if navigation == "legacy":
+        request.applymarker(pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
+            "T3: final non-kink group does not advance the terminal muon path/energy ledger")))
     r = nonkink_run
     final, last = r.mu.iloc[0], r.seg.iloc[-1]
     print(f"terminal: entry losses={r.seg.lost_thin_MeV.tolist()}; "
@@ -134,20 +161,23 @@ def stopped_run(run_transport):
     return run_transport(momentum=12.0, arms="AMT")
 
 
-def test_stopped_muon_suppresses_downstream_straw_steps(stopped_run):
+def test_stopped_muon_suppresses_downstream_straw_steps(stopped_run, navigation):
     """Control: the transport stop decision already suppresses subsequent entries."""
     r = stopped_run
     assert r.mu.stopped_interior.iloc[0] == 1
-    assert 0 < len(r.rows) < r.geom.nstraws
+    unique = r.rows.straw.drop_duplicates().tolist()
+    assert 0 < len(unique) < r.geom.nstraws
     assert r.stats["kinks"] == 0
-    assert r.rows.straw.tolist() == list(range(len(r.rows)))
+    assert unique == list(range(len(unique)))
+    if navigation == "legacy":
+        assert len(r.rows) == len(unique)
     assert np.all(r.seg.ke_entry_MeV > 0.5)
 
 
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "T3: a stopped muon's path vertices still acquire a downstream straight extension"
-))
-def test_stopped_muon_path_ends_before_unreachable_entry(stopped_run):
+def test_stopped_muon_path_ends_before_unreachable_entry(stopped_run, navigation, request):
+    if navigation == "legacy":
+        request.applymarker(pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
+            "T3: a stopped muon's path vertices still acquire a downstream straight extension")))
     r = stopped_run
     # Bound the endpoint by the first suppressed straw, NOT the stale terminal ledger.
     # No exact microscopic stopping position is assumed by this conservative check.
@@ -163,23 +193,26 @@ def test_stopped_muon_path_ends_before_unreachable_entry(stopped_run):
 
 @pytest.mark.parametrize("support_loss", [
     pytest.param(0.0, id="zero-loss-control"),
-    pytest.param(5.0, id="support-loss", marks=pytest.mark.xfail(
-        strict=True, raises=AssertionError,
-        reason="T3: integrated step and vertex times partition support-only energy loss differently",
-    )),
+    pytest.param(5.0, id="support-loss"),
 ])
-def test_support_only_integrated_step_and_vertex_times_agree(run_transport, support_loss):
+def test_support_only_integrated_step_and_vertex_times_agree(run_transport, support_loss, navigation, request):
+    if navigation == "legacy" and support_loss:
+        request.applymarker(pytest.mark.xfail(strict=True, raises=AssertionError,
+            reason="T3: integrated step and vertex times partition support-only energy loss differently"))
     r = run_transport(ys=(0.0, -400.0, -900.0),
                       arms=ledger.Arms(writer="none", thin=False, time="integrated"),
                       support_loss=support_loss)
-    assert len(r.rows) == r.geom.nstraws and r.stats["kinks"] > 0
+    assert r.rows.straw.nunique() == r.geom.nstraws
+    if navigation == "legacy":
+        assert r.stats["kinks"] > 0
     np.testing.assert_allclose(r.seg.lost_thin_MeV, 0.0, atol=1e-12)
     np.testing.assert_allclose(r.seg.lost_support_MeV, [0.0, support_loss, support_loss], atol=1e-10)
-    # Control: the step clock itself follows its advertised entry-to-entry integral.
+    # Legacy smears loss entry-to-entry; ordered time follows actual material slices.
     p = ledger.momentum(r.seg.ke_entry_MeV.to_numpy())
-    np.testing.assert_allclose(np.diff(r.rows.t),
-                               ledger.flight_time_ns(np.diff(r.seg.path_mm), p[:-1], p[1:]),
-                               rtol=0, atol=1e-9)
+    if navigation == "legacy":
+        np.testing.assert_allclose(np.diff(r.rows.t),
+                                   ledger.flight_time_ns(np.diff(r.seg.path_mm), p[:-1], p[1:]),
+                                   rtol=0, atol=1e-9)
     # Same t0 + path/(beta*c) interpolation used by surface crossings. The track
     # is straight, so each entry's path also locates it on the spatial polyline.
     v = r.vertices.sort_values("path").reset_index(drop=True)
@@ -188,6 +221,14 @@ def test_support_only_integrated_step_and_vertex_times_agree(run_transport, supp
     assert np.all((left >= 0) & (left < len(v) - 1))
     vertex_time = (v.t0.to_numpy()[left]
                    + path / (v.beta.to_numpy()[left] * steps.C_MM_PER_NS))
+    if navigation != "legacy":
+        from trkfastsim.flighttime import linear_kinetic_dt_ns
+        local = path - v.path.to_numpy()[left]
+        right = left + 1
+        fraction = local / (v.path.to_numpy()[right] - v.path.to_numpy()[left])
+        kin = v.kinetic_MeV.to_numpy()[left]
+        kout = kin + fraction * (v.kinetic_MeV.to_numpy()[right] - kin)
+        vertex_time = v.time_ns.to_numpy()[left] + linear_kinetic_dt_ns(local, kin, kout)
     delta_ps = 1e3 * (r.rows.t.to_numpy() - vertex_time)
     print(f"support loss={support_loss:g} MeV: step-minus-vertex time={delta_ps.tolist()} ps")
     np.testing.assert_allclose(r.rows.t.to_numpy(), vertex_time, rtol=0, atol=1e-9)

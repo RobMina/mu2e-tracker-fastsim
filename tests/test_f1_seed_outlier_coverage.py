@@ -192,7 +192,7 @@ def test_foreign_callable_rejected(monkeypatch, module, field):
 
 
 def test_foreign_module_path_rejected(monkeypatch):
-    monkeypatch.setattr(C.Q, "__file__", "/tmp/foreign.py")
+    monkeypatch.setattr(C.Q, "__file__", "/path/to/foreign.py")
     with pytest.raises(ValueError, match="module path"):
         C.helpers({})
 

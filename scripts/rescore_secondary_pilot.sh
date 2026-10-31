@@ -1,5 +1,7 @@
 #!/bin/bash
 # Rescore an existing grouped pilot without fetching, simulation, reconstruction or submission.
+: "${CRVFS_OWNER:?set CRVFS_OWNER, the owner field of the CRV-stage (g4ref) Mu2e file names}"
+: "${TRKFS_OWNER:?set TRKFS_OWNER, the owner field of the tracker-stage Mu2e file names}"
 set -euo pipefail
 DATA=${1:?reference tracker data directory}
 SAVED=${2:?saved secondary campaign directory}
@@ -15,18 +17,18 @@ mkdir -p "$OUT"
 refs=()
 for k in $(seq "$FIRST" "$((FIRST + 9))"); do
   sr=$(printf '001400_%08d' "$k")
-  refs+=("$DATA/g4ref_v2_tables/sgsteps.dts.ram2aq.CosmicCRYExtractedRef.v1.$sr.root")
+  refs+=("$DATA/g4ref_v2_tables/sgsteps.dts.${CRVFS_OWNER}.CosmicCRYExtractedRef.v1.$sr.root")
 done
 python3 "$TRK/scripts/tv2_output_census.py" --steps "$F" \
-  --ntuple "$R/nts.ram2aq.tv2fast.v0.$S.root" --hits "$R/strawhits.ram2aq.tv2fast.v0.$S.root" \
+  --ntuple "$R/nts.${TRKFS_OWNER}.tv2fast.v0.$S.root" --hits "$R/strawhits.${TRKFS_OWNER}.tv2fast.v0.$S.root" \
   --out "$OUT/coverage_fast.json" > "$OUT/coverage_fast.txt" 2>&1
 python3 "$TRK/scripts/tv2_output_census.py" --steps "${refs[@]}" \
-  --ntuple "$R/nts.ram2aq.tv2g4.v0.$S.root" --hits "$R/strawhits.ram2aq.tv2g4.v0.$S.root" \
+  --ntuple "$R/nts.${TRKFS_OWNER}.tv2g4.v0.$S.root" --hits "$R/strawhits.${TRKFS_OWNER}.tv2g4.v0.$S.root" \
   --out "$OUT/coverage_g4.json" > "$OUT/coverage_g4.txt" 2>&1
 SECONDS=0
-python3 -m trkfastsim tv2compare "$R/nts.ram2aq.tv2fast.v0.$S.root" \
-  --compare "$R/nts.ram2aq.tv2g4.v0.$S.root" --steps "$F" --steps-ref "${refs[@]}" \
-  --hits "$R/strawhits.ram2aq.tv2fast.v0.$S.root" --hits-ref "$R/strawhits.ram2aq.tv2g4.v0.$S.root" \
+python3 -m trkfastsim tv2compare "$R/nts.${TRKFS_OWNER}.tv2fast.v0.$S.root" \
+  --compare "$R/nts.${TRKFS_OWNER}.tv2g4.v0.$S.root" --steps "$F" --steps-ref "${refs[@]}" \
+  --hits "$R/strawhits.${TRKFS_OWNER}.tv2fast.v0.$S.root" --hits-ref "$R/strawhits.${TRKFS_OWNER}.tv2g4.v0.$S.root" \
   --paired --outdir "$OUT/tv2" > "$OUT/tv2.txt" 2>&1
 echo "tv2compare_seconds=$SECONDS" | tee "$OUT/timing.txt"
 SECONDS=0

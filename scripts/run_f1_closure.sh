@@ -7,17 +7,18 @@
 # gas scattering fraction. Extra vr2f1 options via F1C_EXTRA.
 set -e -o pipefail
 HERE=$(cd "$(dirname "$0")/.." && pwd)
-ROOT=/exp/mu2e/app/users/ram2aq/analysis
-DATA=/exp/mu2e/data/users/ram2aq/trk_fastreco
+: "${M2FS_CODE:?set M2FS_CODE to the mu2e-fastsim checkout (core/ is put on PYTHONPATH)}"
+: "${PY_JAX:?set PY_JAX to a Python with JAX, NumPy and uproot}"
+DATA=${TRK_FASTRECO_DATA:-${M2FS_DATA:?set M2FS_DATA (or TRK_FASTRECO_DATA) to the data area}/trk_fastreco}
 OUT=$1; shift
 INPUT=${F1C_INPUT:-$DATA/p109_f1_candidates_3k_20261025/candidates.root}
 COND=${F1C_COND:-$DATA/p109_prior_all_20261025/conditions.json}
-export PYTHONPATH="$HERE:$ROOT/mu2e-fastsim/core:$ROOT/mu2e-fastsim/crv"
-export MU2E_SEARCH_PATH=${F1C_ANN:-/exp/mu2e/app/users/ram2aq/fastreco_capture_p109_20261026}
+export PYTHONPATH="$HERE:$M2FS_CODE/core:$M2FS_CODE/crv"
+export MU2E_SEARCH_PATH=${F1C_ANN:-${TRKFS_MUSE_AREAS:?set F1C_ANN, or TRKFS_MUSE_AREAS to the directory holding the muse work areas}/fastreco_capture_p109_20261026}
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 JAX_PLATFORMS=cpu
 export XLA_FLAGS="--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
 export F1_JAX_CACHE=$DATA/jax_cache
-PY=/exp/mu2e/data/users/ram2aq/crv_fastsim/venv_eaf/bin/python3
+PY="$PY_JAX"
 CORE=$(awk '/Cpus_allowed_list/ {split($2,a,/[-,]/); print a[1]}' /proc/self/status)
 mkdir -p "$OUT"
 for arm in "$@"; do

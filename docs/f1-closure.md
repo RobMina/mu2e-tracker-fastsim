@@ -53,18 +53,18 @@ checks. This does not certify rejected candidates, intermediate states or physic
 ### Evidence and handoff
 
 - Worktree: `analysis/trkfs_wt/f1`, branch `trk-f1-closure`; all changes unstaged/uncommitted.
-- Data root: `/exp/mu2e/data/users/ram2aq/trk_f1_closure_20261026/p109_arms_v4/`.
+- Data root: `$M2FS_DATA/trk_f1_closure_20261026/p109_arms_v4/`.
 - `report_v4.json`: full metrics, paired exchanges, numerical validity, configuration and input-count gates.
 - `report_v4.md`, `report_v4_detailed.md`: readable tables; `report_v4_*_exchange.csv`: individual gain/loss keys.
 - Each arm has `source.sha256`, `command.txt`, `vr2f1.json`, `ids.npz`, and the existing fit diagnostics.
 - Hosts: gpvm05 yield, gpvm03 fidelity/gas/report; both batches and the queued report ended cleanly, locks released.
 - Tests: 51 fitter/validity/reco regressions plus five report tests passed; shell syntax and `git diff --check` pass.
 - No C++ build/run, commit, push, or production default change. The exact native capture remains blocked on the
-  user build. At takeover the capture area had no `build/` or `kinkal_build_p109/`; app free space was about
+  user build. At the time of this record the capture area had no `build/` or `kinkal_build_p109/`; app free space was about
   5.2 GiB, below its 6 GiB pre-build reserve. Recheck before building, do not delete outputs without permission.
 
 **Build-area relocation (2026-10-27):** the user builds muse areas directly under the app root. The prepared
-capture worktrees now live at `/exp/mu2e/app/users/ram2aq/fastreco_capture_p109_20261026`, cluster-only. All five
+capture worktrees now live at `$TRKFS_MUSE_AREAS/fastreco_capture_p109_20261026`, cluster-only. All five
 pins, four manifest hashes and Git back-links were verified after `git worktree move`; the capture sources and
 unstaged KinKal patch are unchanged. The setup script and runtime guard use this new path. App free space at
 relocation was about 17.7 GiB, clearing the earlier space blocker. No build or environment setup was run.
@@ -99,8 +99,8 @@ parameters or object associations, nor does it compare an autonomous reconstruct
 
 Evidence:
 
-- Native capture: `/exp/mu2e/data/users/ram2aq/trk_fastreco/p109_iteration_3k_20261027/check.json` and paired ROOT files.
-- F1 candidate: `/exp/mu2e/data/users/ram2aq/trk_f1_closure_20261026/p109_native_time_v2_20261027/`.
+- Native capture: `$M2FS_DATA/trk_fastreco/p109_iteration_3k_20261027/check.json` and paired ROOT files.
+- F1 candidate: `$M2FS_DATA/trk_f1_closure_20261026/p109_native_time_v2_20261027/`.
 - `report.json` compares own/fixed native-time arms to preserved v4 outputs; `audit.json` verifies exact products
   and time differences; per-arm `native_time.npz`, `ann.sha256`, `source.sha256` retain provenance.
 - The first attempt in `p109_native_time_20261027` stopped before fitting because a NumPy masked-array wrapper
@@ -139,8 +139,8 @@ The errors-within-2% fraction is also reported; a median error ratio near unity 
 
 `scripts/run_f1_closure.sh OUT ARM...` runs sequentially on one pinned CPU using the existing analysis environment.
 It refuses existing arm directories/logs and saves a source manifest and command record per arm. New outputs must
-be under the data area, not the source worktree. `scripts/with_host_lock.sh` coordinates the per-host campaign lock;
-check for non-lock users and active tmux jobs before launching it.
+be under the data area, not the source worktree. Run it on an otherwise idle host: check for other users and active
+tmux jobs before launching it.
 
 | Arm | Difference from the indicated base |
 |---|---|

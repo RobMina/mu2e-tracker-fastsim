@@ -13,7 +13,7 @@ the fixed p109 experiment, not a reconstruction-physics arm on current Offline h
 
 ## Executed runtime checks
 
-Outputs under `/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/`:
+Outputs under `$M2FS_DATA/trk_f1native_r2_20261027/`:
 
 | Gate | Events | Seeds | Targets | Iterations | Effects | Result |
 |---|---:|---:|---:|---:|---:|---|
@@ -73,10 +73,10 @@ uniquely provide them. The validated sidecar now supplies those cached operands.
 ## Isolated area and frozen baseline
 
 New cluster-only area:
-`/exp/mu2e/app/users/ram2aq/fastreco_operands_p109_20261028`.
+`$TRKFS_MUSE_AREAS/fastreco_operands_p109_20261028`.
 
 Frozen, read-only source and built evidence area:
-`/exp/mu2e/app/users/ram2aq/fastreco_capture_p109_20261026`.
+`$TRKFS_MUSE_AREAS/fastreco_capture_p109_20261026`.
 
 `scripts/prepare_f1_operand_capture.py` requires the four exact previous capture
 source hashes and all five repository pins. It refuses an existing destination,
@@ -153,7 +153,7 @@ private crossing offsets and extension-constructor state are still not captured.
 On **mu2ebuild02**, fresh shell:
 
 ```bash
-cd /exp/mu2e/app/users/ram2aq/fastreco_operands_p109_20261028
+cd $TRKFS_MUSE_AREAS/fastreco_operands_p109_20261028
 sha256sum -c capture-source-manifest.sha256
 source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh
 setup muse
@@ -164,10 +164,10 @@ muse build -j 32
 Then install the matching local KinKal (also user-run):
 
 ```bash
-AREA=/exp/mu2e/app/users/ram2aq/fastreco_operands_p109_20261028
+AREA=$TRKFS_MUSE_AREAS/fastreco_operands_p109_20261028
 KINKAL_BLD="$AREA/kinkal_build_p109" \
 KINKAL_DST="$AREA/build/al9-prof-e29-p109/Offline/lib" \
-  bash /exp/mu2e/app/users/ram2aq/analysis/crv_track_extrapolation/pr_stability/build_kinkal_into_area.sh "$AREA"
+  bash /path/to/build_kinkal_into_area.sh "$AREA"
 ```
 
 Require `scons: done building targets.` and `INSTALL_KINKAL_DONE`. A helper exit code alone is insufficient. Native

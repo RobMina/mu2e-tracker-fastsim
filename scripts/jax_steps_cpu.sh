@@ -7,10 +7,10 @@
 set -u
 O=${1:?outdir}; shift
 [ $# -gt 0 ] || set -- 1001 1002 1003 1004 1005
-M2FS_CODE=${M2FS_CODE:-/exp/mu2e/app/users/ram2aq/analysis/mu2e-fastsim}
+M2FS_CODE=${M2FS_CODE:?set M2FS_CODE to the mu2e-fastsim checkout}
 TRK=${TRK:-$(cd "$(dirname "$0")/.." && pwd)}
-D=${M2FS_DATA:-/exp/mu2e/data/users/ram2aq}
-PY=${PY:-$D/crv_fastsim/venv_eaf/bin/python3}
+D=${M2FS_DATA:?set M2FS_DATA to the data area}
+PY=${PY:-${PY_JAX:?set PY or PY_JAX to a Python with JAX, NumPy and uproot}}
 GDML=${GDML:-$D/crv_fastsim/geometry/mu2e_extracted_v04.gdml}
 export PYTHONPATH=${CORE_DIR:-$M2FS_CODE/core}:$TRK JAX_PLATFORMS=cpu
 # one codegen part per executable: the default splits multiply the memory maps past vm.max_map_count (65530)

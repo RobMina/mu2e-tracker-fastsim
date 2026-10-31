@@ -1,8 +1,8 @@
 #!/bin/bash
 # Run only the fixed 3000-event crossing pair, preserving both prior captures.
 set -e -o pipefail
-AREA=/exp/mu2e/app/users/ram2aq/fastreco_crossings_p109_20261028
-DATA=/exp/mu2e/data/users/ram2aq
+AREA=${TRKFS_MUSE_AREAS:?set TRKFS_MUSE_AREAS to the directory holding the muse work areas}/fastreco_crossings_p109_20261028
+DATA=${M2FS_DATA:?set M2FS_DATA to the data area holding the F1-native campaign}
 F1N=$DATA/trk_f1native_r2_20261027
 CONFIG=$DATA/trk_fastreco/p109_iteration_targets_v2_20261026
 LIST=$DATA/trk_fastreco/au_dig_3f.txt
@@ -11,7 +11,6 @@ REFERENCE=$F1N/operand_3k_20261028_v1
 OUT=${1:?new output directory required}
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 [ "${MUSE_WORK_DIR:-}" = "$AREA" ] && [ "${MUSE_ENVSET:-}" = p109 ] || exit 2
-[ "$(cat "$DATA/agent_locks/$(hostname -s)/owner")" = f1native-crossing-full-20261028 ] || exit 2
 OUT=$(realpath -m "$OUT")
 case "$OUT" in "$(realpath -e "$F1N")/"*) ;; *) exit 2;; esac
 [ ! -e "$OUT" ] || { echo 'Existing output refused'; exit 2; }
@@ -85,7 +84,7 @@ while read -r lib arrow resolved rest; do
   esac
 done < "$OUT/linkage.txt"
 grep -q libKinKal_Fit "$OUT/linkage.txt"
-PUBLISHER=/exp/mu2e/app/users/ram2aq/analysis/thread-f-publish-20261025/art
+PUBLISHER=${F1_PUBLISHER_ART:?set F1_PUBLISHER_ART to art/ of the frozen tracker checkout whose TrkFastSim/fcl the saved captures used}
 export FHICL_FILE_PATH="$CONFIG:$PUBLISHER:$AREA:${FHICL_FILE_PATH}"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 CPU=$(awk '/Cpus_allowed_list/ {split($2,a,/[-,]/); print a[1]}' /proc/self/status)

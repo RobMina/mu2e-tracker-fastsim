@@ -147,7 +147,7 @@ report. The463-test remote run (including6slow actual-fitter toys) passed in105.
 Read-only reviews addressed crossing-activity and invalid-error controls; tests addressed origin checks.
 No independent review of the final paired report's native execution is claimed.
 
-All under `/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/`:
+All under `$M2FS_DATA/trk_f1native_r2_20261027/`:
 
 | Result | SHA-256 |
 |---|---|

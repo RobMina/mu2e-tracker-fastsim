@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Monitor one authorized cluster and collect only complete products; never submit or cancel jobs.
+: "${TRKFS_OWNER:?set TRKFS_OWNER, the owner field of the tracker-stage Mu2e file names}"
 set -euo pipefail
 AUDIT=${1:?audit directory}
 OLD=${2:?saved campaign directory}
@@ -24,8 +25,8 @@ for poll in $(seq 1 90); do
   complete=0
   for first in $(seq 21 10 220); do
     s=$(printf '001400_%08d' "$first")
-    if grep -Fxq "$BASE/tv2p_fast/nts.ram2aq.tv2fast.v0.$s.root" "$prefix.nts" &&
-       grep -Fxq "$BASE/tv2p_fast/hits/strawhits.ram2aq.tv2fast.v0.$s.root" "$prefix.hits" &&
+    if grep -Fxq "$BASE/tv2p_fast/nts.${TRKFS_OWNER}.tv2fast.v0.$s.root" "$prefix.nts" &&
+       grep -Fxq "$BASE/tv2p_fast/hits/strawhits.${TRKFS_OWNER}.tv2fast.v0.$s.root" "$prefix.hits" &&
        grep -Fxq "$BASE/tv2p_fast/logs/logs.$s.tgz" "$prefix.logs"; then complete=$((complete+1)); fi
   done
   echo "complete_groups=$complete/20 (includes retained pilot)"

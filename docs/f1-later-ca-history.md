@@ -114,7 +114,7 @@ existing criteria.
 ## Provenance, tests and superseded runs
 
 Final report:
-`/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/later_ca_v4.json`
+`$M2FS_DATA/trk_f1native_r2_20261027/later_ca_v4.json`
 
 SHA256 **`e0dd9a77bb0ad28351f8d6303bdda79486747294b8dcee2ae1fee30703888ce1`**.
 `completed=true`, hashes unchanged; final CA exact/criterion agreement true;
@@ -148,7 +148,7 @@ No full/slow-tier certificate.
 
 ```bash
 bash scripts/run_f1_later_ca.sh \
-  /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/NEW_REPORT.json
+  $M2FS_DATA/trk_f1native_r2_20261027/NEW_REPORT.json
 ```
 
 Data usage 141711041678/161061273600 bytes (~18.02 GiB free).

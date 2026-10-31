@@ -56,10 +56,10 @@ The existing SIF, host Python and obsolete project venv are unchanged.
 In a Slurm job after `module load apptainer`:
 
 ```bash
-source /scratch/ram2aq/mu2efastsim/environments/pyarrow-cp313-20261030-v1/env.sh
+source "$FASTSIMKIT_SCRATCH/environments/pyarrow-cp313-20261030-v1/env.sh"   # FASTSIMKIT_SCRATCH: the project work area
 apptainer exec --cleanenv \
   --env "PYTHONDONTWRITEBYTECODE=1,PYTHONPATH=$FASTSIM_PARQUET_SITE_PACKAGES:YOUR_CODE_PATHS" \
-  /scratch/ram2aq/mu2efastsim/mu2efastsim.sif python3 YOUR_SCRIPT.py
+  "$FASTSIMKIT_SCRATCH/mu2efastsim.sif" python3 YOUR_SCRIPT.py
 ```
 
 The add-on is opt-in: merely sourcing env.sh does not alter the host's PYTHONPATH.

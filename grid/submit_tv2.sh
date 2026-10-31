@@ -23,8 +23,9 @@ TAG=${TAG:-tv2_$ARM}
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WRAPPER="$HERE/grid_tv2.sh"; chmod +x "$WRAPPER"
 BASE="${TRKFS_PNFS:?source site.env}"
+: "${TRKFS_OWNER:?set TRKFS_OWNER (owner field of Mu2e file names) in site.env}"
 OUTDIR="$BASE/$TAG"; FCL_PNFS="$OUTDIR/fcl"; LIST_PNFS="$OUTDIR/list.txt"; PNFS_TARBALL="$BASE/Code_tv2.tar.bz2"
-OUTDIR_TOKEN="$(echo "$OUTDIR" | sed 's|^/pnfs/mu2e|/mu2e|')"
+OUTDIR_TOKEN="/${OUTDIR#/*/}"   # token scope: the output path below the top-level dCache mount directory
 RECO_FCL="${M2FS_CODE:?}/../mu2e_track_crv_mcresponse/fcl"
 
 ifdh mkdir_p "$FCL_PNFS" 2>/dev/null || true
@@ -54,5 +55,6 @@ jobsub_submit -N "$N" -G mu2e --role=Analysis --expected-lifetime=4h \
   --lines='+FERMIHTC_AutoRelease=True' --memory=4000MB --disk=10000MB \
   --need-storage-modify="$OUTDIR_TOKEN" \
   -e ARM="$ARM" -e LIST_PNFS="$LIST_PNFS" -e FCL_PNFS="$FCL_PNFS" -e CODE_TARBALL="$PNFS_TARBALL" -e NEVTS="$NEVTS" -e DUMP="${DUMP:-0}" \
+  -e OWNER="$TRKFS_OWNER" \
   "file://$WRAPPER" "$OUTDIR"
 echo "Monitor: jobsub_q -G mu2e --user $USER"

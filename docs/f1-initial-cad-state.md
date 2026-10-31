@@ -120,7 +120,7 @@ its original scope and immutable evidence.
 
 ## Immutable evidence and tests
 
-Data root: `/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/`.
+Data root: `$M2FS_DATA/trk_f1native_r2_20261027/`.
 
 - **`initial_cad_v4.json`**, SHA256
   `37c3c844dd3339ab2ddca6208485f2d0ee190adbb8b4415a0e91ae8de78d9afb`.
@@ -149,7 +149,7 @@ No full/slow-tier claim.
 
 ```bash
 bash scripts/run_f1_initial_cad.sh \
-  /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/NEW_REPORT.json
+  $M2FS_DATA/trk_f1native_r2_20261027/NEW_REPORT.json
 ```
 
 Wrapper pins one CPU and single-thread libraries; exclusive JSON on completion or failure. Data usage

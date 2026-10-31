@@ -1,20 +1,19 @@
 #!/bin/bash
 #SBATCH -J m2fs_trkgpu
-#SBATCH -A ldmxuva
 #SBATCH -p gpu
 #SBATCH --gres=gpu:a100:1
 #SBATCH -C a100_80gb
 #SBATCH -c 8
 #SBATCH --mem=96G
 #SBATCH -t 00:55:00
-#SBATCH -o /scratch/%u/mu2efastsim/kpp/slurm-%j.out
 # UVA (Slurm, one whole A100-80): steps --backend jax on the GPU against numpy (jaxcheck per gen shard, warm passes
 # timed apart from the compiling one), the cross-device comparison with a CPU JAX run of the same seed (--cross), and
 # the throughput at large batches (--concat, several lane counts). Submitted and fed by uva_steps_stream.sh: the code
 # tarball and the inputs (gen tables, GDML, CPU tables) are streamed into job tmpfs and deleted on exit; only stats
-# (json/txt) are written to the output dir, which the stream script copies back and removes.
+# (json/txt) are written to the output dir, which the stream script copies back and removes. The stream script passes
+# the account (-A $FASTSIMKIT_SLURM_ACCOUNT), the log path ($M2FS_UVA/kpp/slurm-%j.out) and M2FS_UVA.
 # env: SHARDS (1001-1005), VALIDATION_SHARDS (SHARDS), LANES_LIST (65536), REPEAT (2: compile + warm)
-F=${M2FS_UVA:-/scratch/$USER/mu2efastsim}
+F=${M2FS_UVA:-${FASTSIMKIT_SCRATCH:?set M2FS_UVA or FASTSIMKIT_SCRATCH to the project work area on the cluster}}
 SIF=${SIF:-$F/mu2efastsim.sif}
 umask 077
 O=$F/kpp/trkgpu_$(date +%Y%m%d_%H%M%S)_${SLURM_JOB_ID:-none}; mkdir -p $O

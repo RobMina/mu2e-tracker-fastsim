@@ -9,6 +9,7 @@ set -o pipefail
 OUTDIR="${1:?need OUTDIR (pnfs scratch)}"
 ARM="${ARM:?fast|g4}"; LIST_PNFS="${LIST_PNFS:?}"; FCL_PNFS="${FCL_PNFS:?}"; CODE_TARBALL="${CODE_TARBALL:?}"
 NEVTS="${NEVTS:--1}"; K="${PROCESS:?}"
+OWNER="${OWNER:?need OWNER, the owner field of the output file names (submit_tv2.sh passes TRKFS_OWNER)}"
 echo "=== grid_tv2: arm $ARM shard $K host $(hostname) $(date -u)"
 
 source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh || true
@@ -20,8 +21,8 @@ ifdh cp "$LIST_PNFS" ./list.txt || { echo "ERROR: list"; exit 2; }
 read -r INPUT TABLE <<< "$(sed -n "$((K + 1))p" ./list.txt)"
 [ -n "$INPUT" ] || { echo "ERROR: no line $((K + 1))"; exit 2; }
 SEQ=$(basename "${INPUT%%,*}" .art | awk -F. '{print $NF}')
-NTS="nts.ram2aq.tv2${ARM}.v0.${SEQ}.root"
-HIT="strawhits.ram2aq.tv2${ARM}.v0.${SEQ}.root"
+NTS="nts.${OWNER}.tv2${ARM}.v0.${SEQ}.root"
+HIT="strawhits.${OWNER}.tv2${ARM}.v0.${SEQ}.root"
 HAVE_NTS=0; ifdh ls "$OUTDIR/$NTS" >/dev/null 2>&1 && HAVE_NTS=1
 HAVE_HIT=0; ifdh ls "$OUTDIR/hits/$HIT" >/dev/null 2>&1 && HAVE_HIT=1
 # DUMP=1: also write the StrawHitTableDumper table (digis + stock hits) from the reco job; a shard whose ntuple exists reruns

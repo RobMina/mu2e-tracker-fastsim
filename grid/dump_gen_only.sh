@@ -1,6 +1,6 @@
 #!/bin/bash
 # Dump the grid gen-only art files of one campaign to gen tables (gen.001400_<subrun>.root), serially on one GPVM
-# (~30 s per 500 k-event file). Reads the art files from their /pnfs scratch paths, as dump_ref.sh does.
+# (~30 s per 500 k-event file). Reads the art files from their dCache scratch paths, as dump_ref.sh does.
 # usage: dump_gen_only.sh TAG FIRST_SUBRUN LAST_SUBRUN    (needs site.env: TRKFS_CODE, TRKFS_PNFS, TRKFS_OWNER, M2FS_DATA)
 OUT_TAG=${1:?tag}; S0=${2:?first subrun}; S1=${3:?last subrun}
 source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh >/dev/null 2>&1 || true

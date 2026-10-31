@@ -1,5 +1,16 @@
 # mu2e-tracker-fastsim
 
+## Collaborator first run
+
+Use the umbrella
+[collaborator quickstart](https://github.com/RobMina/mu2e-fastsim/blob/main/setup/README.md#tracker-one-shard-primary-steps)
+for a fresh clone, checksum-verified inputs and a one-shard primary transport run
+with explicit GDML and output paths. Full digitisation/reco needs additional
+matched conditions; do not label a steps-only smoke as full reconstruction.
+The campaign inputs named in the validation account below (relative to the configured
+data area) are provenance, **not currently a readable collaborator input release**. Do
+not create symlinks to another user's data area as a setup procedure.
+
 Geant4-free tracker simulation (`StrawGasStep`s) and fast tracker reconstruction for the Mu2e extracted (KPP, no
 field) cosmic configuration: stage 2 of the Mu2e fast simulation, beside
 [`mu2e-crv-fastsim`](https://github.com/RobMina/mu2e-crv-fastsim). Physics primitives (energy loss, scattering,
@@ -108,24 +119,25 @@ stock schema. Every event of the input is written (also those without tracks); b
 
 For Mu2e collaborators with an account on the Mu2e interactive machines (`mu2egpvm01`-`07`). Everything runs in
 Python from the `ana` environment on CVMFS; nothing is built. Follow the Mu2e GPVM rules: one job per machine, outputs
-in your `/exp/mu2e/data/users/$USER` area (150 GiB quota), never in the app area.
+in your Mu2e user data area (150 GiB quota), never in the app area.
 
 ### 1. Code and environment (once)
 
 ```bash
-cd /exp/mu2e/app/users/$USER
+cd /path/to/your/mu2e/app/area         # your Mu2e app (code) area
 git clone --recurse-submodules https://github.com/RobMina/mu2e-fastsim.git
 cd mu2e-fastsim
-cp site.env.example site.env        # then edit the first block: at least M2FS_CODE and M2FS_DATA
+cp site.env.example site.env        # edit M2FS_CODE, approved M2FS_INPUTS and writable M2FS_DATA
 ```
 
-In `site.env` set `M2FS_CODE=/exp/mu2e/app/users/$USER/mu2e-fastsim` and `M2FS_DATA=/exp/mu2e/data/users/$USER`; the
-ALCF and grid lines can stay as they are for this. Every new shell then needs:
+In `site.env` set `M2FS_CODE` to this checkout, `M2FS_INPUTS` to the approved read-only input release and
+`M2FS_DATA` to your Mu2e user data area for writable outputs. `site.env` stays outside version control; every script
+that needs a site path stops with a message naming the missing variable. Every new shell needs:
 
 ```bash
 source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh
 pyenv ana                            # numpy, pandas, uproot, matplotlib, pytest
-cd /exp/mu2e/app/users/$USER/mu2e-fastsim && source site.env   # PYTHONPATH=core:crv:tracker
+cd /path/to/your/mu2e/app/area/mu2e-fastsim && source site.env   # PYTHONPATH=core:crv:tracker
 ```
 
 Check the install (about a minute; run each suite on its own, `crv/tests` and `tracker/tests` share a file name):
@@ -137,36 +149,29 @@ python3 -m pytest -q -p no:cacheprovider tracker/tests
 
 ### 2. Inputs
 
-The validation needs three inputs. They are Mu2e-internal and are not in this repository; the copies used for the
-published comparisons are readable on `/exp` and can be linked instead of regenerated:
+The primary transport run needs a checksum-verified extracted v04 GDML and gen
+tables. Comparisons additionally need G4 reference StrawGasSteps for the same
+shards; see the umbrella collaborator inventory. No collaboration-readable
+release is bundled. Historical private campaign paths are not a setup service.
+Do not symlink another user's private area.
 
-| input | what | where (readable copy) | how it is made |
-|---|---|---|---|
-| GDML world | v04 extracted geometry export | `/exp/mu2e/data/users/ram2aq/crv_fastsim/geometry/mu2e_extracted_v04.gdml` | `crv/geometry/` Offline job |
-| gen tables | CRY primaries and live time of every generated event, 20 shards x 50,000 (`gen.001400_*.root`) | `/exp/mu2e/data/users/ram2aq/crv_fastsim/g4ref_v1_tables/` | G4 reference grid run `crv/grid/` (`g4ref_v1`), dumped with `crv/art/dump_g4ref.sh` |
-| G4 reference StrawGasSteps | tracker truth of the accepted events of the same run (`sgsteps.*.root`) | `/exp/mu2e/data/users/ram2aq/trk_fastsim/g4ref_v1_tables/` | `art/dump_ref.sh` on the `g4ref_v1` dts files (needs the muse area in `art/`, built on `mu2ebuild02`) |
+Use `$M2FS_INPUTS` for the approved read-only release and `$M2FS_DATA` for your
+outputs. Pass `--gdml "$CRVFS_DATA/geometry/mu2e_extracted_v04.gdml"` explicitly:
+the older default GDML resolver uses `$M2FS_DATA`, which is an output root in
+the input/output-separated template.
 
-```bash
-mkdir -p $M2FS_DATA/crv_fastsim/geometry $M2FS_DATA/crv_fastsim $M2FS_DATA/trk_fastsim
-R=/exp/mu2e/data/users/ram2aq
-ln -s $R/crv_fastsim/geometry/mu2e_extracted_v04.gdml $M2FS_DATA/crv_fastsim/geometry/
-ln -s $R/crv_fastsim/g4ref_v1_tables $M2FS_DATA/crv_fastsim/g4ref_v1_tables
-ln -s $R/trk_fastsim/g4ref_v1_tables $M2FS_DATA/trk_fastsim/g4ref_v1_tables
-```
-
-The `steps` and `msccheck` subcommands find the GDML at `$M2FS_DATA/crv_fastsim/geometry/mu2e_extracted_v04.gdml`
-(override with `--gdml`). `CRVFS_DATA` (set by `site.env`) is `$M2FS_DATA/crv_fastsim`.
-
-### 3. One shard (smoke test, about 30-40 s)
+### 3. One shard (primary transport smoke)
 
 ```bash
-mkdir -p /tmp/$USER/trkfs
-python3 -m trkfastsim steps $CRVFS_DATA/g4ref_v1_tables/gen.001400_00000011.root \
-    --outdir /tmp/$USER/trkfs --seed 1 --stage C --sliced-msc
+O=$(mktemp -d)                       # or a new directory under $M2FS_DATA
+python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v2_tables/gen.001400_00000022.root" \
+    --gdml "$CRVFS_DATA/geometry/mu2e_extracted_v04.gdml" \
+    --outdir "$O" --seed 1 --stage C --sliced-msc
 ```
 
-It prints the support-structure census, the in-tracker transport counters (kinks, tail scatters, wire hits) and
-`36,777 primary muons, ~360 with straw crossings, ~5,600 steps`.
+It prints the support-structure census and the in-tracker transport counters
+(kinks, tail scatters, wire hits). Counts depend on the manifest-selected shard;
+this primary-only smoke does not test digitisation or full track reconstruction.
 
 ### 4. The stage C validation (20 shards)
 

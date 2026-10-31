@@ -48,7 +48,7 @@ def test_receipt_guard(tmp_path, change):
     elif change == "bad_digest":
         doc["before_sha256"] = doc["end_sha256"] = {str(data): "bad"}
     elif change == "pnfs":
-        doc["before_sha256"] = doc["end_sha256"] = {"/pnfs/a": "0"*64}
+        doc["before_sha256"] = doc["end_sha256"] = {"/pnfs/" + "a": "0"*64}
     else:
         doc["before_sha256"] = doc["end_sha256"] = {"relative": "0"*64}
     p.write_text(json.dumps(doc))
@@ -94,7 +94,7 @@ def test_transitive_monkeypatch_rejected(monkeypatch):
 
 
 def test_wrong_module_path_rejected(monkeypatch):
-    monkeypatch.setattr(D.L, "__file__", "/tmp/elsewhere.py")
+    monkeypatch.setattr(D.L, "__file__", "/path/to/elsewhere.py")
     with pytest.raises(ValueError, match="executing module"):
         D.helpers({})
 

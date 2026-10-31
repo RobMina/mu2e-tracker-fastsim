@@ -9,3 +9,28 @@ try:
                                      pytest_collection_modifyitems, pytest_configure)
 except ImportError:   # an older core without the shared hooks
     pass
+
+import pytest
+
+# Placeholder site configuration for the kit tests (mu2efastsim.site): nothing here names a real site, user or
+# storage area. Tests that check fail-closed behaviour delete the variables themselves.
+SITE_PLACEHOLDERS = {
+    "M2FS_DATA": "/path/to/fnal/data",
+    "M2FS_CODE": "/path/to/fnal/code",
+    "FASTSIMKIT_SCRATCH": "/path/to/scratch",
+    "FASTSIMKIT_FNAL_HOST": "fnal-host.example",
+    "FASTSIMKIT_SLURM_HOST": "slurm-host.example",
+    "FASTSIMKIT_SLURM_ACCOUNT": "test_account",
+}
+SITE_OPTIONAL = ("M2FS_INPUTS", "FASTSIMKIT_FNAL_DATA", "CRVFS_DATA", "FASTSIMKIT_WORKDIR", "FASTSIMKIT_CODE",
+                 "FASTSIMKIT_SIF", "FASTSIMKIT_TRACKER_DATA", "FASTSIMKIT_TRACKER_CODE")
+
+
+@pytest.fixture
+def site_env(monkeypatch):
+    """Set the placeholder site variables (and clear optional overrides) for one test."""
+    for name in SITE_OPTIONAL:
+        monkeypatch.delenv(name, raising=False)
+    for name, value in SITE_PLACEHOLDERS.items():
+        monkeypatch.setenv(name, value)
+    return monkeypatch

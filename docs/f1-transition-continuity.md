@@ -150,7 +150,7 @@ subtracting unrelated later CA times or fitting captured material operands.
 ## Evidence, superseded runs, tests and cleanup
 
 Final report:
-`/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/transitions_v5.json`
+`$M2FS_DATA/trk_f1native_r2_20261027/transitions_v5.json`
 
 SHA256 **`e95881049167a98c402680512c8997aa4548a10fedbec47b9dcaaa9b68bdc0a5`**.
 Completed, before/after hashes unchanged, retained CA criterion/exact agreement true,
@@ -182,7 +182,7 @@ No full/slow-tier certificate.
 
 ```bash
 bash scripts/run_f1_transition.sh \
-  /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/NEW_REPORT.json
+  $M2FS_DATA/trk_f1native_r2_20261027/NEW_REPORT.json
 ```
 
 Data usage 147202348616/161061273600 bytes (~12.91 GiB free), measured after other concurrent jobs; no data deleted.

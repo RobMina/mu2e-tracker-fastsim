@@ -80,7 +80,7 @@ New standalone modules, now receipt-bound:
 | `scripts/f1_material_discovery_audit.py` | `676dc1d099bd9d6210c0e302bd649434c65c17b23e1643e348b390ae701e4d91` |
 | `scripts/f1_discovered_history_audit.py` | `f2ef7085094956999f3c56d42f1d9b17b25d44c40b5a24959767302b751c996a` |
 
-Data prefix `/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/`:
+Data prefix `$M2FS_DATA/trk_f1native_r2_20261027/`:
 
 - **`material_discovery_v1.json`**, SHA256 **`762f61184eec3cdf849457b1c86728fddbbd2d207bf16bec497587b00c8d707b`**.
 - **`discovered_history_v1.json`**, SHA256 **`d92044981ee84e31b0647bf0705b69f729c0806903fec0707b02c89cb9703852`**.

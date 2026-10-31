@@ -2,9 +2,9 @@
 # One-core numpy throughput for the same ten-shard input batch as the device benchmark.
 set -euo pipefail
 O=${1:?new output directory}
-D=${M2FS_DATA:-/exp/mu2e/data/users/ram2aq}
+D=${M2FS_DATA:?set M2FS_DATA to the data area}
 TRK=$(cd "$(dirname "$0")/.." && pwd)
-PY=${PY:-$D/crv_fastsim/venv_eaf/bin/python3}
+PY=${PY:-${PY_JAX:?set PY or PY_JAX to a Python with JAX, NumPy and uproot}}
 : "${CORE_DIR:?pinned core directory}"
 [ ! -e "$O" ] || { echo "refusing existing output $O"; exit 2; }
 export PYTHONPATH=$CORE_DIR:$TRK JAX_PLATFORMS=cpu

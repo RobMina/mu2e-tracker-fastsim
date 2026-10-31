@@ -11,8 +11,8 @@ from trkfastsim import kit_task, kit_uva
 
 
 @pytest.fixture
-def kit(tmp_path):
-    ep = SimpleNamespace(name="eaf", fnal_data="/exp/mu2e/data/user/crv_fastsim")
+def kit(tmp_path, site_env):
+    ep = SimpleNamespace(name="eaf", fnal_data="/path/to/data/crv_fastsim")
     return FastsimKit(endpoint=ep, state_dir=tmp_path)
 
 
@@ -41,7 +41,7 @@ def test_admission_refuses(kit, key, value):
 
 @pytest.mark.parametrize("field", ["files", "inputs"])
 def test_no_file_handoff(kit, field):
-    args = {"files": [], "inputs": [], field: [{"kind": "geom", "uri": "file:///tmp/x"}]}
+    args = {"files": [], "inputs": [], field: [{"kind": "geom", "uri": "file:///path/to/x"}]}
     assert not kit.check("p", {"task": "tracker_point"}, **args)["ok"]
     with pytest.raises(ValueError, match="only beam_point"):
         kit.submit("p", {"task": "tracker_point"}, **args)
@@ -49,7 +49,7 @@ def test_no_file_handoff(kit, field):
 
 def test_eaf_body_and_capabilities(kit):
     body, res = kit.render({"task": "tracker_point"})
-    assert "D=/exp/mu2e/data/user/crv_fastsim/.." in body
+    assert "D=/path/to/data/crv_fastsim/.." in body
     assert "--seed 1" in body and "--workdir" in body
     assert "--retain-ntuple" not in body and "--library" not in body
     assert "cleanup.txt" in body and "trap 'exit 143'" in body
@@ -84,7 +84,7 @@ def test_full_finite_denominator_contract():
 
 
 @pytest.mark.parametrize("fail", [False, True])
-def test_mounted_script_executes_metadata_only_and_cleans_scratch(tmp_path, fail):
+def test_mounted_script_executes_metadata_only_and_cleans_scratch(tmp_path, fail, site_env):
     """Run the shell locally with a stub runner, no input data or endpoint access."""
     data, out, scratch = tmp_path / "data root", tmp_path / "out", tmp_path / "scratch"
     out.mkdir()
@@ -123,11 +123,11 @@ work = pathlib.Path(args[args.index("--workdir") + 1])
                                               {"metrics.json", "provenance.json", "cleanup.txt", "point.txt"})
 
 
-def test_mounted_results_gate(tmp_path):
+def test_mounted_results_gate(tmp_path, site_env):
     from mu2efastsim.endpoints import JobStatus
     out = tmp_path / "out" / "p" / "out"
     out.mkdir(parents=True)
-    ep = SimpleNamespace(name="eaf", fnal_data="/exp/crv_fastsim", status=lambda _: JobStatus("completed"),
+    ep = SimpleNamespace(name="eaf", fnal_data="/path/to/crv_fastsim", status=lambda _: JobStatus("completed"),
                          fetch=lambda *args: list(out.iterdir()))
     kit = FastsimKit(endpoint=ep, state_dir=tmp_path)
     kit._record_task("p", "tracker_point")

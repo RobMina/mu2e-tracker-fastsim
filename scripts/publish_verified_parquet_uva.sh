@@ -4,6 +4,7 @@ R=${1:?owned output root}
 STAGE=${2:?completed validated environment}
 SHARED=${3:?new shared destination}
 TOOLS=${4:?versioned replay tools}
+: "${FASTSIMKIT_SCRATCH:?set FASTSIMKIT_SCRATCH to the project work area holding inputs/ and mu2efastsim.sif}"
 [[ ! -e "$SHARED" ]] || { echo "refusing existing shared destination" >&2; exit 1; }
 [[ -f "$STAGE/installation-check.json" && -f "$STAGE/MANIFEST.sha256" ]]
 (
@@ -20,4 +21,4 @@ mv -T -n "$STAGE" "$SHARED"
 chmod -R a-w "$SHARED"
 printf 'Published shared environment: %s\n' "$SHARED"
 bash "$TOOLS/scripts/replay_saved_rate_parquet_uva.sh" "$R" \
-  /scratch/ram2aq/mu2efastsim/inputs /scratch/ram2aq/mu2efastsim/mu2efastsim.sif "$SHARED" "$TOOLS"
+  "$FASTSIMKIT_SCRATCH/inputs" "$FASTSIMKIT_SCRATCH/mu2efastsim.sif" "$SHARED" "$TOOLS"

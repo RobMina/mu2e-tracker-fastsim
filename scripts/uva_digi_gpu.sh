@@ -1,19 +1,19 @@
 #!/bin/bash
 #SBATCH -J trk_digijax
-#SBATCH -A ldmxuva
 #SBATCH -p gpu
 #SBATCH --gres=gpu:a100:1
 #SBATCH -C a100_80gb
 #SBATCH -c 4
 #SBATCH --mem=16G
 #SBATCH -t 00:15:00
-#SBATCH -o /scratch/%u/mu2efastsim/kpp/digijax-%j.out
 # Synthetic-only A100 test; requires an explicit code snapshot and a new output directory.
+# Submit with the log path from the site configuration (sbatch takes the account from SBATCH_ACCOUNT), e.g.
+#   sbatch -o "$FASTSIMKIT_SCRATCH/kpp/digijax-%j.out" uva_digi_gpu.sh
 set -euo pipefail
 umask 077
 CODE=${CODE:?directory containing core and tracker snapshots}
 OUT=${OUT:?new statistics-only output directory}
-SIF=${SIF:-/scratch/$USER/mu2efastsim/mu2efastsim.sif}
+SIF=${SIF:-${FASTSIMKIT_SCRATCH:?set SIF, or FASTSIMKIT_SCRATCH to the project work area holding mu2efastsim.sif}/mu2efastsim.sif}
 mkdir "$OUT"
 module load apptainer
 L=$(mktemp -d "${TMPDIR:-/tmp}/digijax_${SLURM_JOB_ID:-manual}_XXXXXX")

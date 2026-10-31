@@ -1,4 +1,4 @@
-"""Summarise f1_diag.sh variants: fraction within 0.1 sigma per parameter, and sliced by active hits and crossings.
+"""Summarise F1 diagnostic variants (one reco-vr2f1 output directory per variant): fraction within 0.1 sigma per parameter, and sliced by active hits and crossings.
 python3 scripts/f1_diag_summary.py DIR"""
 import json
 import os

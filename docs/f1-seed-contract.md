@@ -100,13 +100,13 @@ additional archive cleanup, builds, native recapture or git writes.
 ## Reproduction once a host is available
 
 ```bash
-D=/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027
+D=$M2FS_DATA/trk_f1native_r2_20261027
 C=$D/crossing_3k_20261028_v2
 PYTHONPATH=.:scripts python3 scripts/f1_seed_contract_audit.py \
   --full-check "$C/crossing_full_check_v1.json" \
   --initial "$D/initial_crossing_v2.json" \
   --capture "$C/capture.root" --expanded "$C/capture.expanded.fcl" \
-  --native-source /exp/mu2e/app/users/ram2aq/fastreco_crossings_p109_20261028 \
+  --native-source $TRKFS_MUSE_AREAS/fastreco_crossings_p109_20261028 \
   --out "$D/seed_contract_v1.json"
 ```
 

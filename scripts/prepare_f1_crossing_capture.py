@@ -8,7 +8,11 @@ import shutil
 import subprocess
 import sys
 
-ROOT = Path("/exp/mu2e/app/users/ram2aq")
+from mu2efastsim import site
+
+# The frozen capture areas are named directories under TRKFS_MUSE_AREAS (site configuration); the placeholder
+# only keeps the module importable for the source-transformation tests, and the command line requires the variable.
+ROOT = Path(site.setting("TRKFS_MUSE_AREAS") or "/path/to/TRKFS_MUSE_AREAS")
 BASE = ROOT/"fastreco_operands_p109_20261028"
 AREA = ROOT/"fastreco_crossings_p109_20261028"
 TEMPLATES = Path(__file__).resolve().parents[1]/"art/crossing_capture"
@@ -163,6 +167,7 @@ def prepare(base, area, report_path, validate_only=False):
 
 
 if __name__ == "__main__":
+    site.require("TRKFS_MUSE_AREAS")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", type=Path, default=BASE)
     parser.add_argument("--area", type=Path, default=AREA)

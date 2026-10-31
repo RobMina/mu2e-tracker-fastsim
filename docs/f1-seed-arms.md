@@ -115,9 +115,9 @@ single-thread JAX environment and run-and-capture with one allowed CPU:
 python3 scripts/f1_seed_arm_probe.py \
   --seed-contract /path/to/completed_seed_contract.json \
   --seed-contract-sha RECORDED_64_HEX_SHA \
-  --check /exp/mu2e/data/users/ram2aq/trk_fastreco/p109_iteration_3k_20261027/check.json \
-  --conditions /exp/mu2e/data/users/ram2aq/trk_fastreco/p109_prior_all_20261025/conditions.json \
-  --straw-axis /exp/mu2e/data/users/ram2aq/trk_fastreco/align/TrkAlignStraw.csv \
+  --check $M2FS_DATA/trk_fastreco/p109_iteration_3k_20261027/check.json \
+  --conditions $M2FS_DATA/trk_fastreco/p109_prior_all_20261025/conditions.json \
+  --straw-axis $M2FS_DATA/trk_fastreco/align/TrkAlignStraw.csv \
   --key RUN:SUBRUN:EVENT:0 --out /path/to/new_exclusive_probe_directory
 ```
 
@@ -125,5 +125,5 @@ Use `--fixed` in a separate exclusive output for fixed-state probing. Native-dat
 against preserved baseline outputs, q momentum-versus-geometry/time subdivision, and full acceptance/fidelity
 comparisons are still pending. Never rerun a finished full baseline merely to supply a comparison.
 
-06 broken `/exp`. Original 99.5% acceptance / 99% per-parameter fidelity gates remain unmet and the previous measured
+06 broken FNAL data filesystem. Original 99.5% acceptance / 99% per-parameter fidelity gates remain unmet and the previous measured
 results are unchanged.

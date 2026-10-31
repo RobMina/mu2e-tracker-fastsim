@@ -6,7 +6,7 @@
 #   replay rerun stock and f2 and compare the content hashes
 #   cmp    reco-ntcompare of each fast file against the stock EventNtuple of the same digis, plus the readers
 # usage: ntuple_validate.sh <dump.root> <stock nts.root> <conditions.json> <outdir> [steps ...]   (default: all)
-# env: PY_JAX (python with JAX, default the venv_eaf one), TRKFS_COMMIT (recorded when git is unavailable),
+# env: PY_JAX (python with JAX; required), TRKFS_COMMIT (recorded when git is unavailable),
 #      F1_MAX_TRACKS (first N F1 candidates; the full 29k-event file needs > 9 GB in reco-vr2f1),
 #      F1_TRACKS (an existing reco-vr2f1 --own-states --save-tracks f1_tracks.npz of the same dump: skips reco-vr2f1)
 source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh >/dev/null 2>&1 || true
@@ -16,10 +16,10 @@ DUMP=${1:?dump}; NTS=${2:?stock ntuple}; COND=${3:?conditions}; O=${4:?outdir}; 
 STEPS=${*:-stock f2 f1 replay cmp}
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 APP=$(cd "$HERE/../.." && pwd)
-CORE=${M2FS_CORE:-/exp/mu2e/app/users/$USER/analysis/mu2e-fastsim/core}
-export PYTHONPATH=$CORE:$HERE:${CRVEXTRAP:-/exp/mu2e/app/users/$USER/analysis/mu2e_track_crv_mcresponse}
+CORE=${M2FS_CORE:-${M2FS_CODE:?set M2FS_CORE, or M2FS_CODE to the mu2e-fastsim checkout}/core}
+export PYTHONPATH=$CORE:$HERE:${CRVEXTRAP:?set CRVEXTRAP to the mu2e_track_crv_mcresponse checkout}
 export JAX_PLATFORMS=cpu F1_JAX_CACHE=$O/jax_cache
-PY_JAX=${PY_JAX:-/exp/mu2e/data/users/$USER/crv_fastsim/venv_eaf/bin/python3}
+PY_JAX=${PY_JAX:?set PY_JAX to a Python with JAX, NumPy and uproot}
 mkdir -p "$O"
 run() { local tag=$1; shift; echo "== $tag $(date -Is)"; /usr/bin/time -v "$@" > "$O/$tag.log" 2>&1; local rc=$?
         echo "   rc=$rc $(grep -E 'Elapsed|Maximum resident' "$O/$tag.log" | tr -s ' ' | tr '\n' ' ')"; return $rc; }

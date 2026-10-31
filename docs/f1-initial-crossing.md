@@ -30,7 +30,7 @@ The crossing trajectory snapshot occurs at `makeStrawHits` entry; the seed-contr
 
 ## Provenance and execution
 
-Data prefix: `/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/`.
+Data prefix: `$M2FS_DATA/trk_f1native_r2_20261027/`.
 
 - Final **`initial_crossing_v2.json`** SHA256 `100542dfd9b0f6287c06b79c4a3a775883c1d602580418f703112fbc5a2acbf7`.
 - `completed=true`, `passed=true`, `exact=true`, `hashes_unchanged=true`.
@@ -64,12 +64,12 @@ Use **new exclusive output and log names**:
 
 ```bash
 python3 scripts/f1_initial_crossing_audit.py \
-  --full-check /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/crossing_3k_20261028_v2/crossing_full_check_v1.json \
-  --associated /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/crossing_constructor_v4.json \
-  --capture /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/crossing_3k_20261028_v2/capture.root \
-  --expanded /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/crossing_3k_20261028_v2/capture.expanded.fcl \
-  --native-source /exp/mu2e/app/users/ram2aq/fastreco_crossings_p109_20261028 \
-  --out /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/NEW_initial_crossing.json
+  --full-check $M2FS_DATA/trk_f1native_r2_20261027/crossing_3k_20261028_v2/crossing_full_check_v1.json \
+  --associated $M2FS_DATA/trk_f1native_r2_20261027/crossing_constructor_v4.json \
+  --capture $M2FS_DATA/trk_f1native_r2_20261027/crossing_3k_20261028_v2/capture.root \
+  --expanded $M2FS_DATA/trk_f1native_r2_20261027/crossing_3k_20261028_v2/capture.expanded.fcl \
+  --native-source $TRKFS_MUSE_AREAS/fastreco_crossings_p109_20261028 \
+  --out $M2FS_DATA/trk_f1native_r2_20261027/NEW_initial_crossing.json
 ```
 
 Next is reference/wrapper/retained-CA/partner-history reconstruction, including all seven capped stage-1 searches and final-pointer-versus-last-solved semantics. Material-only construction/discovery still requires the full geometry universe and rejected/skipped branches. Native seed, strict algebra, state policy, decision, acceptance and full-population closure remain open. Do not integrate the diagnostic into the fitter or promote defaults from conditional agreement.

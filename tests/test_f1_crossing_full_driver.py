@@ -13,7 +13,7 @@ def test_shell_syntax_and_fixed_native_count():
     subprocess.run(["bash", "-n", str(DRIVER)], check=True)
     assert "-n 3000" in TEXT and "events=3000" in TEXT
     assert "N=${" not in TEXT
-    assert "f1native-crossing-full-20261028" in TEXT
+    assert "AREA=${TRKFS_MUSE_AREAS:?" in TEXT and "DATA=${M2FS_DATA:?" in TEXT
     assert 'taskset -c "$CPU" mu2e' in TEXT
     assert "OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1" in TEXT
 

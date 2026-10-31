@@ -2,13 +2,13 @@
 # steps --backend jax on a Fermilab EAF A100 session (run in the EAF terminal): jaxcheck per gen_as_v1 shard (numpy on
 # the session CPU vs jax on the GPU, warm passes timed apart from the compiling one, cross-device comparison with the
 # CPU JAX tables of jax_steps_cpu.sh) and the throughput at large batches (--concat, several lane counts).
-# Inputs are read in place from /exp/mu2e/data; outputs go to $D/trkfs_gpu_eaf_<time>.
+# Inputs are read in place from the data area $M2FS_DATA; outputs go to $D/trkfs_gpu_eaf_<time>.
 # usage: bash tracker/scripts/eaf_steps_gpu.sh [SHARD ...]   (default 1001-1005)
 # env: VENV, OUT, CPU_OUT (jax_steps_cpu.sh outdir, for --cross), REPEAT (3), LANES_LIST (4096 16384 65536), CPU=1 (no GPU)
-M2FS_CODE=${M2FS_CODE:-/exp/mu2e/app/users/ram2aq/analysis/mu2e-fastsim}
+M2FS_CODE=${M2FS_CODE:?set M2FS_CODE to the mu2e-fastsim checkout}
 TRK=${TRK:-$(cd "$(dirname "$0")/.." && pwd)}
-D=${M2FS_DATA:-/exp/mu2e/data/users/ram2aq}
-VENV=${VENV:-$D/crv_fastsim/venv_eaf}
+D=${M2FS_DATA:?set M2FS_DATA to the data area}
+VENV=${VENV:?set VENV to the JAX virtual environment directory (created there if missing)}
 BASE=/cvmfs/mu2e.opensciencegrid.org/env/ana/current/bin/python
 JAXPKG="jax[cuda12]==0.11.2"; [ -n "${CPU:-}" ] && JAXPKG="jax==0.11.2"
 [ -x "$VENV/bin/python" ] || "$BASE" -m venv --system-site-packages "$VENV" || exit 2

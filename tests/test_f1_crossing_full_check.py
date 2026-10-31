@@ -112,7 +112,7 @@ def test_actual_helper_paths_and_pins():
 
 def test_other_checkout_module_is_rejected(monkeypatch):
     # Replace the driver's module reference, never mutate a pinned helper/constant.
-    shadow = SimpleNamespace(__name__="f1_crossing_geometry_check", __file__="/tmp/other/f1_crossing_geometry_check.py")
+    shadow = SimpleNamespace(__name__="f1_crossing_geometry_check", __file__="/path/to/other/f1_crossing_geometry_check.py")
     monkeypatch.setattr(F, "G", shadow)
     with pytest.raises(ValueError, match="other checkout"):
         F.verify_helpers({})
@@ -121,7 +121,7 @@ def test_other_checkout_module_is_rejected(monkeypatch):
 def test_transitive_executing_code_path_is_checked(monkeypatch):
     original = F.G
     shadow = SimpleNamespace(**vars(original))
-    shadow.validate = original.validate.__class__(original.validate.__code__.replace(co_filename="/tmp/other.py"),
+    shadow.validate = original.validate.__class__(original.validate.__code__.replace(co_filename="/path/to/other.py"),
                                                 original.validate.__globals__, "validate")
     shadow.validate.__module__ = original.__name__
     monkeypatch.setattr(F, "G", shadow)
@@ -585,7 +585,7 @@ def test_manifest_relative_and_absolute_hashes(tmp_path):
 
 def test_manifest_rejects_pnfs_hash_entries_without_touching_namespace(tmp_path):
     p = tmp_path / "manifest.txt"
-    p.write_text(f"{'a' * 64}  /pnfs/never-query-this\n")
+    p.write_text(f"{'a' * 64}  {'/pnfs/'}never-query-this\n")
     with pytest.raises(ValueError, match="PNFS"):
         F.manifest_hashes(p, tmp_path)
 

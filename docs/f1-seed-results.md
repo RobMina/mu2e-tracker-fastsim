@@ -9,7 +9,7 @@ cleanup, baseline campaign, fitter change or default promotion.
 by implication.** Original measured acceptance 95.594% and combined-seed momentum fidelity 89.808% remain the
 latest population results, below the unchanged 99.5% / 99% gates.
 
-All results live under `/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/`.
+All results live under `$M2FS_DATA/trk_f1native_r2_20261027/`.
 
 ## Independent seed audit
 

@@ -6,13 +6,16 @@
 # on UVA.
 # usage: uva_steps_stream.sh GPVM CORE_DIR CPU_OUT DEST [SHARD ...]
 #   CPU_OUT: GPVM output dir of jax_steps_cpu.sh (jc_<shard>/fasttrkCjx.*.root); DEST: GPVM dir for the outputs
-# env: EXPORTS (extra sbatch --export variables, comma separated), SBATCH_OPTS, UVA_HOST
+# env: EXPORTS (extra sbatch --export variables, comma separated), SBATCH_OPTS, UVA_HOST (overrides the host); site
+#      configuration: FASTSIMKIT_SLURM_HOST (ssh name of the cluster login), FASTSIMKIT_SLURM_ACCOUNT (allocation),
+#      FASTSIMKIT_SCRATCH (project work area on the cluster), M2FS_DATA (data area on the GPVM)
 set -euo pipefail
 G=$1; CORE=$2; CPU=$3; DEST=$4; shift 4
 SH=("${@:-1001 1002 1003 1004 1005}"); SH=(${SH[*]})
 TRK=$(cd "$(dirname "$0")/.." && pwd)
-U=${UVA_HOST:-uva-hpc}; F=/scratch/ram2aq/mu2efastsim
-D=/exp/mu2e/data/users/ram2aq
+U=${UVA_HOST:-${FASTSIMKIT_SLURM_HOST:?set FASTSIMKIT_SLURM_HOST (or UVA_HOST) to the ssh name of the cluster login}}; F=${FASTSIMKIT_SCRATCH:?set FASTSIMKIT_SCRATCH to the project work area on UVA}
+D=${M2FS_DATA:?set M2FS_DATA to the data area on the GPVM}
+A=${FASTSIMKIT_SLURM_ACCOUNT:?set FASTSIMKIT_SLURM_ACCOUNT to the Slurm account}
 TMP=$(mktemp -d -t trkgpu_code); TGZ=$TMP/code.tgz
 [ -d "$CORE/mu2efastsim" ] || { echo "missing core source $CORE"; exit 2; }
 { echo "tracker $(git -C "$TRK" rev-parse --short HEAD) + diff md5 $(cd "$TRK" && { git diff; git ls-files -o --exclude-standard | xargs cat; } | md5 -q)"
@@ -26,7 +29,7 @@ cat "$TMP/VERSION.txt"
 tar -czf "$TGZ" --exclude .git --exclude __pycache__ --exclude plots --exclude .pytest_cache --exclude '*.root' \
   -s ",^$(basename "$TRK"),tracker," -s ",^$(basename "$CORE"),core," \
   -C "$(dirname "$TRK")" "$(basename "$TRK")" -C "$(dirname "$CORE")" "$(basename "$CORE")" -C "$TMP" VERSION.txt
-J=$(ssh "$U" "mkdir -p $F/kpp && sbatch --parsable ${SBATCH_OPTS:-} --export='ALL,SHARDS=${SH[*]}${EXPORTS:+,$EXPORTS}'" \
+J=$(ssh "$U" "mkdir -p $F/kpp && sbatch --parsable -A $A -o $F/kpp/slurm-%j.out ${SBATCH_OPTS:-} --export='ALL,SHARDS=${SH[*]},M2FS_UVA=$F${EXPORTS:+,$EXPORTS}'" \
   < "$TRK/scripts/uva_steps_gpu.sh")
 JID=${J%%;*}; echo "job $JID"
 until INBOX=$(ssh "$U" "cat $F/kpp/inbox_$JID 2>/dev/null" </dev/null) && [ -n "$INBOX" ]; do

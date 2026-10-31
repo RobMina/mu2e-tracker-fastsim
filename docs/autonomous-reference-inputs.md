@@ -51,7 +51,7 @@ build by a symlink, not `muse backing HEAD`, which resolves to whatever CI build
 shell:
 
 ```bash
-cd /exp/mu2e/app/users/ram2aq/analysis/trkfs_wt/dumper_build/art
+cd /path/to/dumper_build/art
 ln -sfn /cvmfs/mu2e-development.opensciencegrid.org/museCIBuild/main/bac4c588_4479f3fa_a664b74b backing
 source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh
 setup muse
@@ -59,7 +59,7 @@ muse setup
 muse build -j 32
 ```
 
-These commands are for the user, never executed by an agent (`backing` is git- and sync-ignored, so the link is made
+These commands are run by the user (`backing` is git- and sync-ignored, so the link is made
 on the cluster). The validated satellite uses Offline `bac4c588`, Production `4479f3fa` and envset `p109`; a rebuild of
 tracker `ff4ba22` in this area reproduced the earlier 500-event KPP dump bit for bit on its first 100 events. CI builds
 are eventually removed from CVMFS: if that one is gone, a newer backing is a new configuration and needs its own

@@ -76,7 +76,7 @@ this diagnostic; no fitter execution changed.
 
 ## Evidence, integrity and tests
 
-Remote data root: `/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/`.
+Data root: `$M2FS_DATA/trk_f1native_r2_20261027/`.
 
 - Final **`initial_residuals_v2.json`** SHA256
   `1539f808dd7aeab96042dac29023aed33e6688349686d6abb2c804a305bd3219`.
@@ -103,7 +103,7 @@ fixed and the population rerun to a new filename.
 
 ```bash
 bash scripts/run_f1_initial_residuals.sh \
-  /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/NEW_REPORT.json
+  $M2FS_DATA/trk_f1native_r2_20261027/NEW_REPORT.json
 ```
 
 Wrapper pins one CPU and single-thread numerical libraries; outputs are exclusive. Next: independent unbiased

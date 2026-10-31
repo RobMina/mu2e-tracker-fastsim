@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from mu2efastsim.endpoints import EndpointError, Resources
+from mu2efastsim import site
 from mu2efastsim.endpoints.chainpoint import FnalSource
 from mu2efastsim.endpoints.artifacts import (binding, checked_record, make_manifest, resolve_image,
                                            resolve_inputs, runtime_prefix, target_identity, verify_cache, verify_result)
@@ -56,9 +57,10 @@ def validate(params: Dict[str, Any]) -> Dict[str, Any]:
 class TrackerPointStream:
     def __init__(self, kit, source=None, code=None, background=True, poll_s=10.0):
         self.kit, self.ep = kit, kit.ep
-        self.source = source or FnalSource(os.environ.get("FASTSIMKIT_FNAL_HOST", "mu2egpvm03"),
-                                        os.environ.get("FASTSIMKIT_TRACKER_DATA", "/exp/mu2e/data/users/ram2aq"))
-        self.code = code or os.environ.get("FASTSIMKIT_TRACKER_CODE", "/scratch/ram2aq/mu2efastsim/tracker_code_kit")
+        # Site paths come from the environment (mu2efastsim.site); a missing variable raises SiteConfigError.
+        self.source = source or FnalSource(site.fnal_host(),
+                                        site.require("FASTSIMKIT_TRACKER_DATA", "M2FS_INPUTS", "M2FS_DATA"))
+        self.code = code or site.setting("FASTSIMKIT_TRACKER_CODE") or os.path.join(site.scratch(), "tracker_code_kit")
         self.code_ref = os.environ.get("FASTSIMKIT_CODE_REF", "main")
         self.background, self.poll_s = background, poll_s
         self.dir = Path(kit.out_root).parent / "tracker_point"

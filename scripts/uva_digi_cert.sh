@@ -1,5 +1,6 @@
 #!/bin/bash
 # Run a bounded real-table benchmark in the project image on a Slurm allocation.
+: "${TRKFS_OWNER:?set TRKFS_OWNER, the owner field of the tracker-stage Mu2e file names}"
 set -euo pipefail
 CODE=${CODE:?core and tracker snapshot directory}
 OUT=${OUT:?new output directory}
@@ -25,7 +26,7 @@ steps=(); events=()
 for shard in $SHARDS; do
   printf -v suffix '001400_%08d.root' "$shard"
   steps+=("$INPUTS/tracker_tv3_default_l/trk_straw_occ_20261026/fast_g4ref_v2_L/fasttrkCL.grp.$suffix")
-  events+=("$INPUTS/tracker_tv3_default_l/trk_secondaries_r2_20261027/tv3_full_paired_v1/fast/strawhits.ram2aq.tv2fast.v0.$suffix")
+  events+=("$INPUTS/tracker_tv3_default_l/trk_secondaries_r2_20261027/tv3_full_paired_v1/fast/strawhits.${TRKFS_OWNER}.tv2fast.v0.$suffix")
 done
 cache=()
 if [[ -n ${JAX_COMPILATION_CACHE_DIR:-} ]]; then

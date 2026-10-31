@@ -7,23 +7,25 @@ PRODUCER=${3:?completed guarded producer directory}
 OUT=${4:?new stock consumer directory}
 PREFLIGHT=$R/evidence/ordered_stock_preflight_v31
 FCLS=$R/evidence/ordered_stock_chain_v32/fcl
+: "${FASTSIMKIT_SCRATCH:?set FASTSIMKIT_SCRATCH to the project work area on the Slurm cluster (holds inputs/ and mu2efastsim.sif)}"
+SIF=${SIF:-$FASTSIMKIT_SCRATCH/mu2efastsim.sif}
 module load apptainer
 [[ -s "$PRODUCER/complete.json" && -s "$PRODUCER/ordered_steps.root" && -f "$PREFLIGHT/COMPLETE" ]] || exit 2
 mkdir "$OUT"
 OUT=$(cd "$OUT" && pwd -L)
 E="JAX_PLATFORMS=cpu,PYTHONDONTWRITEBYTECODE=1,OPENBLAS_NUM_THREADS=1,PYTHONPATH=$T:$R/code/core:$R/code/crv"
-run() { apptainer exec --cleanenv --env "$E" -B "$R" /scratch/ram2aq/mu2efastsim/mu2efastsim.sif python3 "$@"; }
+run() { apptainer exec --cleanenv --env "$E" -B "$R" "$SIF" python3 "$@"; }
 cd "$T"
 run -m scripts.ordered_guarded_audit "$PRODUCER" --out "$OUT/producer_audit.json"
 TABLE=$PRODUCER/ordered_steps.root
-GEN=/scratch/ram2aq/mu2efastsim/inputs/offline_q1_shard22/gen.art
+GEN=$FASTSIMKIT_SCRATCH/inputs/offline_q1_shard22/gen.art
 run -m scripts.ordered_stock_preflight "$TABLE" --source-dump "$PREFLIGHT/source.root" --out "$OUT/prefix_gate.json" --expected-events 1000 --source-log "$PREFLIGHT/source.log" --source-art "$GEN" --trusted-source-sha256 cfdc329b7aa346c86d1994fa7cf07b1b2f4692bd44fc9b7db79a27ae9155924f
 cp "$PREFLIGHT/offline_uva.sh" "$OUT/offline_uva.sh"
 mkdir "$OUT/fcl"
 for name in ntuple_kkts_extrap_v04.fcl reco_evd_v03.fcl reco_kkts_extrap_nofilter_v04.fcl reco_smoke_kl_ts.fcl; do cp "$FCLS/$name" "$OUT/fcl/$name"; done
 A=$R/evidence/tracker_runtime_stage_v30/Code_tv2.tar.bz2
 sha256sum "$A" "$TABLE" "$GEN" "$OUT/prefix_gate.json" "$OUT/producer_audit.json" "$OUT/offline_uva.sh" "$OUT/fcl/"*.fcl > "$OUT/input.sha256"
-export CVMFSEXEC_DIST=/scratch/ram2aq/mu2efastsim/offline_uva_s11_20261029/runtime/cvmfsexec-el8
+export CVMFSEXEC_DIST=${CVMFSEXEC_DIST:?set CVMFSEXEC_DIST to the cvmfsexec distribution offline_uva.sh runs under}
 export OFFLINE_IMAGE=/cvmfs/singularity.opensciencegrid.org/.images/sha256:a0/bdaf92d1cfa960cf7f053f9b929fba86e9dbbb97fc8fea51a900489a32bd40
 export OFFLINE_BINDS="$R:$R" OFFLINE_FCL_PATH="$OUT/fcl" OFFLINE_EVENTS=1000 OFFLINE_WARM_REPEAT=0
 cd "$OUT"

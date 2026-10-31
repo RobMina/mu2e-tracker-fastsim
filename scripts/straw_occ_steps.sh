@@ -10,13 +10,13 @@ source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh >/dev/null 2>&1 || true
 pyenv ana || exit 1
 set -eu
 python3 -c 'import numpy, awkward, uproot'
-source /exp/mu2e/app/users/ram2aq/analysis/mu2e-fastsim/site.env
+source "${M2FS_CODE:?set M2FS_CODE to the mu2e-fastsim checkout that holds site.env}/site.env"
 LIB=${3:-$M2FS_DATA/trk_fastsim/lib/trklib_mdc2025as_20f_v2.root}
 TAG=${4:-L}
 GROUP=${5:-10}
 TRK=${TRK:-$(cd "$(dirname "$0")/.." && pwd)}
 CORE=${CORE:-$TRK/../straw-core}
-export PYTHONPATH=$CORE:$TRK:/exp/mu2e/app/users/ram2aq/analysis/mu2e_track_crv_mcresponse
+export PYTHONPATH=$CORE:$TRK:${CRVEXTRAP:?set CRVEXTRAP to the mu2e_track_crv_mcresponse checkout}
 export PYTHONHASHSEED=0
 F=$O/fast_${REF}_$TAG
 GD=$O/gen_${REF}_grp$GROUP

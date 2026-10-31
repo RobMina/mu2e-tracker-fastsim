@@ -4,8 +4,8 @@ set -euo pipefail
 O=${1:?new output directory}
 SHARDS=${SHARDS:-1001}
 F2_CHUNK=${F2_CHUNK:-50}
-D=${M2FS_DATA:-/exp/mu2e/data/users/ram2aq}/trkfs_digi_20261026
-T=${M2FS_DATA:-/exp/mu2e/data/users/ram2aq}/trk_fastsim/fast_as_v18L
+D=${M2FS_DATA:?set M2FS_DATA to the data area}/trkfs_digi_20261026
+T=${M2FS_DATA:?set M2FS_DATA to the data area}/trk_fastsim/fast_as_v18L
 PY=${PY:-python3}
 mkdir "$O"
 steps=(); refs=(); numpy=(); floor=()

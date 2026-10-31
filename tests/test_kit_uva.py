@@ -17,7 +17,7 @@ from test_kit_task import metrics
 class Source(kit_uva.FnalSource):
     revision = "original"
     def __init__(self):
-        super().__init__("gpvm", "/exp/data")
+        super().__init__("gpvm", "/path/to/data")
     def fingerprint(self, path):
         data = (path + self.revision).encode()
         return {"sha256": hashlib.sha256(data).hexdigest(), "md5": hashlib.md5(data).hexdigest(), "size": len(data)}
@@ -69,7 +69,7 @@ class Endpoint:
 
 
 @pytest.fixture
-def setup(tmp_path, monkeypatch):
+def setup(tmp_path, monkeypatch, site_env):
     calls = []
     def prepare(ep, path, ref, **kw):
         calls.append(kw["modules"])
@@ -186,7 +186,7 @@ def test_tampered_binding_rejected(setup):
         kit.submit("p", {"task": "tracker_point"}, [], [])
 
 
-@pytest.mark.parametrize("inbox", ["node /scratch/inputs", "node /dev/shm/../tmp/x", "node /dev/shm/trkfs_kit_j7_a extra"])
+@pytest.mark.parametrize("inbox", ["node /path/to/inputs", "node /dev/shm/../tmp/x", "node /dev/shm/trkfs_kit_j7_a extra"])
 def test_inbox_must_be_tmpfs_job_directory(setup, inbox):
     kit, handler, ep = start(setup)
     ep.inbox = inbox

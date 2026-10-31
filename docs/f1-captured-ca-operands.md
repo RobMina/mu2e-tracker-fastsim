@@ -108,7 +108,7 @@ extension constructors, missing discordant targets, strict filter algebra or fin
 
 ## Provenance, tests and commands
 
-Remote data root: `/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/`.
+Data root: `$M2FS_DATA/trk_f1native_r2_20261027/`.
 
 - `captured_ca_v4.json`: final three-trace comparison; v1–v3 retained.
   SHA256 `80f70074881547ae4b4ada83a5f40d0d8d54e7a9ece900502eb059edc1c9f2ae`.

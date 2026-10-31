@@ -2,7 +2,7 @@
 # One cached primary shard through the opt-in JAX digitiser; reuse the saved NumPy point as reference.
 set -euo pipefail
 OUT=${1:?new output directory}
-DATA=${M2FS_DATA:-/exp/mu2e/data/users/ram2aq}
+DATA=${M2FS_DATA:?set M2FS_DATA to the data area}
 CORE=${M2FS_CORE:?matching pinned core snapshot}
 PY=${PY:?Python with JAX and uproot}
 HERE=$(cd "$(dirname "$0")/.." && pwd)

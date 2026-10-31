@@ -3,10 +3,10 @@
 # Prints the StrawPhysics/StrawElectronics conditions once (makeSD printLevel 1, strawElectronics verbose 1) and the
 # TimeTracker per-module summary, so makeSD's time per event can be read from the digi log. Needs a BUILT TrkFastSim area.
 # usage: run_digi_ref.sh <gen.art> <fasttrk.root> <outdir> <tag> [nevents, -1 = all]
-# env:   TRKFS_ART  built area (default /exp/mu2e/app/users/ram2aq/analysis/mu2e-fastsim/tracker/art)
+# env:   TRKFS_ART  built area (default $TRKFS_CODE/art; one of the two must be set)
 #        SEED       SeedService.baseSeed (default: the job's, 8); another seed gives the stock-vs-stock floor
 source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh >/dev/null 2>&1 || true
-AREA=${TRKFS_ART:-/exp/mu2e/app/users/ram2aq/analysis/mu2e-fastsim/tracker/art}
+AREA=${TRKFS_ART:-${TRKFS_CODE:?set TRKFS_ART to the built area, or TRKFS_CODE to the tracker checkout}/art}
 cd "$AREA" && muse setup >/dev/null 2>&1 || true
 set -u
 [ "$MUSE_WORK_DIR" = "$AREA" ] || { echo "wrong MUSE_WORK_DIR=$MUSE_WORK_DIR"; exit 2; }

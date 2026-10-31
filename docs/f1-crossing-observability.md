@@ -221,7 +221,7 @@ and native crossing-constructor-offset comparison remain false.
 
 ```bash
 bash scripts/run_f1_crossing_observability.sh \
-  /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/NEW_REPORT.json
+  $M2FS_DATA/trk_f1native_r2_20261027/NEW_REPORT.json
 ```
 
 Fitter SHA remains `988976b64b34f36b9021226b0088b364cc1c9b2b214158337c6c834e62b6e42a`. Remote `git diff --check`

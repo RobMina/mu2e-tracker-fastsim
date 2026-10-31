@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Audit the saved default-arm campaign without submitting or replacing existing products.
+: "${CRVFS_OWNER:?set CRVFS_OWNER, the owner field of the CRV-stage (g4ref) Mu2e file names}"
+: "${TRKFS_OWNER:?set TRKFS_OWNER, the owner field of the tracker-stage Mu2e file names}"
 set -euo pipefail
 OLD=${1:?saved campaign directory}
 OUT=${2:?new audit directory}
@@ -31,7 +33,7 @@ while read -r inputs table extra; do
   expected=""
   for k in $(seq "$first" "$((first+9))"); do
     s=$(printf '001400_%08d' "$k")
-    path="$GEN/gen.ram2aq.CosmicCRYExtractedRef.v1.$s.art"
+    path="$GEN/gen.${CRVFS_OWNER}.CosmicCRYExtractedRef.v1.$s.art"
     grep -Fxq "$path" "$OUT/generator.txt"
     expected+="${expected:+,}$path"
   done
@@ -43,8 +45,8 @@ while read -r inputs table extra; do
   printf '%s\n' "$staged" >> "$OUT/table_hashes.txt"
   for kind in nts hits; do
     if [[ "$kind" == nts ]]; then prefix=nts; sub=""; else prefix=strawhits; sub=hits/; fi
-    fast="$BASE/tv2p_fast/${sub}$prefix.ram2aq.tv2fast.v0.$seq.root"
-    ref="$BASE/tv2p_g4/${sub}$prefix.ram2aq.tv2g4.v0.$seq.root"
+    fast="$BASE/tv2p_fast/${sub}$prefix.${TRKFS_OWNER}.tv2fast.v0.$seq.root"
+    ref="$BASE/tv2p_g4/${sub}$prefix.${TRKFS_OWNER}.tv2g4.v0.$seq.root"
     if [[ "$kind" == nts ]]; then fl="$OUT/fast.txt"; rl="$OUT/g4.txt"; else fl="$OUT/fast_hits.txt"; rl="$OUT/g4_hits.txt"; fi
     grep -Fxq "$ref" "$rl"
     if (( n == 0 )); then grep -Fxq "$fast" "$fl"
@@ -67,8 +69,8 @@ ifdh cp "$BASE/Code_tv2.tar.bz2" "$OUT/Code_tv2.tar.bz2"
 sha256sum "$OUT/Code_tv2.tar.bz2" "$OUT/grid_tv2.sh" "$OUT/list_remaining19.txt" "$OUT"/fcl_fast/*.fcl > "$OUT/provenance.sha256"
 tar tjf "$OUT/Code_tv2.tar.bz2" > "$OUT/tarball_contents.txt"
 printf '\nquota used/limit bytes: '
-getfattr --only-values -n ceph.dir.rbytes /exp/mu2e/data/users/ram2aq
+getfattr --only-values -n ceph.dir.rbytes "${M2FS_DATA:?set M2FS_DATA to the data area whose quota is checked}"
 printf ' / '
-getfattr --only-values -n ceph.quota.max_bytes /exp/mu2e/data/users/ram2aq
+getfattr --only-values -n ceph.quota.max_bytes "${M2FS_DATA:?set M2FS_DATA to the data area whose quota is checked}"
 printf '\nREADY: 19 missing default-L groups, pilot retained, 20 G4 groups retained; no submission.\n'
 touch "$OUT/READY"

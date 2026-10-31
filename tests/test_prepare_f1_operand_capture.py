@@ -89,7 +89,7 @@ def test_preparation_rejects_paths_and_existing_area_before_git(tmp_path, monkey
 
 def test_runtime_driver_uses_original_publisher_include_root():
     text = (Path(P.__file__).parent/"run_f1_operand_pair.sh").read_text()
-    assert "PUBLISHER=/exp/mu2e/app/users/ram2aq/analysis/thread-f-publish-20261025/art" in text
+    assert "PUBLISHER=${F1_PUBLISHER_ART:?" in text
     assert 'FHICL_FILE_PATH="$CONFIG:$PUBLISHER:$AREA:${FHICL_FILE_PATH}"' in text
     assert 'test -f "$PUBLISHER/TrkFastSim/fcl/$config.fcl"' in text
     assert 'sha256sum "$PUBLISHER/TrkFastSim/fcl/$config.fcl"' in text

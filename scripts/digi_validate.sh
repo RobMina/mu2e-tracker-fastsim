@@ -10,8 +10,8 @@
 set -e
 D=${1:?data dir}; R=${2:?refdir}; T=${3:?table dir}; SEQS=${4:?seq list, e.g. 1001,1002}; O=${5:?out dir}; PY=${6:-python3}
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-export PYTHONPATH="${M2FS_CORE:-/exp/mu2e/app/users/ram2aq/analysis/mu2e-fastsim/core}:$HERE" PYTHONDONTWRITEBYTECODE=1
-GDML=${GDML:-/exp/mu2e/data/users/ram2aq/crv_fastsim/geometry/mu2e_extracted_v04.gdml}
+export PYTHONPATH="${M2FS_CORE:-${M2FS_CODE:?set M2FS_CORE, or M2FS_CODE to the mu2e-fastsim checkout}/core}:$HERE" PYTHONDONTWRITEBYTECODE=1
+GDML=${GDML:-${CRVFS_DATA:?set GDML, or CRVFS_DATA to the CRV input area}/geometry/mu2e_extracted_v04.gdml}
 GC=/cvmfs/mu2e.opensciencegrid.org/Musings/Offline/v13_39_00/Offline/GlobalConstantsService/data/globalConstants_01.txt
 mkdir -p "$O"
 [ -s "$O/digicond.npz" ] || $PY -m trkfastsim digi-cond "$D/patha_digi_dump.fcl" --preamp "$D/db_TrkPreampStraw.csv" \

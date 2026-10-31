@@ -18,10 +18,11 @@ while [[ $# -gt 0 ]]; do
   esac; shift
 done
 OUTDIR="${TRKFS_PNFS:?source site.env}/$TAG"
+: "${TRKFS_OWNER:?set TRKFS_OWNER (owner field of Mu2e file names) in site.env}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WRAPPER="$HERE/grid_gen_only.sh"; chmod +x "$WRAPPER"
 FCL_PNFS="$OUTDIR/fcl"
-OUTDIR_TOKEN="$(echo "$OUTDIR" | sed 's|^/pnfs/mu2e|/mu2e|')"
+OUTDIR_TOKEN="/${OUTDIR#/*/}"   # token scope: the output path below the top-level dCache mount directory
 
 ifdh mkdir_p "$FCL_PNFS" 2>/dev/null || true
 ifdh rm "$FCL_PNFS/gen_only_extracted.fcl" 2>/dev/null || true
@@ -34,6 +35,6 @@ jobsub_submit -N "$NJOBS" -G mu2e --role=Analysis --expected-lifetime=2h \
   --lines='+FERMIHTC_AutoRelease=True' --memory=3000MB --disk=2000MB \
   --need-storage-modify="$OUTDIR_TOKEN" \
   -e NEVTS="$NEVTS" -e SEED_OFFSET="$SEED_OFFSET" -e FIRST_SUBRUN="$FIRST_SUBRUN" -e FCL_PNFS="$FCL_PNFS" \
-  -e MUSING=MDC2025ay -e OWNER="${TRKFS_OWNER:-$USER}" \
+  -e MUSING=MDC2025ay -e OWNER="$TRKFS_OWNER" \
   "file://$WRAPPER" "$OUTDIR"
 echo "Monitor: jobsub_q -G mu2e --user $USER"

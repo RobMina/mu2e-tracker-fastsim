@@ -61,7 +61,7 @@ All are run1400/subrun0/seed0. The report retains full keys, generated visit/tra
 
 ## Provenance, tests and execution
 
-Data prefix `/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/`:
+Data prefix `$M2FS_DATA/trk_f1native_r2_20261027/`:
 
 - Final **`crossing_history_v2.json`** SHA256 **`d46ac5ae41ce5c708c9e4751be27b0f58106be99e7b23f381fe43e7873621049`**; completed/passed/exact/hashunchanged true.
 - Helper SHA256 `0168b273a0a76d962b946403c45b94a15bc241475ce992d1d7a362649815b57f`.
@@ -83,12 +83,12 @@ Read-only interface review established the conditioning boundary. It did not ind
 
 ```bash
 python3 scripts/f1_crossing_history_audit.py \
-  --full-check /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/crossing_3k_20261028_v2/crossing_full_check_v1.json \
-  --initial /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/initial_crossing_v2.json \
-  --associated /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/crossing_constructor_v4.json \
-  --capture /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/crossing_3k_20261028_v2/capture.root \
-  --native-source /exp/mu2e/app/users/ram2aq/fastreco_crossings_p109_20261028 \
-  --out /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/NEW_history.json
+  --full-check $M2FS_DATA/trk_f1native_r2_20261027/crossing_3k_20261028_v2/crossing_full_check_v1.json \
+  --initial $M2FS_DATA/trk_f1native_r2_20261027/initial_crossing_v2.json \
+  --associated $M2FS_DATA/trk_f1native_r2_20261027/crossing_constructor_v4.json \
+  --capture $M2FS_DATA/trk_f1native_r2_20261027/crossing_3k_20261028_v2/capture.root \
+  --native-source $TRKFS_MUSE_AREAS/fastreco_crossings_p109_20261028 \
+  --out $M2FS_DATA/trk_f1native_r2_20261027/NEW_history.json
 ```
 
 Next: material-only construction and physical discovery, replacing the captured material initialization with independent full geometry-universe, transforms/windows, exclusions, rejected/skipped branches and accepted-object linking. Existing constructor/history receipts and helpers remain immutable. Native seed/state/strict algebra/decision/acceptance/full-population closure remain subsequent gates; no fitter/default promotion follows from this result.

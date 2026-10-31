@@ -1,10 +1,10 @@
 #!/bin/bash
-# Run only after user build confirmation and local-library verification, with an owned idle host.
+# Run only after user build confirmation and local-library verification, on an otherwise idle host.
 set -e -o pipefail
 AREA=${1:?usage: run_f1_operand_pair.sh AREA INPUT_LIST CONFIG_DIR NEW_OUT NEVENTS}
 LIST=${2:?input list}; CONFIG=${3:?target configs}; OUT=${4:?new output}; N=${5:?event count}
-EXPECTED=/exp/mu2e/app/users/ram2aq/fastreco_operands_p109_20261028
-DATA=/exp/mu2e/data/users/ram2aq
+EXPECTED=${TRKFS_MUSE_AREAS:?set TRKFS_MUSE_AREAS to the directory holding the muse work areas}/fastreco_operands_p109_20261028
+DATA=${M2FS_DATA:?set M2FS_DATA to the data area holding the F1-native campaign}
 [ "$AREA" = "$EXPECTED" ] && [ "${MUSE_WORK_DIR:-}" = "$AREA" ] && [ "${MUSE_ENVSET:-}" = p109 ] || {
   echo 'Wrong isolated area or environment'; exit 2;
 }
@@ -37,7 +37,7 @@ while read -r lib arrow resolved rest; do
   esac
 done < "$OUT/linkage.txt"
 grep -q libKinKal_Fit "$OUT/linkage.txt"
-PUBLISHER=/exp/mu2e/app/users/ram2aq/analysis/thread-f-publish-20261025/art
+PUBLISHER=${F1_PUBLISHER_ART:?set F1_PUBLISHER_ART to art/ of the frozen tracker checkout whose TrkFastSim/fcl the saved captures used}
 for config in trace_f1_candidates trace_rejection_control trace_kkline_mc dump_tracks_mc; do
   test -f "$PUBLISHER/TrkFastSim/fcl/$config.fcl" || { echo "Missing frozen publisher config $config"; exit 2; }
 done

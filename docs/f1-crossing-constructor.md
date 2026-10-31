@@ -37,7 +37,7 @@ All seven exhausted searches are **later stage-1 reference updates**: six on ini
 
 ## Receipts and measured resources
 
-Remote data prefix: `/exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/`.
+Data prefix: `$M2FS_DATA/trk_f1native_r2_20261027/`.
 
 Final `crossing_constructor_v4.json` SHA256:
 **`8f13afc822ef99590b36c47764251f1fdefb994117cb0bdeb6b48a98818bfe2e`**.
@@ -73,11 +73,11 @@ On a freshly checked, owned idle GPVM in `pyenv ana`, set `PYTHONPATH` to this w
 
 ```bash
 python3 scripts/f1_crossing_constructor_audit.py \
-  --full-check /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/crossing_3k_20261028_v2/crossing_full_check_v1.json \
-  --observability /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/crossing_observability_v2.json \
-  --capture /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/crossing_3k_20261028_v2/capture.root \
-  --native-source /exp/mu2e/app/users/ram2aq/fastreco_crossings_p109_20261028 \
-  --out /exp/mu2e/data/users/ram2aq/trk_f1native_r2_20261027/NEW_constructor_report.json
+  --full-check $M2FS_DATA/trk_f1native_r2_20261027/crossing_3k_20261028_v2/crossing_full_check_v1.json \
+  --observability $M2FS_DATA/trk_f1native_r2_20261027/crossing_observability_v2.json \
+  --capture $M2FS_DATA/trk_f1native_r2_20261027/crossing_3k_20261028_v2/capture.root \
+  --native-source $TRKFS_MUSE_AREAS/fastreco_crossings_p109_20261028 \
+  --out $M2FS_DATA/trk_f1native_r2_20261027/NEW_constructor_report.json
 ```
 
 Next: independently reconstruct initial hit-constructor hints and all2,538 initial crossing constructors, then reference/wrapper/partner history including the seven caps. Material-only discovery requires its complete geometry-universe and rejection-stage replay, not only accepted2,471 constructors. Native seed/state-policy/numerical/decision/acceptance closure remains subsequent work. Do not integrate this diagnostic into the fitter or change defaults based on conditional agreement.

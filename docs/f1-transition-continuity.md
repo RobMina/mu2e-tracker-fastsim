@@ -177,7 +177,7 @@ generated new-hit results, and cover missing/masked identities and strict failur
 New tests **64 census +131 audit +74 boundaries +262 coverage +27 associations =558 passed**.
 Selected isolated suite **2,454 passed, 1 skipped, 48/48 files**, pinned core233771b/ANN,
 CPU/single-thread; log
-`~/mu2e/local_data/trk_f1native_r2_20261027/isolated_transitions_v1.txt`.
+kept locally, not in the repository.
 No full/slow-tier certificate.
 
 ```bash

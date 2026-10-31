@@ -47,7 +47,7 @@ Two test-harness corrections are preserved with their failed evidence:
   `hit_operands_check.json` is retained; v2 checks the same ROOT output without rerunning it.
 
 Focused Python regression tests: **89 passed** in the two capture/checker files; log
-`~/mu2e/local_data/trk_f1native_r2_20261027/operand_runtime_regression_v1.txt`. The prior 805-pass/1-skip isolated
+kept locally, not in the repository. The prior 805-pass/1-skip isolated
 suite was not rerun. Both native arms ran serially on gpvm02 CPU 0; full off/on measured wall times were 21.73/32.50
 s, maximum RSS 594,920/786,144 KiB. These are individual measurements, not a speed benchmark.
 

@@ -144,7 +144,7 @@ Review strengthened quadratic mask/shape checks and clarified reconstructed-poli
 synthetic tests demonstrate captured decisions/weights cannot influence generated CAD results.
 New tests: **194 drift + 163 audit + 15 population = 372 passed**.
 Selected isolated suite: **1,612 passed, 1 skipped, 39/39 files**, pinned core 233771b/ANN;
-log `~/mu2e/local_data/trk_f1native_r2_20261027/isolated_initial_cad_v1.txt`.
+log kept locally, not in the repository.
 No full/slow-tier claim.
 
 ```bash

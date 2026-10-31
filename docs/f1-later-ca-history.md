@@ -143,7 +143,7 @@ was strengthened. None of these changes tunes physics criteria or discards failu
 New tests **99 helper + 78 audit + 39 cap + 68 population = 284 passed**.
 Final selected isolated suite **1,896 passed, 1 skipped, 43/43 files**, pinned
 core233771b/ANN and CPU/single-thread settings; log
-`~/mu2e/local_data/trk_f1native_r2_20261027/isolated_later_ca_v2.txt`.
+kept locally, not in the repository.
 No full/slow-tier certificate.
 
 ```bash

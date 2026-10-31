@@ -129,7 +129,7 @@ segments before integer conversion. Reviews found no sign/full-key defect; the b
 and census robustness findings were fixed without changing physical results.
 
 Selected isolated regression suite: **970 passed, 1 skipped, 34/34 files**, pinned core
-233771b and ANN path. Log `~/mu2e/local_data/trk_f1native_r2_20261027/isolated_captured_ca_v1.txt`.
+233771b and ANN path. Log kept locally, not in the repository.
 Seven-file focused suite: 398 passed. Full/slow tier not rerun. No fitter changes.
 
 ```bash

@@ -96,7 +96,7 @@ Data root: `$M2FS_DATA/trk_f1native_r2_20261027/`.
 New tests: **128 measurement tests + 142 residual/provenance tests = 270 passed**.
 Final selected isolated regression: **1,240 passed, 1 skipped, 36/36 files** with pinned core
 `233771b` and ANN search path. Log:
-`~/mu2e/local_data/trk_f1native_r2_20261027/isolated_initial_residuals_v2.txt`.
+kept locally, not in the repository.
 No full/slow-tier claim. Early synthetic failures exposed an empty-list `np.all` guard and
 masked measured lanes; fixed before the first population run. Later review guards were
 fixed and the population rerun to a new filename.

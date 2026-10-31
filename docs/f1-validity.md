@@ -33,7 +33,7 @@ certify this full check. Current six-state fit throughput must be measured separ
 From the umbrella on the laptop:
 
 ```bash
-PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=core:tracker ~/mu2e/.venv/bin/python3 -m pytest -q -p no:cacheprovider \
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=core:tracker python3 -m pytest -q -p no:cacheprovider \
   tracker/tests/test_fitvalidity.py tracker/tests/test_reco_empty.py tracker/tests/test_reco_combo.py \
   tracker/tests/test_kalman_jax.py tracker/tests/test_reco_jax.py tracker/tests/test_kkmaterial.py
 ```

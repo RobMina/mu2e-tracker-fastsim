@@ -348,6 +348,17 @@ approximate fixed seed-line candidate envelope, not native fitted-seed extension
 `reco.autonomous_compare` evaluator requires identical event populations and reports paired yield uncertainties;
 shared-hit residual diagnostics require the same digis. Existing F2/stock-conditioned F1 defaults are unchanged.
 
+## Studies kept off main
+
+| Branch | Contents |
+|---|---|
+| `park/f1-native-closure` | F1 native-closure tooling: crossing/operand capture modules, native arithmetic/CA/material/measurement/reference ports, `f1_*` audits and drivers, the per-step f1-* records |
+| `park/ordered-navigation` | ordered-navigation geometry probes and producers (guarded/native/mixed/inclusive envelopes, exact planar, wide torus/convex, segment transport) and the `ordered_*` audit scripts; the `--navigation ordered-*` options stay on main |
+| `park/rate-ledger` | rate-ledger history state/surfaces and the ledger job drivers |
+| `park/tv3-rescoring` | the saved T-V3 secondary-bank replicas, response and summaries |
+
+About 90 unreferenced one-off scripts were removed; they are in the history and on every park branch.
+
 ## License
 
 Apache-2.0 (`LICENSE`, `NOTICE`).

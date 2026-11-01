@@ -1,7 +1,7 @@
 """seedcheck -- is the tracker-interior scattering excess of geomcheck's seeded comparison real or an artefact?
 
-geomcheck (seeded_from_g4_plane_state) starts the fast interior from the G4 muon state at the plane above the tracker
-and finds the fast deflection plane -> first straw 1.2-1.5x G4's (in units of Highland theta0). Three possible
+geomcheck (seeded_from_g4_plane_state; branch park/rate-diagnostics) starts the fast interior from the G4 muon
+state at the plane above the tracker and finds the fast deflection plane -> first straw 1.2-1.5x G4's (in units of Highland theta0). Three possible
 artefacts of that diagnostic, each removed by one variant here (all on the same G4 events and the same fast code):
   - start: geomcheck moves the fast seed back up to the ring tops (steps._back_to_interior_top), so the fast arm crosses
     the ring material above the plane that G4's plane state has already crossed. Variants "top" (as geomcheck) and
@@ -33,7 +33,6 @@ from mu2efastsim import eloss, materials, plots
 from mu2efastsim.tables import KEY
 from trkfastsim import crossings, geometry, tables as T
 from trkfastsim.sim import steps as st
-from trkfastsim.validation.geomcheck import _g4_paths, _ke_of_p, _p_of_ke
 
 ENVELOPE_SIDS = (0, 2, 4)          # TT_Front, TT_Back, TT_Outer: the outer boundary of the tracker VDs
 XX0_BINS = ((0.05, 0.3), (0.3, 1.0), (1.0, 2.0), (2.0, 10.0))
@@ -41,6 +40,46 @@ P_BINS = ((0.0, 1000.0), (1000.0, 3000.0), (3000.0, 1e9))
 COUNT_P_EDGES = np.array([0.0, 300.0, 500.0, 750.0, 1000.0, 1500.0, 3000.0, 1e9])
 MIN_N = 30                         # events per (x/X0, |p|) cell to report a width
 ROBUST = 1.4826                    # median |x| -> Gaussian sigma
+
+
+def _p_of_ke(ke):
+    ke = np.maximum(ke, 0.0)
+    return np.sqrt((ke + eloss.MMU) ** 2 - eloss.MMU ** 2)
+
+
+def _ke_of_p(p):
+    return np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU
+
+
+def _g4_paths(paths, ev, y_pl):
+    """G4 primary-muon trajectory segments above the plane for the events in `ev` (column iev): flat arrays, sorted by
+    event then point, clipped at the first downward crossing of the plane; events without a crossing are dropped."""
+    tp = T.read_many(paths, "trajpts")
+    p = T.read_many(paths, "particles", KEY + ["key", "pdg", "ismcprim"]).rename(columns={"key": "sp"})
+    pm = p[(p.ismcprim == 1) & (p.pdg.abs() == 13)].drop_duplicates(KEY)
+    tp = tp.merge(pm[KEY + ["sp"]], on=KEY + ["sp"]).merge(ev[KEY + ["iev"]], on=KEY)
+    tp = tp.sort_values(["iev", "ipt"]).reset_index(drop=True)
+    iev = tp.iev.to_numpy()
+    X = tp[["x", "y", "z"]].to_numpy(float)
+    ke = tp.ke.to_numpy(float)
+    same = iev[1:] == iev[:-1]
+    a, b, ka, kb, si = X[:-1][same], X[1:][same], ke[:-1][same], ke[1:][same], iev[:-1][same]
+    cross = (a[:, 1] >= y_pl) & (b[:, 1] < y_pl)
+    ev_c, first = np.unique(si[cross], return_index=True)
+    jc = np.flatnonzero(cross)[first]                       # segment index of each event's first crossing
+    last = np.full(len(ev), -1)
+    last[ev_c] = jc
+    keep = (last[si] >= 0) & (np.arange(len(si)) <= last[si])
+    f = np.clip((a[jc, 1] - y_pl) / np.maximum(a[jc, 1] - b[jc, 1], 1e-12), 0, 1)
+    b, kb = b.copy(), kb.copy()
+    b[jc] = a[jc] + (b[jc] - a[jc]) * f[:, None]
+    kb[jc] = ka[jc] + (kb[jc] - ka[jc]) * f
+    is_last = np.zeros(len(si), bool)
+    is_last[jc] = True
+    a, b, ka, kb, si, is_last = a[keep], b[keep], ka[keep], kb[keep], si[keep], is_last[keep]
+    has_traj = np.zeros(len(ev), bool)
+    has_traj[np.unique(iev)] = True
+    return {"a": a, "b": b, "ka": ka, "kb": kb, "iev": si, "last": is_last, "has_traj": has_traj, "crossed": last >= 0}
 
 
 def crv_pass_from(steps):
@@ -51,7 +90,7 @@ def crv_pass_from(steps):
 
 
 def _primaries(paths):
-    """First primary muon in particle-table order, exactly as geomcheck._g4_paths selects for chord seeds."""
+    """First primary muon in particle-table order, exactly as _g4_paths selects for chord seeds."""
     pa = T.read_many(paths, "particles", KEY + ["key", "pdg", "ismcprim"]).rename(columns={"key": "sp"})
     return pa[(pa.ismcprim == 1) & (pa.pdg.abs() == 13)].drop_duplicates(KEY)[KEY + ["sp"]]
 

@@ -112,6 +112,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | `park/f1-native-closure` | F1 native-closure tooling: crossing/operand capture modules, native arithmetic/CA/material/measurement/reference ports, `f1_*` audits and drivers, the per-step f1-* records |
 | `park/ordered-navigation` | ordered-navigation geometry probes and producers (guarded/native/mixed/inclusive envelopes, exact planar, wide torus/convex, segment transport) and the `ordered_*` audit scripts; the `--navigation ordered-*` options stay on main |
 | `park/rate-ledger` | rate-ledger history state/surfaces and the ledger job drivers |
+| `park/rate-diagnostics` | the earlier rate-deficit diagnostics `geomcheck`, `interiorcensus`, `tubecheck`, `arrivalcheck`, `slowcheck`, `survivalcheck`, `rangecheck`, `secdiag`, `libplacecheck` (untested CLIs, superseded by `ratearms`) |
 | `park/tv3-rescoring` | the saved T-V3 secondary-bank replicas, response and summaries |
 
 About 90 unreferenced one-off scripts were removed; they are in the history and on every park branch.

@@ -1,6 +1,6 @@
 """Paired fast vs G4 tracker-term rate on the same CRY primaries (fatecheck events: every generated primary muon, fast
 rerun, G4 pass from the PrimaryFilter-kept reference), total and per energy-margin bin, with the paired error
-sqrt(G4-only + fast-only) / G4. Compare with the unpaired 10x deficit against prod_as20 (survivalcheck).
+sqrt(G4-only + fast-only) / G4. Compare with the unpaired 10x deficit against prod_as20.
 
     python3 tracker/scripts/paired_budget.py FATECHECK_DIR/fatecheck_events.csv.gz "gen.001400_*.root"
     python3 tracker/scripts/paired_budget.py "fate_v2_*/fatecheck_events.csv.gz,fate_v16/fatecheck_events.csv.gz" "GENGLOB1,GENGLOB2"

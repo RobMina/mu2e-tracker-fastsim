@@ -7,12 +7,8 @@ import argparse
 import sys
 
 from trkfastsim.sim import buildlib, run as steps
-from trkfastsim.validation import elosscheck, fatecheck, libplacecheck, msccheck, refcheck, secdiag, slowcheck, stepcheck, slabcheck, surfcheck, survivalcheck, tubecheck, tv2compare, v0check, v1compare, worldcheck
-from trkfastsim.validation import geomcheck
-from trkfastsim.validation import interiorcensus
+from trkfastsim.validation import elosscheck, fatecheck, msccheck, refcheck, stepcheck, slabcheck, surfcheck, tv2compare, v0check, v1compare, worldcheck
 from trkfastsim.validation import seedcheck
-from trkfastsim.validation import rangecheck
-from trkfastsim.validation import arrivalcheck
 from trkfastsim.validation import jaxcheck
 from trkfastsim.validation import digicmp
 from trkfastsim.digi import fastdigi
@@ -27,20 +23,11 @@ ANALYSES = {
     "worldcheck": (worldcheck.run, "world model event by event: |p| at the first straw vs generation, delivery and loss, fast vs G4"),
     "msccheck":  (msccheck.run,  "in-tracker scattering per consecutive step pair (p theta, straw-only vs support pairs), fast vs G4"),
     "stepcheck": (stepcheck.run, "diagnose the T-V1 path and eIon checks: crossing-angle population, G4 half-vs-half noise floor, band bins"),
-    "geomcheck": (geomcheck.run, "true G4 path vs the fast world for muons one arm delivers (fate, footprint, material along both paths)"),
     "fatecheck": (fatecheck.run, "fate of the muons the fast sim does not deliver (stopped above / missed / few steps), paired with G4"),
-    "slowcheck": (slowcheck.run, "slow muons in the tracker per |p| bin: rates by good-step count, entry state, in-tracker loss, fast vs G4"),
-    "survivalcheck": (survivalcheck.run, "selected-muon rate by generated |p|, world column and energy margin, fast vs G4 (unpaired)"),
-    "tubecheck": (tubecheck.run, "tube/polycone material above the tracker the fast world omits, along G4-delivered lines (needs worldcheck output)"),
     "slabcheck": (slabcheck.run, "stage C world transport on one concrete slab vs Geant4 (art/run_slab.sh): survival, exit |p|, angle, lateral"),
     "surfcheck": (surfcheck.run, "tracker VD crossings (SurfaceSteps, sids 0-4) of the primary muon, fast vs G4 per sid (unpaired, per live time)"),
     "tv2compare": (tv2compare.run, "T-V2/T-V3: stock digi+reco+EventNtuple on fast vs G4 steps (yield, hits, chi2, residuals at TT_Outer; digis with --hits)"),
-    "secdiag": (secdiag.run, "why fewer non-muon track hits: secondary steps by place, shared-straw timing, track hits by straw content, fast vs G4"),
-    "libplacecheck": (libplacecheck.run, "placement of non-muon steps in their straws (along-wire offset, wire distance), fast vs G4"),
-    "arrivalcheck": (arrivalcheck.run, "muon state at the plane above the tracker, fast vs G4 on the same primaries, for every G4 muon crossing it (arrival, |p|, offset, aim) by energy margin"),
-    "rangecheck": (rangecheck.run, "energy loss near range-out in thick slabs: G4 slabs vs the interior loss model (transmission, exit KE)"),
-    "seedcheck": (seedcheck.run, "is geomcheck's seeded interior-scattering excess real? seed at the ring tops / plane / tracker envelope, all events and the CRV-term subset"),
-    "interiorcensus": (interiorcensus.run, "tracker-interior material per volume group: fast shells vs G4 trajectory loss, plane to first straw, and mass vs GDML"),
+    "seedcheck": (seedcheck.run, "is the seeded interior-scattering excess real? seed at the ring tops / plane / tracker envelope, all events and the CRV-term subset"),
     "seccensus": (seccensus.run, "T-V1b secondaries per primary-muon step by species, eIon, place, wire distance, muon |p|; step-level panel occupancy with clustered errors (fast vs G4, optionally paired)"),
     "v1compare": (v1compare.run, "T-V1: primary-muon StrawGasSteps, fast vs G4 (straws per muon, path, eIon, entry, time)"),
     "jaxcheck": (jaxcheck.run, "steps --backend jax against numpy on the same primaries: statistics, paired PrimaryFilter, reproducibility, timing"),
@@ -67,7 +54,7 @@ def build_parser():
                             formatter_class=argparse.RawDescriptionHelpFormatter)
         sp.add_argument("inputs", nargs="+", help="input files (globs allowed, quote them)")
         sp.add_argument("--outdir", default=None, help="output dir (default plots/<cmd>)")
-        if name in ("v0check", "steps", "buildlib", "libplacecheck", "worldcheck", "msccheck", "stepcheck", "tubecheck", "fatecheck", "survivalcheck", "seccensus"):
+        if name in ("v0check", "steps", "buildlib", "worldcheck", "msccheck", "stepcheck", "fatecheck", "seccensus"):
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
@@ -129,20 +116,6 @@ def build_parser():
             sp.add_argument("--ledger-arms", default=None, metavar="PRESET",
                             help="stage C transport-ledger arms (trkfastsim.sim.ledger.PRESETS: legacy, A, E, M, T, AM, AMT; "
                                  "default steps.LEDGER_ARMS_DEFAULT)")
-        if name == "geomcheck":
-            sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
-            sp.add_argument("--fast", nargs="+", required=True, metavar="ROOT", help="fast step tables made from these gen tables")
-            sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables (with trajpts)")
-            sp.add_argument("--seed", type=int, default=1, help="base seed of the fast steps run")
-            sp.add_argument("--no-tubes", action="store_true", help="skip the tube/polycone column along the G4 paths")
-        if name == "arrivalcheck":
-            sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
-            sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables (with trajpts)")
-            sp.add_argument("--seed", type=int, default=1, help="base seed, as steps (file i uses (seed, i))")
-            sp.add_argument("--no-sliced", action="store_true", help="column scattering at one |p| (geometric mean) instead of per band")
-            sp.add_argument("--no-msc-tail", action="store_true", help="no single-scattering tail in the world column")
-            sp.add_argument("--band-mm", type=float, default=None, help="uniform height bands of this size [mm] (diagnostic)")
-            sp.add_argument("--crv", nargs="+", default=None, metavar="ROOT", help="G4 CrvStep tables: keep CRV-term events only")
         if name == "jaxcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i), as steps")
@@ -158,9 +131,6 @@ def build_parser():
                             help="--save outdir of a run on another JAX device: compare its jax tables step by step")
             sp.add_argument("--kernel-times", action="store_true",
                             help="one more jax pass with every steps_jax kernel synchronised and timed")
-        if name == "rangecheck":
-            sp.add_argument("--nmu", type=int, default=30000, help="fast muons per point")
-            sp.add_argument("--seed", type=int, default=1)
         if name == "seedcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--crv", nargs="+", required=True, metavar="ROOT", help="G4 reference CrvStep tables (crvsteps.*.root)")
@@ -171,9 +141,6 @@ def build_parser():
                             help="split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
             sp.add_argument("--kink-p-mean", action="store_true",
                             help="interior kinks scatter at the mean of the group's entry and exit |p| (default exit |p|)")
-        if name == "interiorcensus":
-            sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
-            sp.add_argument("--nsub", type=int, default=8, help="phi samples per sector interval (as TrackerInterior)")
         if name == "fatecheck":
             sp.add_argument("--seed", type=int, default=1, help="base seed, as steps (file i uses (seed, i))")
         if name == "elosscheck":
@@ -184,11 +151,8 @@ def build_parser():
             sp.add_argument("--topology", action="store_true", help="retain donor plane topology for placement diagnostics (opt-in)")
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
             sp.add_argument("--format", type=int, default=2, choices=[1, 2], help="library format (2: straw-local placement)")
-        if name in ("v1compare", "worldcheck", "msccheck", "stepcheck", "fatecheck", "slowcheck", "survivalcheck", "surfcheck"):
+        if name in ("v1compare", "worldcheck", "msccheck", "stepcheck", "fatecheck", "surfcheck"):
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
-        if name == "libplacecheck":
-            sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
-            sp.add_argument("--fast-ref", nargs="+", default=None, metavar="ROOT", help="second fast arm (e.g. v1 library)")
         if name == "slabcheck":
             sp.add_argument("--nbands", type=int, default=4, help="height bands the slab is split into (as stage C)")
             sp.add_argument("--nmu", type=int, default=100000, help="fast muons per point")
@@ -203,7 +167,7 @@ def build_parser():
         if name == "seccensus":
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
             sp.add_argument("--paired", action="store_true", help="same CRY primaries: match files by subrun, events selected in both arms")
-        if name in ("tv2compare", "secdiag"):
+        if name == "tv2compare":
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4-arm EventNtuples")
             sp.add_argument("--steps", nargs="+", required=True, metavar="ROOT", help="fast step tables of the fast arm")
             sp.add_argument("--steps-ref", nargs="+", required=True, metavar="ROOT", help="G4 sgsteps tables of the G4 arm")

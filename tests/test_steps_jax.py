@@ -340,5 +340,5 @@ def test_panel_cut_rows_exact(monkeypatch):
     assert np.array_equal(ref[0]["it"], got[0]["it"]) and np.array_equal(ref[0]["js"], got[0]["js"])
     for k in ("pos0", "pos1", "dir", "lost"):
         assert np.allclose(ref[0][k], got[0][k], rtol=1e-9, atol=1e-9), (k, np.max(np.abs(ref[0][k] - got[0][k])))
-    # accumulated path agrees to 1e-13 mm on most hosts; one CI runner's XLA codegen gives up to 2.2e-3 mm
+    # path omits gas-exit moves of restarts on a gas surface, a rounding call per host (docs/limitations.md)
     assert np.allclose(ref[0]["path"], got[0]["path"], rtol=0, atol=1e-2), np.max(np.abs(ref[0]["path"] - got[0]["path"]))

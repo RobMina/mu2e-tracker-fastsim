@@ -50,8 +50,8 @@ def _arm(paths):
     return first[T.KEY + ["p_first", "x_first", "y_first", "z_first", "ux", "uy", "uz"]]
 
 
-TP_EDGES = np.array([0.0, 500.0, 750.0, 1000.0, 1500.0, 3000.0, 1e9])   # MeV/c, generated (as survivalcheck)
-TC_EDGES = np.array([0.0, 50.0, 150.0, 300.0, 450.0, 1e9])               # g/cm2 (as survivalcheck)
+TP_EDGES = np.array([0.0, 500.0, 750.0, 1000.0, 1500.0, 3000.0, 1e9])   # MeV/c, generated
+TC_EDGES = np.array([0.0, 50.0, 150.0, 300.0, 450.0, 1e9])               # g/cm2, generated-line world column
 
 
 def _transverse(ev, sfx):

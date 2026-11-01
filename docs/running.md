@@ -31,6 +31,8 @@ python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v2_tables/gen.001400_00000022.roo
 Geant4 tables; the log prints the support-structure census and the in-tracker transport counters. Pass `--gdml`
 explicitly (the fallback resolver looks under `$M2FS_DATA`). Add `--library "$M2FS_INPUTS/trk_fastsim/lib/trklib_mdc2025as_20f_v2.root"`
 for the Geant4 secondary steps. This is primary transport only; it does not exercise digitisation or reconstruction.
+Add `--scatter-in` (opt-in, NumPy) to let the support scatter muons onto the straws as well as off them; it closes
+the tracker-term rate residual ([limitations.md](limitations.md)).
 
 ## Digitisation and reconstruction
 

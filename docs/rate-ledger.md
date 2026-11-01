@@ -219,3 +219,35 @@ Full local suite: **169 passed, 1 skipped, 9 strict xfailed** (five legacy energ
 mismatch, three newly exposed T3 limits). New regression suites cover muon conventions, particle/straw timing
 identity, incomplete/mixed/duplicate campaign rejection, terminal accounting and stopping. Runner syntax and 23
 mock restart/failure/thread-limit assertions pass. No C++ build, new G4 production, commit or default change.
+
+## Support scattering onto the straws (`--scatter-in`, 2026-11-01)
+
+The residual above has one cause: the default interior transport kinks a muon in the support only in front of a straw
+it is about to cross, and drops a line that crosses no further straw. Support scattering therefore moves muons off
+the straws but never onto them. Muons whose direction is nearly perpendicular to the tracker axis are the most
+exposed: a plane's straws fill 10 mm bands in z, so whether such a muon reaches a straw depends on its tilt.
+Geant4 keeps an event that fails the tracker term only when it passes the CRV term, so the reach test uses the muons
+whose generated line passes at least 300 mm inside the CRV footprint (306,349 muons in the 220 files); Geant4 keeps
+99.7 % of those events. Same 220 files, three generator seeds, paired errors:
+
+| Quantity | Default | `--scatter-in` |
+|---|---:|---:|
+| tracker-term rate, seed 1 / 2 / 3 | -0.91 / -0.55 / -1.00 % | +0.42 / -0.05 / +0.04 % |
+| rate, mean of the seeds | -0.82 +- 0.26 % | +0.14 +- 0.26 % |
+| muons reaching >= 1 straw (subset), mean | -2.5 +- 0.4 % | -0.1 +- 0.4 % |
+| same, \|u_z\| < 0.05 (1,797 Geant4 muons) | -8.6 % | +1.3 % |
+| muons below 750 MeV/c at the first straw, mean | -6.4 +- 1.1 % | -2.3 +- 1.1 % |
+
+Each per-seed rate has a paired error of 0.32 %; the mean's error counts the Geant4 fluctuation once. The default is
+unchanged (muon tables and interior counters identical on 10 files against the earlier campaign). The interior-width
+arms (support width x0.85, entry/exit mean momentum, finer thin and support kinks, no single-scattering tail, slab
+calibration) each moved the rate by at most +0.4 % and left the reach deficit as it was. The gain from
+`--scatter-in` differs between seeds more than its paired error (+1.34, +0.50, +1.05 %, each +- 0.14 %); not
+understood.
+
+```bash
+python3 -m trkfastsim.sim.ratearms fast GEN... --gdml GDML --arm legacy --seed 1 --index0 0 --g4 G4.parquet \
+    --outdir DIR --scatter-in
+python3 -m trkfastsim.sim.ratearms compare --g4 G4.parquet --arm legacy=BASE --arm scatter_in=DIR --base legacy \
+    --out REPORT.json
+```

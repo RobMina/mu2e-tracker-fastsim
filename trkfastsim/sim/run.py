@@ -39,7 +39,7 @@ def default_gdml():
 
 def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, offaxis_edge_anchor=False, offaxis_topology_anchor=False, tag="",
         sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True, kink_xx0=st.KINK_XX0,
-        tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, first_muon_only=False, backend="numpy", ledger_arms=None, navigation="legacy", ordered_signed_endpoint_budget_mm=None, ordered_stopping_evaluation="entry", **kw):
+        tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, first_muon_only=False, backend="numpy", ledger_arms=None, navigation="legacy", ordered_signed_endpoint_budget_mm=None, ordered_stopping_evaluation="entry", scatter_in=False, **kw):
     if ordered_signed_endpoint_budget_mm is not None and navigation == "legacy":
         raise ValueError("signed endpoint arm requires explicit ordered navigation")
     if ordered_stopping_evaluation not in ("entry", "midpoint"):
@@ -81,6 +81,7 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
                                    lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0, exit_scatter=exit_scatter,
                                    all_muons=not first_muon_only, backend=backend,
                                    arms=ledger_arms, navigation=navigation,
+                                   **({"scatter_in": True} if scatter_in else {}),
                                    **({"ordered_options": ordered_options} if ordered_options else {}))
         if interior is not None:
             print(f"#   interior: {getattr(st.make_steps, 'interior_stats', {})}", flush=True)

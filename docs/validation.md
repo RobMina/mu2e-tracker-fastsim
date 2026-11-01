@@ -17,6 +17,8 @@ Samples: `g4ref_v1` = the Geant4 reference of the extracted (KPP) configuration 
 | surface crossings (TT_Front..TT_Outer) | Geant4 virtual-detector steps | `g4ref_v1`, 20 shards | crossings per selected event per surface; momentum, angle, position, time bands | within 1 %; bands 0-3.5 % after 2 sigma | 1 %; 5 % | pass (muon only; see limitations) | 2026-10-21 | `1d6aa07` |
 | T-V1b secondaries (library pasting) | Geant4 | shards 11-20 | eIon per event; eIon per step binned; eIon per straw binned | 0.0 %; 1.4 %; 12.4 % | -; 5 %; 5 % | per-straw **fail** | 2026-10-18 | `1f28a9e` |
 | any-primary-muon rate (PrimaryFilter tracker term) | Geant4 | 11 M generated | rate | -0.89 +- 0.32 % | within 2 sigma of 0 | **open** (2.8 sigma) | 2026-10-27 | `1f6908e` |
+| same, three generator seeds | Geant4 | 11 M generated, seeds 1-3 | rate | default -0.91, -0.55, -1.00 % (each +- 0.32 %); mean -0.82 +- 0.26 % | within 2 sigma of 0 | **open** (default) | 2026-11-01 | `e648e66` |
+| same, opt-in `--scatter-in` | Geant4 | 11 M generated, seeds 1-3 | rate; muons reaching >= 1 straw in a subset where Geant4 keeps every event | +0.42, -0.05, +0.04 % (each +- 0.32 %), mean +0.14 +- 0.26 %; reach -2.5 % -> -0.1 % (+- 0.4 %) | within 2 sigma of 0 | pass (opt-in) | 2026-11-01 | `e648e66` |
 
 ## Digitisation
 
@@ -37,6 +39,7 @@ Samples: `g4ref_v1` = the Geant4 reference of the extracted (KPP) configuration 
 | F2 fit (fixed momentum, no material) | stock KKLine | digitisation sample above | good-fit yield | -0.045 +- 0.119 % vs stock fits on stock digis | statistical | statistical use only | 2026-10-27 | `9aedb18` |
 | T-V2 occupancy on fast steps | full Geant4 chain, G4 even/odd floors | `g4ref_v2`, 10 M generated, paired | panel occupancy (event-clustered covariance) | within floors | floor | pass | 2026-10-27 | `da8df42` |
 | T-V3 reco yield on fast steps | full Geant4 chain | same, paired | track yield; digis | -2.04 +- 0.37 % (mostly selection-only); -1.09 +- 0.33 % | 1 % | **fail** | 2026-10-27 | `6d67cf5` |
+| T-V3, saved products rescored | as above | same | track yield; digis | -2.04 +- 0.37 %; -1.09 +- 0.33 % (reproduced; default steps, without `--scatter-in`) | 1 % | **fail** | 2026-11-01 | `ff2204b` |
 
 ## Performance
 

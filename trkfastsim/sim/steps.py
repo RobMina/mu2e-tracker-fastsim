@@ -102,6 +102,7 @@ KINK_SUP_XX0 = 0.25  # support segments with more x/X0 are split into kinks of a
 KINK_BACKOFF_MM = 0.05   # the in-tracker kink is applied this far before the kink straw's gas entry
 EXIT_SCATTER_MM = 1500.0   # path behind the last straw scattered for the exit side of the tracker VDs (exit_scatter)
 GAP_MATERIAL = None  # medium between straws and support inside the tracker: the GDML's DSVacuum (None = no material)
+SCATTER_IN_PAD_MM = 300.0   # transport(scatter_in=True): support kinks along lines without straws inside the straw boxes +- this
 
 
 LEDGER_ARMS_DEFAULT = "legacy"   # make_steps arms=None in stage C with the interior transport (trkfastsim.sim.ledger.PRESETS)
@@ -328,6 +329,63 @@ class TrackerInterior:
             return {"it": np.zeros(0, np.int64), "end": z3, "pos": z3, "dir": z3, "path": np.zeros(0), "p": np.zeros(0)}
         return {k: np.concatenate([q[k] for q in out]) for k in out[0]}
 
+    def _scatter_in_kink(self, rng, lanes, s0, o, d, tk_start, lost, xcum, travelled, comp, stopped, box, geom, tail,
+                         tail_k, st):
+        """transport(scatter_in=True): one support kink for `lanes`, whose lines cross no further straw, from s0 [mm]
+        along their line, within `box` (lo, hi). Updates the per-muon arrays in place; returns (lanes that kinked and
+        go on, their kink dict or None). Lanes without support ahead, or that stop in the piece, end here."""
+        start = o[lanes] + d[lanes] * s0[:, None]
+        left = _box_exit(start, d[lanes], *box)
+        col, _ = self._support(start, d[lanes], left, False)
+        x_sup = self._support_sums(col, {}, len(lanes))[1]
+        go = (left > 1.0) & (x_sup > 1e-6)
+        lanes, s0, start, left, x_sup = lanes[go], s0[go], start[go], left[go], x_sup[go]
+        if not len(lanes):
+            return lanes, None
+        dl = d[lanes]
+        seg = self._split_length(start, dl, left, np.minimum(x_sup, KINK_SUP_XX0))
+        col, mom = self._support(start, dl, seg, True)
+        solid, X, m1, m2 = self._support_sums(col, mom, len(lanes))
+        tk = tk_start[lanes] - lost[lanes]
+        p_in = _p_of(np.maximum(tk, 0.0))
+        ls = np.zeros(len(lanes))
+        for m, c in col.items():
+            h = np.flatnonzero(c > 0)
+            if len(h):
+                ls[h] += tr.slab_loss(rng, materials.get(m), np.maximum(p_in[h], 1.0), c[h])
+        alive = tk - ls > 0.5
+        pk = _p_of(np.maximum(tk - ls, 0.0))
+        pm = np.maximum(0.5 * (p_in + pk), 1.0)          # mean |p| of the kink, as exit_scatter
+        V = tr.highland_var_increment(pm, xcum[lanes], xcum[lanes] + X)
+        Xs = np.maximum(X, 1e-30)
+        w1 = np.clip(seg - m1 / Xs, 0.0, seg)
+        w2 = np.clip(seg ** 2 - 2 * seg * m1 / Xs + m2 / Xs, w1 ** 2, seg ** 2)
+        dth, dy, a = _kink_core(rng, V, w1, w2)
+        if tail:
+            tt = _group_tail(rng, [(materials.get(m), c) for m, c in col.items()], np.arange(len(lanes)), pm, pm, a, tail_k)
+            dth += tt
+            dy += tt * w1[:, None]
+        th = np.hypot(dth[:, 0], dth[:, 1])
+        big = th > EXIT_KINK_MAX
+        if big.any():
+            dth[big] *= (EXIT_KINK_MAX / th[big])[:, None]
+            dy[big] *= (EXIT_KINK_MAX / th[big])[:, None]
+        end = start + dl * seg[:, None]
+        pos, dn = _kink(end, dl, dth, dy)
+        pos = _exit_gas_backwards(pos, dn, geom)
+        lost[lanes] += ls
+        comp["lost_support"][lanes] += ls
+        comp["l_support"][lanes] += solid
+        stopped[lanes[~alive]] = True
+        st["stopped"] += int((~alive).sum())
+        k = lanes[alive]
+        travelled[k] += (s0 + seg)[alive]
+        o[k], d[k] = pos[alive], dn[alive]
+        xcum[k] += X[alive]
+        st["scatter_in_kinks"] = st.get("scatter_in_kinks", 0) + len(k)
+        return k, {"it": k.copy(), "end": end[alive], "pos": pos[alive], "dir": dn[alive], "path": travelled[k].copy(),
+                   "p": pk[alive]}
+
     def loss_to_straws(self, rng, o, d, p, it, s_in):
         """Energy lost [MeV] in the interior between each muon's origin o (on the plane) and each straw entry.
 
@@ -361,7 +419,8 @@ class TrackerInterior:
 
     def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
                   max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-                  kink_p_mean=False, thin_loss=False, capture=None, navigation="legacy", ordered_options=None):
+                  kink_p_mean=False, thin_loss=False, capture=None, navigation="legacy", ordered_options=None,
+                  scatter_in=False):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
@@ -389,7 +448,14 @@ class TrackerInterior:
         straw (the previous straw's walls, gas and wire; the gap medium if any) to the kinetic energy, like the support
         loss (no random numbers). Every returned crossing also carries the cumulative components at its entry:
         lost_support, lost_thin [MeV] and the lengths l_support, l_thin, l_gap [mm]; last_final adds ke and stopped.
+        scatter_in (opt-in, default off): a muon whose current line crosses no further straw is not dropped while support
+        material lies ahead of it inside the straw boxes (+- SCATTER_IN_PAD_MM): it kinks through that material (kinks of
+        at most KINK_SUP_XX0, as exit_scatter: sampled loss, Highland at the mean |p| of the kink, moment lever arms,
+        tail) and its straw crossings are searched again after each kink, so support scattering can move a muon onto the
+        straws as well as off them. These kinks draw from their own stream (spawned from `rng`'s seed), not from `rng`.
         """
+        if scatter_in and (navigation != "legacy" or capture is not None):
+            raise ValueError("scatter_in needs legacy navigation without transport capture")
         if navigation != "legacy":
             from trkfastsim.sim import orderedinterior
             if navigation not in orderedinterior.MODES or capture is not None:
@@ -424,6 +490,19 @@ class TrackerInterior:
             capture.observe("initial", act, path_mm=travelled, position_mm=o, direction=d,
                             model_ke_MeV=tk_start, momentum_MeV_c=p,
                             lost_support_MeV=comp["lost_support"], lost_thin_MeV=comp["lost_thin"])
+        if scatter_in:
+            ss = rng.bit_generator.seed_seq
+            rng_in = np.random.default_rng(np.random.SeedSequence(ss.entropy, spawn_key=tuple(ss.spawn_key) + (0x5c1,)))
+            blo, bhi = crossings.panel_boxes(geom)
+            box = (blo.min(0) - SCATTER_IN_PAD_MM, bhi.max(0) + SCATTER_IN_PAD_MM)
+
+            def support_in(lanes, s0):
+                lanes, kd = self._scatter_in_kink(rng_in, lanes, s0, o, d, tk_start, lost, xcum, travelled, comp,
+                                                  stopped, box, geom, tail, tail_k, st)
+                if kd is not None and len(lanes):
+                    kinks.append(kd)
+                    restarted[lanes] = False
+                return lanes
         for _ in range(max_iter):
             if not len(act):
                 break
@@ -432,6 +511,9 @@ class TrackerInterior:
             if not len(xs):
                 if capture is not None:
                     capture.terminate(act, "no_candidates", iteration=st["iterations"])
+                if scatter_in:
+                    act = support_in(act, np.zeros(len(act)))
+                    continue
                 break
             loc = xs[:, 0].astype(np.int64)
             keep = (xs[:, 3] > 1e-9) & ~np.isin(act[loc] * ns + xs[:, 1].astype(np.int64), done)
@@ -440,7 +522,11 @@ class TrackerInterior:
                 missing = act[~np.isin(np.arange(len(act)), loc)]
                 capture.terminate(missing, "no_candidates", iteration=st["iterations"])
             if not len(xs):
+                if scatter_in:
+                    act = support_in(act, np.zeros(len(act)))
+                    continue
                 break
+            nocand = act[~np.isin(np.arange(len(act)), loc)] if scatter_in else None
             it = act[loc]
             js = xs[:, 1].astype(np.int64)
             s_in, s_out = xs[:, 2], xs[:, 3]
@@ -569,9 +655,16 @@ class TrackerInterior:
             km = it[kr]
             go = dead_from[km] > kr
             kr, km = kr[go], km[go]
+            if scatter_in:   # lanes without further straws on their line: from the pass origin or their last straw's exit
+                gl = it[start]
+                fin_l = ~kinked & (dead_from[gl] >= row_end)
+                ex_l = np.r_[nocand, gl[fin_l]].astype(np.int64)
+                ex_s = np.r_[np.zeros(len(nocand)), s_out[row_end[fin_l] - 1]]
             if not len(km):
-                act = np.zeros(0, np.int64)
-                break
+                act = np.sort(support_in(ex_l, ex_s)) if scatter_in else np.zeros(0, np.int64)
+                if not len(act):
+                    break
+                continue
             # group rows of each kinking muon: its first row of this pass to its kink row (km is sorted, as it)
             member = np.flatnonzero(upto & kinked[grp] & np.isin(it, km))
             gk = np.searchsorted(km, it[member])
@@ -639,7 +732,7 @@ class TrackerInterior:
                 comp[k][km] += cumc[k][kr]
             xcum[km] += X
             st["kinks"] += len(km)
-            act = km
+            act = np.union1d(km, support_in(ex_l, ex_s)) if scatter_in else km
         else:
             st["capped"] += len(act)
             if capture is not None:
@@ -717,6 +810,16 @@ def _envelope_exit(o, d):
                       np.where(d[:, 2] < -1e-15, (S.Z_FRONT - x[:, 2]) / d[:, 2], np.inf))
     inside = (C < 0) & (x[:, 2] > S.Z_FRONT) & (x[:, 2] < S.Z_BACK)
     return np.where(inside, np.clip(np.minimum(t_cyl, tz), 0, None), 0.0)
+
+
+def _box_exit(o, d, lo, hi):
+    """Path length [mm] from o along d to where the line leaves the box (lo, hi); 0 if it never is inside ahead of o."""
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t1, t2 = (lo - o) / d, (hi - o) / d
+    t_in = np.nanmax(np.where(np.isfinite(t1), np.minimum(t1, t2), -np.inf), axis=1)
+    t_out = np.nanmin(np.where(np.isfinite(t1), np.maximum(t1, t2), np.inf), axis=1)
+    inside_par = np.all(np.where(np.isfinite(t1), True, (o >= lo) & (o <= hi)), axis=1)   # parallel axes: inside?
+    return np.where(inside_par & (t_out > np.maximum(t_in, 0.0)), np.maximum(t_out, 0.0), 0.0)
 
 
 def _replace_rows(col, mom, ci, cc, cm, nr):
@@ -1230,7 +1333,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
                kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
                exit_scatter=True, all_muons=True, entry_ledger="legacy", capture_entry_ledger=False, backend="numpy",
                arms=None, history=False, capture_transport=False, navigation="legacy", ordered_options=None,
-               handoff="legacy-backproject", handoff_plane_y_mm=None):
+               handoff="legacy-backproject", handoff_plane_y_mm=None, scatter_in=False):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
     an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
     primary-muon StrawGasSteps on g4ref_v1 had them only from a second muon); all_muons=False keeps the first muon only
@@ -1269,6 +1372,8 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     Stored geometry is not complete GDML; unsupported materials/overlaps fail. No secondary libraries or arms.
     handoff: legacy-backproject (default) or raised-plane-forward-v1 with explicit handoff_plane_y_mm matching
     world bands. The forward policy requires ordered NumPy history, never backprojects and refuses re-crossing.
+    scatter_in: opt-in (NumPy legacy interior only): support kinks also on lines that cross no further straw, so the
+    support can scatter muons onto the straws (TrackerInterior.transport scatter_in); default off.
     capture_transport: explicit NumPy stage-C primary-only algorithm-state capture in make_steps.transport_capture.
     Entries, kinks, unresolved stop attempts and phase dispositions are copied without changing outputs or RNG;
     neither physical stop endpoints nor ordered material histories are inferred. Exit remains a separate phase
@@ -1304,6 +1409,9 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         raise ValueError("ordered navigation requires NumPy stage C primary-only interior without legacy ledger arms")
     if ordered:
         air_loss = False
+    if scatter_in and (ordered or backend != "numpy" or capture_transport or stage != "C" or interior is None
+                       or not interior_msc):
+        raise ValueError("scatter_in needs the NumPy legacy stage C interior transport without capture")
     make_steps.transport_capture = None
     if not isinstance(capture_transport, bool):
         raise ValueError("capture_transport must be bool")
@@ -1411,6 +1519,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0,
                                      msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0,
                                      **({"thin_loss": True} if thin_loss else {}),
+                                     **({"scatter_in": True} if scatter_in else {}),
                                      **({"capture": phase} if phase is not None else {}),
                                      **({"navigation": navigation, "ordered_options": ordered_options} if ordered else {}))
         timing["transport"] = time.perf_counter() - t1

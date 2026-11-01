@@ -15,7 +15,7 @@ repository holds code only: no Mu2e-internal conditions, tables, data or results
 | Part | Default | State |
 |---|---|---|
 | geometry | straws from the v04 GDML | T-V0 pass |
-| primary-muon steps | stage C (world + tracker interior + single-scattering tail) | T-V1 pass; any-primary-muon rate -0.89 +- 0.32 % (open) |
+| primary-muon steps | stage C (world + tracker interior + single-scattering tail) | T-V1 pass; any-primary-muon rate -0.82 +- 0.26 % (open), +0.14 +- 0.26 % with the opt-in `--scatter-in` |
 | secondary steps | opt-in Geant4 library (`--library`) | eIon per straw 12.4 % vs 5 % (open) |
 | digitisation | NumPy port of `StrawDigisFromStrawGasSteps`; JAX opt-in | agrees with stock within the reseed floor |
 | hits, combos, clusters, seeds | NumPy, JAX twins | identical to stock on the same digis (T-VR1, T-VR1b) |
@@ -112,6 +112,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | `park/f1-native-closure` | F1 native-closure tooling: crossing/operand capture modules, native arithmetic/CA/material/measurement/reference ports, `f1_*` audits and drivers, the per-step f1-* records |
 | `park/ordered-navigation` | ordered-navigation geometry probes and producers (guarded/native/mixed/inclusive envelopes, exact planar, wide torus/convex, segment transport) and the `ordered_*` audit scripts; the `--navigation ordered-*` options stay on main |
 | `park/rate-ledger` | rate-ledger history state/surfaces and the ledger job drivers |
+| `park/rate-diagnostics` | the earlier rate-deficit diagnostics `geomcheck`, `interiorcensus`, `tubecheck`, `arrivalcheck`, `slowcheck`, `survivalcheck`, `rangecheck`, `secdiag`, `libplacecheck` (untested CLIs, superseded by `ratearms`) |
 | `park/tv3-rescoring` | the saved T-V3 secondary-bank replicas, response and summaries |
 
 About 90 unreferenced one-off scripts were removed; they are in the history and on every park branch.

@@ -112,6 +112,9 @@ def build_parser():
                             help="stage C: named world modification (trkfastsim.sim.worldmods, e.g. issue2017) for geometry sensitivity runs")
             sp.add_argument("--kink-sup-xx0", type=float, default=0.25,
                             help="stage C: split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
+            sp.add_argument("--scatter-in", action="store_true",
+                            help="stage C, NumPy: support kinks also on lines that cross no further straw, so support scattering "
+                                 "can move muons onto the straws (TrackerInterior.transport scatter_in; opt-in)")
             sp.add_argument("--band-spread", action="store_true",
                             help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
             sp.add_argument("--backend", default="numpy", choices=["numpy", "jax"],

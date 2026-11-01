@@ -6,10 +6,11 @@ Three steps, each writing new files only (an existing output is an error):
       per primary muon of every G4-kept event: good steps, crossings, |p| at the first/last/slowest step, steps below
       the 50 MeV/c filter momentum, the G4 end point and energy; the generation index links it to the fast muon.
   python3 -m trkfastsim.sim.ratearms fast GEN... --gdml GDML --arm PRESET --seed 1 --index0 0 --g4 G4.parquet
-          --outdir DIR [--history-steps]
+          --outdir DIR [--history-steps] [--scatter-in]
       stage C fast transport with the current defaults (sliced MSC, interior, kink splitting, tail) and the ledger arm
-      (trkfastsim.sim.ledger.PRESETS); file j of the call uses the generator seed (seed, index0 + j), so arms and file
-      subsets with the same global index are paired draw for draw up to the first arm difference. Writes per-muon rows
+      (trkfastsim.sim.ledger.PRESETS), optionally with the opt-in support scattering onto the straws (--scatter-in);
+      file j of the call uses the generator seed (seed, index0 + j), so arms and file subsets with the same global
+      index are paired draw for draw up to the first arm difference. Writes per-muon rows
       for every event that is G4-kept or has a fast good step (muons.<n>.parquet), the per-step ledger of those events
       with --history-steps (segments.<n>.parquet), and per-file ledger closure summaries (files.jsonl).
   python3 -m trkfastsim.sim.ratearms compare --g4 G4.parquet --gdml GDML --arm NAME=DIR [...] --base NAME
@@ -118,7 +119,7 @@ def run_g4(inputs, out):
 
 
 # -------------------------------------------------------------------------------------------------------------- fast
-def run_fast(inputs, outdir, gdml, arm, seed, index0, g4, history_steps=False, tag=None):
+def run_fast(inputs, outdir, gdml, arm, seed, index0, g4, history_steps=False, tag=None, scatter_in=False):
     outdir = Path(outdir)
     tag = tag or f"{index0:04d}"
     m_out, s_out, j_out = (_new(outdir / f"muons.{tag}.parquet"), outdir / f"segments.{tag}.parquet",
@@ -134,6 +135,7 @@ def run_fast(inputs, outdir, gdml, arm, seed, index0, g4, history_steps=False, t
     from trkfastsim.validation.worldcheck import _column
     settings = {"arm": arm, **arms.as_dict(), **ledger.core_world_convention(), "seed": seed, "gdml_sha256": _sha(gdml),
                 "source": _src_identity(), "g4": str(g4), "history_steps": history_steps,
+                **({"scatter_in": True} if scatter_in else {}),
                 "platform": {"system": platform.system(), "machine": platform.machine(),
                              "python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__}}
     mrows, srows = [], []
@@ -145,7 +147,8 @@ def run_fast(inputs, outdir, gdml, arm, seed, index0, g4, history_steps=False, t
             # energy writer (writer-only diagnostic) is defined without exit scattering, which does not change steps
             sgs, _ = st.make_steps(gen, geom, np.random.default_rng([int(seed), i]), stage="C", world=world,
                                    sliced_msc=True, interior=interior, arms=arms, history=True,
-                                   exit_scatter=arms.writer != "energy")
+                                   exit_scatter=arms.writer != "energy",
+                                   **({"scatter_in": True} if scatter_in else {}))
             mu = st.make_steps.muon_ledger.copy()
             seg = st.make_steps.segment_ledger
             allmu = all_primary_muons(gen)
@@ -333,7 +336,7 @@ def _input_signature(records):
     return sorted((r["index"], r["sha256"], r["gen_events"]) for r in records)
 
 
-def check_arm(directory, inputs, index0, arm, seed, gdml, g4, tag=None):
+def check_arm(directory, inputs, index0, arm, seed, gdml, g4, tag=None, scatter_in=False):
     """Validate a resumable chunk against its exact input content and requested physics configuration."""
     _, records, settings = load_arm(directory, tag)
     expected = [(index0 + i, _sha(f)) for i, f in enumerate(T.expand(inputs))]
@@ -342,7 +345,7 @@ def check_arm(directory, inputs, index0, arm, seed, gdml, g4, tag=None):
     config = settings[0]
     requested = {"arm": arm, "seed": seed, "gdml_sha256": _sha(gdml), "g4": str(g4),
                  **ledger.preset(arm).as_dict(), **ledger.core_world_convention()}
-    if any(config.get(k) != v for k, v in requested.items()):
+    if any(config.get(k) != v for k, v in requested.items()) or bool(config.get("scatter_in", False)) != scatter_in:
         raise ValueError(f"{directory}: requested settings differ from saved settings")
     source = _src_identity()
     physics = [k for k in source if k not in ("tracker_git_head", "sim/ratearms.py")]
@@ -483,6 +486,7 @@ def main(argv=None):
     b.add_argument("--g4", required=True)
     b.add_argument("--outdir", required=True)
     b.add_argument("--history-steps", action="store_true")
+    b.add_argument("--scatter-in", action="store_true", help="opt-in support scattering onto the straws (steps.make_steps)")
     v = sub.add_parser("check")
     v.add_argument("directory")
     v.add_argument("--inputs", nargs="+", required=True)
@@ -492,6 +496,7 @@ def main(argv=None):
     v.add_argument("--gdml", required=True)
     v.add_argument("--g4", required=True)
     v.add_argument("--tag", default=None)
+    v.add_argument("--scatter-in", action="store_true")
     c = sub.add_parser("compare")
     c.add_argument("--g4", required=True)
     c.add_argument("--gdml", default=None)
@@ -503,9 +508,9 @@ def main(argv=None):
     if x.cmd == "g4":
         run_g4(x.inputs, x.out)
     elif x.cmd == "fast":
-        run_fast(x.inputs, x.outdir, x.gdml, x.arm, x.seed, x.index0, x.g4, x.history_steps)
+        run_fast(x.inputs, x.outdir, x.gdml, x.arm, x.seed, x.index0, x.g4, x.history_steps, scatter_in=x.scatter_in)
     elif x.cmd == "check":
-        check_arm(x.directory, x.inputs, x.index0, x.arm, x.seed, x.gdml, x.g4, x.tag)
+        check_arm(x.directory, x.inputs, x.index0, x.arm, x.seed, x.gdml, x.g4, x.tag, scatter_in=x.scatter_in)
     else:
         run_compare(x.g4, x.gdml, x.arm, x.base, x.out, x.csv_dir)
 

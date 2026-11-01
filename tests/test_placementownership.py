@@ -104,3 +104,19 @@ def test_missing_actual_parent_span_refuses_even_without_intersecting_owner():
         s1_mm=pd.Series(dtype=float), material=pd.Series(dtype=str), source=pd.Series(dtype=str), sign=pd.Series(dtype=int)))
     with pytest.raises(ValueError, match="complete possible leaf footprint"):
         P.parent_owners(cells, normalized, max_pairs=100)
+
+
+def test_tube_daughter_owns_its_span_and_splits_its_mother():
+    I = np.eye(3)
+    tubes = [("Outer", I, np.zeros(3), 820., 850., 100., 0., 1.), ("Fiber", I, np.zeros(3), 834., 836., 100., .4, .1),
+             ("Other", I, np.zeros(3), 900., 910., 10., 0., 1.)]
+    parent = P.tube_parents(tubes, ["a/Run", "a/Run/Core", "a/Other"])
+    assert parent == {"tube:1": "tube:0"}
+    raw = pd.DataFrame(dict(lane=[0, 0, 1], s0_mm=[10., 12., 5.], s1_mm=[40., 14., 8.], material=["Outer", "Fiber", "Outer"],
+                            source=["tube:0", "tube:1", "tube:0"], sign=1, operation="add-own-shape", daughter="x"))
+    out = P.subtract_tube_daughters(raw, parent).sort_values(["lane", "s0_mm"])
+    assert out[["s0_mm", "s1_mm"]].to_numpy().tolist() == [[10., 12.], [12., 14.], [14., 40.], [5., 8.]]
+    assert out.material.tolist() == ["Outer", "Fiber", "Outer", "Outer"]
+    bad = raw.assign(s1_mm=[13., 14., 8.])
+    with pytest.raises(ValueError, match="leaves its mother"):
+        P.subtract_tube_daughters(bad, parent)

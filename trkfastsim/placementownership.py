@@ -13,6 +13,50 @@ VACUUM = re.compile(r"AIR|Vacuum|VACUUM|Galactic")
 COLS = ["lane", "s0_mm", "s1_mm", "material", "source", "sign"]
 
 
+def tube_parents(tubes, names):
+    """Tube index label -> label of its direct mother tube: the placement one level up in the logical path, with the
+    same rotation, and whose radial and axial extent holds the daughter. A flattened tube list otherwise keeps both
+    the mother and its daughter along the daughter's chord; which volume owns that chord is GDML hierarchy, not a
+    material priority."""
+    if len(names) != len(tubes):
+        raise ValueError("tube names do not align with the tubes")
+    by_path = {}
+    for i, name in enumerate(names):
+        by_path.setdefault(name, []).append(i)
+    parent = {}
+    for i, name in enumerate(names):
+        for j in by_path.get(name.rsplit("/", 1)[0], ()) if "/" in name else ():
+            _, Ra, _, ria, roa, hza, _, _ = tubes[i]
+            _, Rb, _, rib, rob, hzb, _, _ = tubes[j]
+            if np.array_equal(Ra, Rb) and rib <= ria and roa <= rob and hza <= hzb:
+                if f"tube:{i}" in parent:
+                    raise ValueError(f"tube {name} has several candidate mothers")
+                parent[f"tube:{i}"] = f"tube:{j}"
+    return parent
+
+
+def subtract_tube_daughters(tube, parent):
+    """Remove each direct daughter tube's span from its mother's row on the same lane (the mother row splits). A
+    daughter span outside the mother's, or two daughters inside one mother row, refuses."""
+    child = tube[tube.source.isin(parent)]
+    if child.empty:
+        return tube
+    pairs = child.assign(mother=child.source.map(parent))[["lane", "s0_mm", "s1_mm", "mother"]].merge(
+        tube, left_on=["lane", "mother"], right_on=["lane", "source"], suffixes=("_d", ""))
+    pairs = pairs[(pairs.s0_mm_d < pairs.s1_mm) & (pairs.s1_mm_d > pairs.s0_mm)]
+    if ((pairs.s0_mm_d < pairs.s0_mm) | (pairs.s1_mm_d > pairs.s1_mm)).any():
+        raise ValueError("tube daughter span leaves its mother's span")
+    key = ["lane", "source", "s0_mm", "s1_mm"]
+    if pairs.duplicated(key).any():
+        raise ValueError("several tube daughters inside one mother span")
+    marked = tube.merge(pairs[key + ["s0_mm_d", "s1_mm_d"]], on=key, how="left", validate="many_to_one")
+    hit = marked.s0_mm_d.notna().to_numpy()
+    before = marked[hit].assign(s1_mm=lambda f: f.s0_mm_d)
+    after = marked[hit].assign(s0_mm=lambda f: f.s1_mm_d)
+    return pd.concat([marked[~hit], before[before.s1_mm > before.s0_mm], after[after.s1_mm > after.s0_mm]],
+                     ignore_index=True)[tube.columns]
+
+
 class RaySelectedSources:
     """Cache source selections that enclose actual fresh-ray extents, never truncate a ray to a loader box."""
 
@@ -120,8 +164,10 @@ class PlacementSources:
         self.packed = world.SignedPieceSet(self.terms, cell=steps.CALO_CELL_MM) if self.terms else None
         self.relationships = pd.DataFrame(self.relationships)
         self.local_terms = {int(label): (planes, rotation, position) for label, planes, rotation, position in self.local_terms}
-        tubes = world.load_tubes(gdml, bbox=bbox, skip_names=steps.INTERIOR_SKIP)
+        names = []
+        tubes = world.load_tubes(gdml, bbox=bbox, skip_names=steps.INTERIOR_SKIP, names=names)
         labelled = [(f"tube:{i}|{t[0]}", *t[1:]) for i, t in enumerate(tubes) if t[0] != "StrawGas"]
+        self.tube_parent = tube_parents(tubes, names)
         self.shells = world.CoaxialShells(labelled, geometry.DETECTOR_ORIGIN_EXTRACTED)
 
     def __call__(self, origin, direction, lengths):
@@ -129,6 +175,7 @@ class PlacementSources:
         label = tube.material.str.rsplit("|", n=1, expand=True).reindex(columns=[0, 1])
         tube["source"], tube["material"], tube["sign"] = label[0], label[1], 1
         tube["operation"], tube["daughter"] = "add-own-shape", tube.source
+        tube = subtract_tube_daughters(tube, self.tube_parent)
         rows = [tube]
         if self.packed is not None:
             intersect = convexpath._hits

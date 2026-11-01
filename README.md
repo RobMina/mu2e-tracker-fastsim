@@ -19,7 +19,7 @@ repository holds code only: no Mu2e-internal conditions, tables, data or results
 | secondary steps | opt-in Geant4 library (`--library`) | eIon per straw 12.4 % vs 5 % (open) |
 | digitisation | NumPy port of `StrawDigisFromStrawGasSteps`; JAX opt-in | agrees with stock within the reseed floor |
 | hits, combos, clusters, seeds | NumPy, JAX twins | identical to stock on the same digis (T-VR1, T-VR1b) |
-| line fit | F2 (fixed momentum, statistical); F1 KinKal port opt-in | F1 acceptance 95.6 % vs 99.5 % target (open) |
+| line fit | F2 (fixed momentum, statistical); F1 KinKal port opt-in | F1 frozen below its target: acceptance 94.2 % (default), 95.6 % (opt-in time model) vs 99.5 % |
 | full chain vs Geant4 + stock | | occupancy pass; reco yield -2.04 +- 0.37 % (T-V3 fail) |
 
 Numbers, samples, thresholds and commits: [`docs/validation.md`](docs/validation.md). What is missing or not

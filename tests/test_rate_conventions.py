@@ -6,7 +6,7 @@ import pytest
 from mu2efastsim import eloss
 from mu2efastsim.tables import KEY, all_primary_muons
 from trkfastsim import geometry, tables as T
-from trkfastsim.analyses import fatecheck as fc, seedcheck as sc
+from trkfastsim.validation import fatecheck as fc, seedcheck as sc
 
 
 def _steps(counts):

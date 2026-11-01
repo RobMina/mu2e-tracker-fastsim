@@ -9,8 +9,8 @@ import pytest
 
 from mu2efastsim import materials
 from mu2efastsim.world import CoaxialShells
-from trkfastsim import ledger, steps
-from trkfastsim.transportcapture import PhaseCapture, TransportCapture
+from trkfastsim.sim import ledger, steps
+from trkfastsim.sim.transportcapture import PhaseCapture, TransportCapture
 from test_rate_ledger_limits import _geometry
 
 
@@ -229,8 +229,8 @@ def test_nonzero_phase_offset_keeps_attempt_coordinates_explicit():
 
 
 def test_capture_provenance_contains_identity_and_box_crossing_dependencies():
-    from trkfastsim.transportcapture import source_hashes
+    from trkfastsim.sim.transportcapture import source_hashes
     capture = TransportCapture({})
-    assert {"mu2efastsim.tables", "mu2efastsim.crossings", "trkfastsim.surfaces"} <= capture.sources.keys()
+    assert {"mu2efastsim.tables", "mu2efastsim.crossings", "trkfastsim.sim.surfaces"} <= capture.sources.keys()
     assert capture.sources == source_hashes()
     assert capture.environment["numpy"] == np.__version__

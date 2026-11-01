@@ -1,7 +1,7 @@
 """Event-cluster uncertainty treats replicated steps as correlated, not new observations."""
 import numpy as np
 import pandas as pd
-from trkfastsim.analyses.jaxcheck import event_clustered
+from trkfastsim.validation.jaxcheck import event_clustered
 
 
 def _input():

@@ -5,7 +5,7 @@ import pytest
 jax = pytest.importorskip("jax")
 import jax.numpy as jnp
 from mu2efastsim import eloss_jax, materials, transport as tr
-from trkfastsim import steps_jax as sj
+from trkfastsim.sim import steps_jax as sj
 
 
 def _inputs():

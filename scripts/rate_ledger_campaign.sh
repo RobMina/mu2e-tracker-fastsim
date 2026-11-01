@@ -51,7 +51,7 @@ else
     exit 2
   fi
   if (set -o noclobber
-      PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$CM:." "$PY" -m trkfastsim.analyses.ratearms g4 \
+      PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$CM:." "$PY" -m trkfastsim.sim.ratearms g4 \
         "${G4_V1[@]}" "${G4_V2[@]}" --out "$OUT/g4.parquet" > "$OUT/g4.log" 2>&1); then
     if [ ! -f "$OUT/g4.parquet" ] || [ ! -f "$OUT/g4.parquet.json" ]; then
       echo "G4 command returned success without parquet plus .json; refusing to continue." >&2

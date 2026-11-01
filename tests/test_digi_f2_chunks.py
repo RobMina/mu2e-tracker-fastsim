@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from trkfastsim.analyses import digicmp
+from trkfastsim.validation import digicmp
 
 
 def _digis(events=(70, 10, 90, 20, 80, 30, 60), ev=(0, 0, 1, 4, 6, 6, 6)):
@@ -268,12 +268,7 @@ def test_restrict_round_trip_preserves_variable_adc_and_empty_events():
 
 
 def test_batch_check_requires_exercised_reconstruction():
-    import importlib.util
-    from pathlib import Path
-    path = Path(__file__).resolve().parents[1] / "scripts/f2_batch_check.py"
-    spec = importlib.util.spec_from_file_location("f2_batch_check_test", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    from trkfastsim.validation import f2_batch_check as module
     for args in ((0, 100, 32), (30, 100, 32), (30, 30, 10), (100, 100, 0)):
         with pytest.raises(ValueError):
             module.require_population(*args)

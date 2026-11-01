@@ -44,15 +44,15 @@ tracks inside the tracker), `--no-msc-tail`, `--near-margin MM` (which muons get
 |---|---|
 | `trkfastsim/geometry.py` | straws from the GDML (StrawSD ids, inner and wall radii, sense wire), detector frame, alignment composition |
 | `trkfastsim/crossings.py` | vectorised panel-box cull + ray-cylinder straw crossings, point/nearest-straw lookups |
-| `trkfastsim/steps.py` | the generator: world transport to the plane, `TrackerInterior` (support loss and in-tracker scattering), StrawGasStep rows, secondary pasting |
-| `trkfastsim/steps_jax.py`, `world_jax.py` | opt-in JAX backend of `steps` (`--backend jax`, CPU or GPU): world/interior transport, `exit_scatter`, crossings and gas eIon on the device; generator selection, library pasting and table assembly stay numpy. Different random streams; reproducible per seed on one device/lane count. Validate each geometry/configuration with `jaxcheck` and event-cluster uncertainties; see `docs/device-world.md` |
-| `trkfastsim/library.py` | G4 secondary library: build, in-straw and off-axis samplers |
+| `trkfastsim/sim/steps.py` | the generator: world transport to the plane, `TrackerInterior` (support loss and in-tracker scattering), StrawGasStep rows, secondary pasting |
+| `trkfastsim/sim/steps_jax.py`, `world_jax.py` | opt-in JAX backend of `steps` (`--backend jax`, CPU or GPU): world/interior transport, `exit_scatter`, crossings and gas eIon on the device; generator selection, library pasting and table assembly stay numpy. Different random streams; reproducible per seed on one device/lane count. Validate each geometry/configuration with `jaxcheck` and event-cluster uncertainties; see `docs/device-world.md` |
+| `trkfastsim/sim/library.py` | G4 secondary library: build, in-straw and off-axis samplers |
 | `trkfastsim/tables.py` | table readers, the production PrimaryFilter tracker term |
-| `trkfastsim/analyses/` | one module per CLI subcommand (below) |
+| `trkfastsim/sim/`, `digi/`, `reco/`, `validation/`, `kit/` | simulation, digitisation, reconstruction, validation (one module per check subcommand below, plus the report libraries behind `scripts/`) and the endpoint-kit tasks; `geometry`, `crossings`, `tables` and `cli` stay at the top. `trkfastsim.kit_task`, `kit_uva` and `worldmods` are aliases of the moved modules for one release |
 | `scripts/stagec_msc_ab.sh`, `scripts/stagec_msc_ab_summary.py` | the stage C scattering A/B on the 20 reference shards (steps + v1compare + worldcheck + msccheck per arm) and its summary |
 | `scripts/jax_steps_cpu.sh`, `scripts/uva_steps_gpu.sh`, `scripts/uva_steps_stream.sh`, `scripts/eaf_steps_gpu.sh` | `jaxcheck` on one CPU core (GPVM), on one A100 at UVA (Slurm job fed by the stream script from the laptop) and on an EAF A100 session |
 | `art/` | muse satellite area with `StrawGasStepTableDumper` (G4 reference tables), `art/README.md` |
-| `trkfastsim/digi.py`, `trkfastsim/digicond.py` | fast digitisation: a vectorised port of `StrawDigisFromStrawGasSteps` and its conditions from the stock job's sources (`docs/fast-digi.md`); `scripts/digi_validate.sh` and `art/run_digi_ref.sh` run its validation |
+| `trkfastsim/digi/digitize.py`, `trkfastsim/digi/digicond.py` | fast digitisation: a vectorised port of `StrawDigisFromStrawGasSteps` and its conditions from the stock job's sources (`docs/fast-digi.md`); `scripts/digi_validate.sh` and `art/run_digi_ref.sh` run its validation |
 | `trkfastsim/reco/` | fast reconstruction: `hitreco` (StrawHitReco), `combo` (CombineStrawHits), their JAX twins `hitreco_jax` and `combo_jax`, `linefind` (SimpleTimeCluster, LineFinder); `tracktable`, `ntuple`, `ntschema`, `ntcompare` (EventNtuple output); subcommands `reco-conditions`, `reco-vr1`, `reco-vr1b`, `reco-ntuple`, `reco-ntschema`, `reco-ntcompare` |
 | `tests/` | pytest unit tests (synthetic geometry, no data files) |
 
@@ -231,7 +231,7 @@ Quote the globs: the subcommands expand them.
 
 `steps` also writes the tree `dump/surfsteps` (switch off with `--no-surfsteps`): the primary muon's crossings of the
 tracker virtual detectors, sids 0-4 (TT_Front, TT_Mid + TT_MidInner, TT_Back, TT_Inner, TT_Outer; surfaces from the v04
-GDML, `trkfastsim/surfaces.py`), in the columns of `StrawGasStepTableDumper`'s surfsteps tree, so path A
+GDML, `trkfastsim/sim/surfaces.py`), in the columns of `StrawGasStepTableDumper`'s surfsteps tree, so path A
 (`StrawGasStepsFromTable`) fills the SurfaceStepCollection that EventNtuple's `trksegsmc` reads. It is computed from the
 muon's own StrawGasSteps (no random numbers: `sgsteps` is bit-identical with and without it). Check against G4:
 
@@ -249,7 +249,7 @@ primary muon (delta rays crossing the VDs): the fast sim does not write those.
 The per-panel occupancy and the TDC/TOT shapes are sums over events in which one muon puts several digis into each
 panel it crosses: a Poisson chi2 over panels is about the mean cluster size (3-4) for two samples of the same physics.
 `tv2compare` therefore reports a full event-clustered panel covariance and its rank-based chi2
-(`trkfastsim/analyses/occupancy.py`, tested in `tests/test_occupancy.py`), with marginal pulls,
+(`trkfastsim/validation/occupancy.py`, tested in `tests/test_occupancy.py`), with marginal pulls,
 diagonal/Poisson diagnostic scores and G4-against-G4 floors from disjoint files. Paired occupancy
 includes cross-arm event covariance, conditional on the fixed secondary library. Input coverage,
 checked event-ID bounds, matched paired width blocks and yield-factorization checks prevent
@@ -302,7 +302,7 @@ Do not promote a production default or refit the calibration solely from a synth
 Summarize a candidate against a saved baseline without regenerating it:
 
 ```bash
-python3 -m trkfastsim.analyses.slabcompare BEFORE/slabcheck_interior.json AFTER/slabcheck_interior.json \
+python3 -m trkfastsim.validation.slabcompare BEFORE/slabcheck_interior.json AFTER/slabcheck_interior.json \
     --references "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
     "$M2FS_DATA/trk_fastsim/slab/G4_Cu/slab.*.root" "$M2FS_DATA/trk_fastsim/slab/G4_Pb/slab.*.root" \
     --tracker-ref TRACKER_SHA --core-ref CORE_SHA --out AFTER/comparison.json
@@ -327,7 +327,7 @@ uncertainty/independent-holdout limits.
 ## Entry-energy writer diagnostic
 
 [Entry-ledger diagnostics](docs/entry-ledger.md) isolate the air-energy subtraction and vacuum convention on
-fixed primary-muon trajectories. Run `python3 -m trkfastsim.analyses.ledgercheck INPUTS --gdml GDML
+fixed primary-muon trajectories. Run `python3 -m trkfastsim.validation.ledgercheck INPUTS --gdml GDML
 --outdir NEW_DIR --seed N --tracker-ref SHA --core-ref SHA`. This writes summaries, source/input hashes and
 identity-paired counts, not surface/reco-ready ROOT products. The normal generator retains its defaults;
 full transport-energy and integrated-flight-time closure remain separate work.
@@ -338,7 +338,7 @@ full transport-energy and integrated-flight-time closure remain separate work.
 hits/seeds/F2 and the EventNtuple writer with typed admission and full generated-event denominators. It is a fixed
 extracted-v04, primary-only integration task, registered for mounted EAF and streamed UVA, **not** live rollout or
 physics commissioning. Endpoint output is JSON metadata only; local validation can retain the ROOT product.
-`trkfastsim.kitf1` is a separate stock-conditioned diagnostic companion, not an autonomous F1 evaluator.
+`trkfastsim.kit.kitf1` is a separate stock-conditioned diagnostic companion, not an autonomous F1 evaluator.
 
 ## Detector-only F1 prototype
 

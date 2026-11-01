@@ -4,7 +4,7 @@ import pytest
 
 jax = pytest.importorskip("jax")
 import jax.numpy as jnp
-from trkfastsim import digi_jax as dj, digi_clusters_jax as dc
+from trkfastsim.digi import digi_jax as dj, digi_clusters_jax as dc
 from test_digi import cond
 
 

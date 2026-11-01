@@ -58,8 +58,8 @@ for first in $(seq 21 10 220); do
   echo "coverage complete: $seq (highest cycles, unique selected identities including zero-track rows)"
 done
 sha256sum "${N[@]}" "${NR[@]}" "${H[@]}" "${HR[@]}" > "$OUT/product_hashes.txt"
-sha256sum "$TRK/trkfastsim/analyses/tv2compare.py" "$TRK/trkfastsim/analyses/occupancy.py" \
-  "$TRK/trkfastsim/analyses/clusterband.py" "$TRK/scripts/tv2_output_census.py" "$0" > "$OUT/analysis_hashes.txt"
+sha256sum "$TRK/trkfastsim/validation/tv2compare.py" "$TRK/trkfastsim/validation/occupancy.py" \
+  "$TRK/trkfastsim/validation/clusterband.py" "$TRK/scripts/tv2_output_census.py" "$0" > "$OUT/analysis_hashes.txt"
 SECONDS=0
 python3 -m trkfastsim tv2compare "${N[@]}" --compare "${NR[@]}" --steps "${S[@]}" --steps-ref "${SR[@]}" \
   --hits "${H[@]}" --hits-ref "${HR[@]}" --paired --outdir "$OUT/comparison" > "$OUT/comparison.txt" 2>&1

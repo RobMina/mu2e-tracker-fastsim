@@ -13,7 +13,8 @@ import time
 import numpy as np
 import pandas as pd
 
-from trkfastsim import geometry, steps, tables
+from trkfastsim import geometry, tables
+from trkfastsim.sim import steps
 
 
 def main():

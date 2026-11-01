@@ -10,8 +10,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from trkfastsim import digi as DG
-from trkfastsim.analyses import digicmp, fastdigi
+from trkfastsim.digi import digitize as DG
+from trkfastsim.validation import digicmp
+from trkfastsim.digi import fastdigi
 from test_digi import cond, _step
 
 
@@ -31,7 +32,7 @@ def _keys():
 
 @pytest.mark.parametrize("backend", ["gpu", "JAX", "", None])
 def test_invalid_backend_fails_before_io(backend, tmp_path):
-    from trkfastsim import kitpoint
+    from trkfastsim.kit import kitpoint
     with pytest.raises(ValueError, match="backend"):
         fastdigi.digitize_table("missing.root", None, None, backend=backend)
     with pytest.raises(ValueError, match="backend"):
@@ -110,7 +111,7 @@ def test_run_digi_file_streams(backend, tmp_path, monkeypatch):
 
 
 def test_numpy_import_and_execution_without_jax(cond, tmp_path):
-    from trkfastsim import kitpoint
+    from trkfastsim.kit import kitpoint
     cpath, spath = tmp_path / "cond.npz", tmp_path / "steps.root"
     cond.save(cpath)
     kitpoint.write_step_table(spath, _frame(cond, (1,)))
@@ -119,19 +120,20 @@ import importlib.abc
 import sys
 class NoJax(importlib.abc.MetaPathFinder):
     def find_spec(self, fullname, path=None, target=None):
-        if fullname == 'trkfastsim.digi_jax':
+        if fullname == 'trkfastsim.digi.digi_jax':
             raise AssertionError('unexpected digitizer import: ' + fullname)
         if fullname.split('.')[0] in ('jax', 'jaxlib'):
             raise ModuleNotFoundError('JAX intentionally unavailable', name=fullname)
 sys.meta_path.insert(0, NoJax())
 import numpy as np
-from trkfastsim import cli, digicond, kitpoint
-from trkfastsim.analyses import fastdigi
+from trkfastsim import cli
+from trkfastsim.digi import digicond, fastdigi
+from trkfastsim.kit import kitpoint
 assert cli.build_parser().parse_args(['digi', 'steps.root']).backend == 'numpy'
 c = digicond.Conditions.load(sys.argv[1])
 keys, d, n = fastdigi.digitize_table(sys.argv[2], c, np.random.default_rng(3), keys=np.array([[1400, 11, 1]]))
 assert n == 1 and len(d['sid']) == 1
-assert not any(k == 'jax' or k.startswith('jax.') or k == 'trkfastsim.digi_jax' for k in sys.modules)
+assert not any(k == 'jax' or k.startswith('jax.') or k == 'trkfastsim.digi.digi_jax' for k in sys.modules)
 '''
     result = subprocess.run([sys.executable, "-c", code, str(cpath), str(spath)], text=True, capture_output=True,
                             cwd=Path(__file__).resolve().parents[1], timeout=60)
@@ -139,7 +141,8 @@ assert not any(k == 'jax' or k.startswith('jax.') or k == 'trkfastsim.digi_jax' 
 
 
 def test_cli_backend_and_drift_source(monkeypatch):
-    from trkfastsim import cli, kitpoint
+    from trkfastsim import cli
+    from trkfastsim.kit import kitpoint
     parser = cli.build_parser()
     assert parser.parse_args(["digi", "steps.root"]).backend == "numpy"
     assert parser.parse_args(["digi", "steps.root", "--backend", "jax"]).backend == "jax"
@@ -189,7 +192,7 @@ def point_inputs(tmp_path, cond):
 
 @pytest.mark.parametrize("backend", ["numpy", "jax"])
 def test_point_backend_key_provenance_and_numpy_transport(point_inputs, cond, tmp_path, monkeypatch, backend):
-    from trkfastsim import kitpoint
+    from trkfastsim.kit import kitpoint
     from test_kitpoint import _sgs
     jax = pytest.importorskip("jax")
     monkeypatch.setattr(kitpoint, "simulate", lambda g, gdml, seed: (_sgs(cond, 0), g[g.pdg.abs() == 13]))
@@ -217,8 +220,8 @@ def test_point_backend_key_provenance_and_numpy_transport(point_inputs, cond, tm
 
 @pytest.mark.parametrize("nstep", [0, 1])
 def test_real_jax_empty_point(point_inputs, cond, tmp_path, monkeypatch, nstep):
-    pytest.importorskip("trkfastsim.digi_jax")
-    from trkfastsim import kitpoint
+    pytest.importorskip("trkfastsim.digi.digi_jax")
+    from trkfastsim.kit import kitpoint
     from test_kitpoint import _sgs
     monkeypatch.setattr(kitpoint, "simulate", lambda g, gdml, seed: (_sgs(cond, nstep), g[g.pdg.abs() == 13]))
     out = tmp_path / "jax-point"
@@ -230,11 +233,8 @@ def test_real_jax_empty_point(point_inputs, cond, tmp_path, monkeypatch, nstep):
 
 
 def _bench():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "digi_bench.py"
-    spec = importlib.util.spec_from_file_location("digi_bench_under_test", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    from trkfastsim.validation import digi_bench
+    return digi_bench
 
 
 def test_bench_defaults_same_seed_and_json(tmp_path, monkeypatch):

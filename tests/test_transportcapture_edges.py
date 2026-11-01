@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from mu2efastsim import eloss, materials
-from trkfastsim import ledger, steps
+from trkfastsim.sim import ledger, steps
 from test_transportcapture import _geometry, interior, phase, run_direct
 
 

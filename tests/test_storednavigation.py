@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from trkfastsim import materialpath, storednavigation as N
+from trkfastsim.sim import materialpath, storednavigation as N
 
 
 def hits(rows):

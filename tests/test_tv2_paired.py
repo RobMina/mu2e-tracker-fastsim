@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 import uproot
 
-from trkfastsim.analyses import tv2compare as TV
+from trkfastsim.validation import tv2compare as TV
 
 
 def test_paired_yield_splits_selection_and_content():

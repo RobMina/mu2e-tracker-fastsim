@@ -1,12 +1,8 @@
 """Byte localization is diagnostic only and retains the full unique event population."""
-import importlib.util
-from pathlib import Path
 
 from test_digitable_payload import fixture, payload
 
-SPEC = importlib.util.spec_from_file_location("digitable_payload_diff", Path(__file__).parents[1] / "scripts/digitable_payload_diff.py")
-mod = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(mod)
+from trkfastsim.validation import digitable_payload_diff as mod
 
 
 def test_one_byte_localizes_event_and_offset(tmp_path):

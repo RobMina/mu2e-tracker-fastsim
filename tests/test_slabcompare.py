@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import uproot
 
-from trkfastsim.analyses.slabcompare import audit_references, compare
+from trkfastsim.validation.slabcompare import audit_references, compare
 
 
 def _row():

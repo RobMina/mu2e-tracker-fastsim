@@ -1,7 +1,7 @@
 """Paired score contrast and deletion-moment tests."""
 import numpy as np
-from scripts import secondary_occupancy_jackknife as J
-from trkfastsim.analyses import occupancy as O
+from trkfastsim.validation import secondary_occupancy_jackknife as J
+from trkfastsim.validation import occupancy as O
 
 
 def _score(value, rank=3, **kw):

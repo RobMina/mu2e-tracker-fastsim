@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from prepare_digitable_runtime import CALL, REPOSITORIES, prepare
+from trkfastsim.validation.prepare_digitable_runtime import CALL, REPOSITORIES, prepare
 
 
 def test_runtime_adapter_preserves_source_and_checks_version(tmp_path):

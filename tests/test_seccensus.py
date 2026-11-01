@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from trkfastsim import geometry as G
-from trkfastsim.analyses import seccensus as SC
+from trkfastsim.validation import seccensus as SC
 
 
 def _geom():

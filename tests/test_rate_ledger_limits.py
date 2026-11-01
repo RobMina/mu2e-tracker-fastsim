@@ -13,7 +13,8 @@ import pytest
 
 from mu2efastsim import materials
 from mu2efastsim.world import CoaxialShells
-from trkfastsim import geometry, ledger, steps
+from trkfastsim import geometry
+from trkfastsim.sim import ledger, steps
 
 
 RADIUS = 2.5
@@ -222,7 +223,7 @@ def test_support_only_integrated_step_and_vertex_times_agree(run_transport, supp
     vertex_time = (v.t0.to_numpy()[left]
                    + path / (v.beta.to_numpy()[left] * steps.C_MM_PER_NS))
     if navigation != "legacy":
-        from trkfastsim.flighttime import linear_kinetic_dt_ns
+        from trkfastsim.sim.flighttime import linear_kinetic_dt_ns
         local = path - v.path.to_numpy()[left]
         right = left + 1
         fraction = local / (v.path.to_numpy()[right] - v.path.to_numpy()[left])

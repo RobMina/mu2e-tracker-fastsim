@@ -6,7 +6,8 @@ import pytest
 
 from mu2efastsim import eloss, materials
 from mu2efastsim.world import CoaxialShells
-from trkfastsim import geometry, steps
+from trkfastsim import geometry
+from trkfastsim.sim import steps
 
 
 RADIUS = 2.5

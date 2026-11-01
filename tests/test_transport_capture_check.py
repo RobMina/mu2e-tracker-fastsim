@@ -1,6 +1,5 @@
 """Bounded capture-check publication tests; no GDML parsing or real transport."""
 import hashlib
-import importlib.util
 import json
 from pathlib import Path
 import sys
@@ -11,16 +10,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from trkfastsim import transportcapture
+from trkfastsim.sim import transportcapture
 
 
 @pytest.fixture
 def runner():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "transport_capture_check.py"
-    spec = importlib.util.spec_from_file_location("_test_transport_capture_check", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    from trkfastsim.validation import transport_capture_check
+    return transport_capture_check
 
 
 def _capture(particles):

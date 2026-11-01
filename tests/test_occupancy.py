@@ -1,7 +1,7 @@
 """Panel occupancy shares with event-clustered errors (analyses/occupancy.py)."""
 import numpy as np
 
-from trkfastsim.analyses import occupancy as O
+from trkfastsim.validation import occupancy as O
 
 
 def _sample(rng, nev, probs, cluster):

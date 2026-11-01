@@ -1,7 +1,7 @@
 """Campaign timings require complete measured passes and matched populations."""
 import json
 import pytest
-import digi_campaign_timing as campaign
+from trkfastsim.validation import digi_campaign_timing as campaign
 
 
 def test_campaign_rejects_partial_and_sums_measured_rows(tmp_path):

@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from trkfastsim import kitf1
+from trkfastsim.kit import kitf1
 from test_ntuple_writer import _table, VERT
 
 

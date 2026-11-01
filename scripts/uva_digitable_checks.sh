@@ -19,6 +19,6 @@ while IFS= read -r testfile; do
 done < "$CHECKS/selection.txt"
 apptainer exec --cleanenv \
   --env "PYTHONDONTWRITEBYTECODE=1,OPENBLAS_NUM_THREADS=1,PYTHONPATH=$ROOT/code/tracker:$ROOT/code/core" \
-  -B "$ROOT" -B "$INPUT:$INPUT:ro" "$SIF" python3 -m trkfastsim.digitable \
+  -B "$ROOT" -B "$INPUT:$INPUT:ro" "$SIF" python3 -m trkfastsim.digi.digitable \
   convert "$INPUT/ref/strawhits_ref.v18L_1001.root" "$CHECKS/legacy_mc.root" \
   --assume-zero-flags --report "$CHECKS/legacy_mc_conversion.json"

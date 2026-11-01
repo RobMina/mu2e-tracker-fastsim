@@ -3,7 +3,7 @@
     python3 tracker/scripts/rate_conventions.py --g4 G4.parquet [--arm NAME=DIR ...] [--seed-csv EVENTS.csv.gz ...]
             [--variant plane] [--out REPORT.json]
 
-G4.parquet and DIR/muons.*.parquet come from trkfastsim.analyses.ratearms (g4, fast). Per arm: events passing through
+G4.parquet and DIR/muons.*.parquet come from trkfastsim.sim.ratearms (g4, fast). Per arm: events passing through
 any primary muon, through muon key 1, and only through a key > 1 (CRY multi-muon events). G4 keys are mapped to the
 fast muon key (rank among the generated muons) with ratearms.g4_fast_keys through the first --arm; without --arm the G4
 SimParticle key (index among all generated particles + 1) is used as is. fatecheck (fast key 1 against G4 any muon) and seedcheck (one seeded muon against G4 any muon) count
@@ -58,7 +58,7 @@ def main(argv=None):
     g = pd.read_parquet(x.g4, columns=KEY + ["sp", "ngood"])
     rep = {"g4": str(x.g4)}
     if x.arm:
-        from trkfastsim.analyses.ratearms import g4_fast_keys
+        from trkfastsim.sim.ratearms import g4_fast_keys
         d0 = x.arm[0].split("=", 1)[1]
         fm = pd.concat([pd.read_parquet(f, columns=KEY + ["sp", "genidx"]) for f in sorted(glob.glob(f"{d0}/muons.*.parquet"))])
         g, rep["g4_unmapped"] = g4_fast_keys(g, fm)

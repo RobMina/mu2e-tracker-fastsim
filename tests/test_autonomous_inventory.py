@@ -1,15 +1,10 @@
 """All-event detector census from the latest saved ROOT tree cycle."""
-import importlib.util
-from pathlib import Path
 
 import awkward as ak
 import uproot
 
 
-spec = importlib.util.spec_from_file_location('autonomous_inventory',
-    Path(__file__).resolve().parents[1] / 'scripts/autonomous_inventory.py')
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
+from trkfastsim.validation import autonomous_inventory as module
 
 
 def test_census_includes_empty_events_and_repeated_straws(tmp_path):

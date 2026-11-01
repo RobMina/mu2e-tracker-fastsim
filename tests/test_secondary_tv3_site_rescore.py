@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts import secondary_tv3_site_rescore as S
+from trkfastsim.validation import secondary_tv3_site_rescore as S
 
 
 def test_relocate_requires_containment_and_all_payloads(tmp_path):

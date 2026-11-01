@@ -10,7 +10,7 @@ import numpy as np
 import uproot
 
 from trkfastsim import tables as T
-from trkfastsim.analyses import tv2compare as TV
+from trkfastsim.validation import tv2compare as TV
 
 
 def _events(path, tree, prefix=""):

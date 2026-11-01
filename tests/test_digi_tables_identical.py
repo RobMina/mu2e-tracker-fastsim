@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-import digi_tables_identical as check
-from trkfastsim.analyses.fastdigi import write_digis
+from trkfastsim.validation import digi_tables_identical as check
+from trkfastsim.digi.fastdigi import write_digis
 
 
 def table(path, tdc=10):

@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from trkfastsim import surfaces as S
+from trkfastsim.sim import surfaces as S
 
 
 def _verts(points, p=2000.0):

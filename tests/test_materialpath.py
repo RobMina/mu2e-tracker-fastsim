@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 
 from mu2efastsim.world import CoaxialShells
-from trkfastsim.materialpath import support_intervals
-from trkfastsim.steps import InteriorColumn
+from trkfastsim.sim.materialpath import support_intervals
+from trkfastsim.sim.steps import InteriorColumn
 
 
 def tube(material="Al", ri=2., ro=3., z=0., hz=10., dp=2 * np.pi, center=None, rotation=None):
@@ -174,7 +174,7 @@ def test_lengths_match_current_column_and_partition_each_lane():
 
 
 # General tube navigation is a separate API: the full-ring gate above stays intact.
-from trkfastsim.materialpath import tube_intervals
+from trkfastsim.sim.materialpath import tube_intervals
 from mu2efastsim.world import column_tubes
 
 
@@ -388,7 +388,7 @@ def test_general_touching_tubes_are_separate_and_nearly_full_matches_core():
 
 
 def test_phi_face_inclusion_is_stable_under_frame_conversion():
-    from trkfastsim.materialpath import tube_intervals
+    from trkfastsim.sim.materialpath import tube_intervals
     p0, dp = 2., .5
     g = shells(("Al", np.eye(3), np.zeros(3), 0., 3., 10., p0, dp))
     for angle in (p0, p0 + dp):
@@ -401,7 +401,7 @@ def test_phi_face_inclusion_is_stable_under_frame_conversion():
 
 
 def test_overlap_refusal_retains_first_conflicting_interval():
-    from trkfastsim.materialpath import IntervalOverlap, _partition
+    from trkfastsim.sim.materialpath import IntervalOverlap, _partition
     import pandas as pd
     spans = pd.DataFrame(dict(lane=[0, 0], s0_mm=[1., 1.5], s1_mm=[2., 3.], material=['Al', 'Cu']))
     with pytest.raises(IntervalOverlap) as caught:

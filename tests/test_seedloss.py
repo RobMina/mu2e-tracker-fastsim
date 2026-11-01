@@ -1,7 +1,7 @@
 """Saved seed identity and lost-muon census guards."""
 import pandas as pd
 import pytest
-from trkfastsim.analyses.seedloss import select, summarize, compare
+from trkfastsim.validation.seedloss import select, summarize, compare
 
 
 def fixture():

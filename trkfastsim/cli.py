@@ -6,16 +6,17 @@ plots/<cmd>); --emit X.json / --merge for batchable ones.
 import argparse
 import sys
 
-from .analyses import (buildlib, elosscheck, fatecheck, libplacecheck, msccheck, refcheck, secdiag, slowcheck, stepcheck, steps,
-                       slabcheck, surfcheck, survivalcheck, tubecheck, tv2compare, v0check, v1compare, worldcheck)
-from .analyses import geomcheck
-from .analyses import interiorcensus
-from .analyses import seedcheck
-from .analyses import rangecheck
-from .analyses import arrivalcheck
-from .analyses import jaxcheck
-from .analyses import digicmp, fastdigi
-from .analyses import seccensus
+from trkfastsim.sim import buildlib, run as steps
+from trkfastsim.validation import elosscheck, fatecheck, libplacecheck, msccheck, refcheck, secdiag, slowcheck, stepcheck, slabcheck, surfcheck, survivalcheck, tubecheck, tv2compare, v0check, v1compare, worldcheck
+from trkfastsim.validation import geomcheck
+from trkfastsim.validation import interiorcensus
+from trkfastsim.validation import seedcheck
+from trkfastsim.validation import rangecheck
+from trkfastsim.validation import arrivalcheck
+from trkfastsim.validation import jaxcheck
+from trkfastsim.validation import digicmp
+from trkfastsim.digi import fastdigi
+from trkfastsim.validation import seccensus
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -108,7 +109,7 @@ def build_parser():
             sp.add_argument("--exit-scatter", action=argparse.BooleanOptionalAction, default=True,
                             help="stage C: scatter the material behind the last straw into the path for the tracker VD (surfsteps) exit crossings (default on; --no-exit-scatter)")
             sp.add_argument("--world-mods", default=None,
-                            help="stage C: named world modification (trkfastsim.worldmods, e.g. issue2017) for geometry sensitivity runs")
+                            help="stage C: named world modification (trkfastsim.sim.worldmods, e.g. issue2017) for geometry sensitivity runs")
             sp.add_argument("--kink-sup-xx0", type=float, default=0.25,
                             help="stage C: split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
             sp.add_argument("--band-spread", action="store_true",
@@ -123,7 +124,7 @@ def build_parser():
             sp.add_argument("--ordered-stopping-evaluation", choices=["entry", "midpoint"], default="entry",
                             help="ordered mode only: explicit midpoint predictor for loss evaluation (entry remains default)")
             sp.add_argument("--ledger-arms", default=None, metavar="PRESET",
-                            help="stage C transport-ledger arms (trkfastsim.ledger.PRESETS: legacy, A, E, M, T, AM, AMT; "
+                            help="stage C transport-ledger arms (trkfastsim.sim.ledger.PRESETS: legacy, A, E, M, T, AM, AMT; "
                                  "default steps.LEDGER_ARMS_DEFAULT)")
         if name == "geomcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")

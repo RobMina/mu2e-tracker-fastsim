@@ -13,7 +13,7 @@ for backend in numpy jax; do
   apptainer exec --nv --cleanenv --env "JAX_PLATFORMS=cuda,PYTHONDONTWRITEBYTECODE=1,OPENBLAS_NUM_THREADS=1,PYTHONPATH=$CODE/tracker:$CODE/core,XLA_PYTHON_CLIENT_PREALLOCATE=false" \
     --env "CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}" -B "$CODE" -B "$INPUTS:$INPUTS:ro" \
     -B "$(dirname "$GEN"):$(dirname "$GEN"):ro" -B "$(dirname "$GEOMETRY"):$(dirname "$GEOMETRY"):ro" -B "$OUT" --pwd "$CODE/tracker" "$SIF" \
-    python3 -m trkfastsim.kitpoint --gen "$GEN" --gdml "$GEOMETRY" \
+    python3 -m trkfastsim.kit.kitpoint --gen "$GEN" --gdml "$GEOMETRY" \
     --digi-cond "$INPUTS/tracker_digi_reference_v2_20261026/v2/digicond.npz" \
     --reco-cond "$INPUTS/tracker_digi_reference_v2_20261026/v2/cmp/hitcond.json" \
     --drift-source "$INPUTS/tracker_digi_reference_v2_20261026/ref/strawhits_ref.v18L_1001.root" \

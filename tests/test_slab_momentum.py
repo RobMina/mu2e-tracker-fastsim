@@ -5,8 +5,9 @@ import numpy as np
 import pytest
 
 from mu2efastsim import eloss, materials
-from trkfastsim import cli, steps as st
-from trkfastsim.analyses import slabcheck
+from trkfastsim import cli
+from trkfastsim.sim import steps as st
+from trkfastsim.validation import slabcheck
 
 
 @pytest.mark.parametrize("mean", [False, True])

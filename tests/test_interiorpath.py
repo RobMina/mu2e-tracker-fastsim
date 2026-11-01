@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 
 from mu2efastsim.world import CoaxialShells, SignedPieceSet
-from trkfastsim.interiorpath import interior_intervals
-from trkfastsim.steps import InteriorColumn
+from trkfastsim.sim.interiorpath import interior_intervals
+from trkfastsim.sim.steps import InteriorColumn
 from test_convexpath import box
 from test_materialpath import tube, assert_spans
 

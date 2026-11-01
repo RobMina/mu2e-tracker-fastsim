@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 jax = pytest.importorskip("jax")
-from trkfastsim import digi_jax as DJ
+from trkfastsim.digi import digi_jax as DJ
 from test_digi import cond, _step, _steps
 
 

@@ -2,7 +2,7 @@
 import json
 import pytest
 
-import digi_cert_report as report
+from trkfastsim.validation import digi_cert_report as report
 
 
 def test_report_rejects_incomplete_ten_group_receipt(tmp_path):

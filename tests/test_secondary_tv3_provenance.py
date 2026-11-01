@@ -1,7 +1,5 @@
 """Exact generator-content audits preserve full particle/event identity."""
-import importlib.util
 import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -10,9 +8,7 @@ import pytest
 from trkfastsim import tables as T
 from mu2efastsim.tables import write
 
-spec = importlib.util.spec_from_file_location("tv3_provenance", Path(__file__).parents[1] / "scripts/secondary_tv3_provenance.py")
-A = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(A)
+from trkfastsim.validation import secondary_tv3_provenance as A
 
 
 def gen():

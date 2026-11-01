@@ -1,4 +1,4 @@
-"""Transport-ledger arms (trkfastsim.ledger): analytic flight-time limits, world band reconstruction, writer
+"""Transport-ledger arms (trkfastsim.sim.ledger): analytic flight-time limits, world band reconstruction, writer
 conventions, thin-material loss on synthetic straws, and default (legacy) equality."""
 
 import numpy as np
@@ -7,7 +7,8 @@ import pytest
 
 from mu2efastsim import eloss, materials
 from mu2efastsim.world import CoaxialShells
-from trkfastsim import geometry, ledger, steps
+from trkfastsim import geometry
+from trkfastsim.sim import ledger, steps
 
 RADIUS = 2.5
 P_START = 80.0
@@ -205,7 +206,7 @@ def test_step_and_path_vertex_times_agree_at_the_entries(generated, empty_interi
 
 def test_g4_keys_map_to_fast_muon_rank_through_the_generator_index():
     """G4 key = generator index (all CRY particles) + 1; fast key = rank among the muons; first muon = fast key 1."""
-    from trkfastsim.analyses import ratearms
+    from trkfastsim.sim import ratearms
     ev = {"run": 1, "subrun": 1}
     # event 1: proton, muon (G4 key 2 = fast key 1); event 2: two muons, only the second stored in G4 (key 2)
     fast = pd.DataFrame([{**ev, "event": 1, "genidx": 1, "sp": 1, "ngood": 12},

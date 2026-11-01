@@ -1,17 +1,13 @@
 """Round-trip reports require finished jobs and the full original population."""
-import importlib.util
-from pathlib import Path
 
 import awkward as ak
 import numpy as np
 import pytest
 import uproot
 
-from trkfastsim import digitable
+from trkfastsim.digi import digitable
 
-SPEC = importlib.util.spec_from_file_location("digitable_report", Path(__file__).parents[1] / "scripts/digitable_report.py")
-mod = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(mod)
+from trkfastsim.validation import digitable_report as mod
 
 
 def fixture(directory):

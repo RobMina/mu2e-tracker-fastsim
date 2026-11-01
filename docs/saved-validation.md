@@ -28,7 +28,7 @@ Use a new directory for any upgrade; do not mutate an environment used by other 
 source "$SHARED_PARQUET_ENV/env.sh"
 apptainer exec --cleanenv \
   --env "PYTHONDONTWRITEBYTECODE=1,PYTHONPATH=$FASTSIM_PARQUET_SITE_PACKAGES:$CODE_PATHS" \
-  "$SIF" python3 -m trkfastsim.analyses.ratearms compare ...
+  "$SIF" python3 -m trkfastsim.sim.ratearms compare ...
 ```
 
 The environment is shared across jobs and repositories, not a test-only fallback. It is specific to

@@ -7,7 +7,7 @@ import numpy as np
 import uproot
 
 from mu2efastsim import tables
-from trkfastsim.kitpoint import generated_keys
+from trkfastsim.kit.kitpoint import generated_keys
 from trkfastsim.reco.cli import _drift_table
 
 

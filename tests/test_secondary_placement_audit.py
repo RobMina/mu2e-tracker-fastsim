@@ -1,12 +1,8 @@
 """Saved placement-counter audit guards and accounting."""
-import importlib.util
-from pathlib import Path
 
 import pytest
 
-spec = importlib.util.spec_from_file_location('placement_audit', Path(__file__).parents[1] / 'scripts/secondary_placement_audit.py')
-A = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(A)
+from trkfastsim.validation import secondary_placement_audit as A
 
 
 def _row(**kw):

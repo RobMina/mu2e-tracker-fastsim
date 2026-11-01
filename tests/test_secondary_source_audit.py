@@ -1,13 +1,9 @@
 """The source population audit reproduces the builder's event-anchor join."""
-import importlib.util
-from pathlib import Path
 
 import pandas as pd
 import pytest
 
-spec = importlib.util.spec_from_file_location('source_audit', Path(__file__).parents[1] / 'scripts/secondary_source_audit.py')
-A = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(A)
+from trkfastsim.validation import secondary_source_audit as A
 
 
 def test_multi_anchor_primary_template_contamination():

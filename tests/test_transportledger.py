@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from mu2efastsim import eloss, materials, transport
-from trkfastsim import transportledger as ledger
+from trkfastsim.sim import transportledger as ledger
 
 
 @pytest.fixture

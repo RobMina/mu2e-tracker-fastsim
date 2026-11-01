@@ -61,7 +61,7 @@ run_one() {
     if [ -e "$path" ] || [ -L "$path" ]; then existing=1; fi
   done
   if [ "$existing" -eq 1 ]; then
-    if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$CORE:." "$PY" -m trkfastsim.analyses.ratearms check "$DIR" \
+    if PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$CORE:." "$PY" -m trkfastsim.sim.ratearms check "$DIR" \
       --inputs "${F[@]:$I0:$PER}" --index0 "$I0" --tag "$TAG" --arm "$PRESET" --seed "$SEED" --gdml "$GDML" --g4 "$G4"; then
       if [ "$HIST" = history ] && [ ! -f "$DIR/segments.$TAG.parquet" ]; then
         echo "Partial output for $NAME chunk $TAG: requested history is missing; nothing overwritten or deleted." >&2
@@ -78,7 +78,7 @@ run_one() {
   [ "$HIST" != history ] || H=(--history-steps)
   # noclobber also protects the log if another runner starts this chunk concurrently.
   if (set -o noclobber
-      PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$CORE:." "$PY" -m trkfastsim.analyses.ratearms fast "${F[@]:$I0:$PER}" --gdml "$GDML" \
+      PYTHONDONTWRITEBYTECODE=1 PYTHONPATH="$CORE:." "$PY" -m trkfastsim.sim.ratearms fast "${F[@]:$I0:$PER}" --gdml "$GDML" \
         --arm "$PRESET" --seed "$SEED" --index0 "$I0" --g4 "$G4" --outdir "$DIR" ${H[@]+"${H[@]}"} > "$LOG" 2>&1); then
     echo "$NAME $I0 exit=0"
   else

@@ -30,7 +30,7 @@ apptainer exec --cleanenv --env "$ENV_ARGS" -B "$R" "$SIF" \
 apptainer exec --cleanenv --env "$ENV_ARGS" -B "$R" "$SIF" \
   python3 -m pytest "$TOOLS/tests/test_parquet_environment_check.py" -q -p no:cacheprovider
 apptainer exec --cleanenv --env "$ENV_ARGS" -B "$R" "$SIF" \
-  python3 -m trkfastsim.analyses.ratearms compare \
+  python3 -m trkfastsim.sim.ratearms compare \
   --g4 "$INPUTS/tracker_rate_ledger/g4.parquet" \
   --arm "legacy=$INPUTS/tracker_rate_ledger/legacy" --base legacy \
   --out "$OUT/rate_current_analysis.json"
@@ -45,6 +45,6 @@ apptainer exec --cleanenv --env "$ENV_ARGS" -B "$R" "$SIF" \
   sha256sum -c MANIFEST.sha256 > "$OUT/input_hashes.after.txt"
 )
 diff -u "$OUT/input_hashes.before.txt" "$OUT/input_hashes.after.txt"
-sha256sum "$TRACKER/trkfastsim/analyses/ratearms.py" "$TRACKER/scripts/rate_residual_summary.py" \
+sha256sum "$TRACKER/trkfastsim/sim/ratearms.py" "$TRACKER/scripts/rate_residual_summary.py" \
   "$TOOLS/scripts/parquet_environment_check.py" "$0" > "$OUT/replay_sources.sha256"
 printf 'Saved-product replay complete: %s\n' "$OUT"

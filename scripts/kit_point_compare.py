@@ -9,7 +9,7 @@ import numpy as np
 import uproot
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from trkfastsim.analyses.digicmp import _keyid
+from trkfastsim.validation.digicmp import _keyid
 from trkfastsim.reco.ntuple import TREE
 
 

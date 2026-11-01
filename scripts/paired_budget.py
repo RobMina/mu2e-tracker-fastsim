@@ -12,9 +12,10 @@ import numpy as np
 import pandas as pd
 
 from mu2efastsim.tables import KEY, primary_muons
-from trkfastsim import geometry, steps as st, tables as T
-from trkfastsim.analyses.steps import default_gdml
-from trkfastsim.analyses.worldcheck import _column
+from trkfastsim import geometry, tables as T
+from trkfastsim.sim import steps as st
+from trkfastsim.sim.run import default_gdml
+from trkfastsim.validation.worldcheck import _column
 
 EDGES = np.array([0, 1, 1.25, 1.5, 2, 3, 5, 1e9])
 ev = pd.concat([pd.read_csv(f) for pat in sys.argv[1].split(",") for f in T.expand([pat])], ignore_index=True)

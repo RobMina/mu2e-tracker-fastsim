@@ -4,7 +4,7 @@ import pytest
 
 pytest.importorskip("jax")
 
-from trkfastsim.analyses import digicmp
+from trkfastsim.validation import digicmp
 from test_reco_jax import _cond, _digis
 
 

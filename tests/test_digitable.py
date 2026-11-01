@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 import uproot
 
-from trkfastsim import digitable as dt
+from trkfastsim.digi import digitable as dt
 
 
 def columns():

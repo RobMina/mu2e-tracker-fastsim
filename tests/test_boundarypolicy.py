@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from trkfastsim import boundarypolicy as policy
+from trkfastsim.sim import boundarypolicy as policy
 
 def occupancy(hits, by_material=True):
     """Independent signed sweep used only to check the strict policy output."""

@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 
 from mu2efastsim import eloss, materials
-from trkfastsim import transportledger as ledger
-from trkfastsim.flighttime import C_MM_PER_NS, history_dt_ns, linear_kinetic_dt_ns
+from trkfastsim.sim import transportledger as ledger
+from trkfastsim.sim.flighttime import C_MM_PER_NS, history_dt_ns, linear_kinetic_dt_ns
 
 
 @pytest.fixture

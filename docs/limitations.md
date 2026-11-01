@@ -7,8 +7,35 @@
 - **T-V3**: the reco yield on fast steps through stock reco is -2.04 +- 0.37 % (mostly selection-only) and digis
   -1.09 +- 0.33 % against the full Geant4 chain; threshold 1 %.
 - **Secondary eIon per straw** (T-V1b): binned ratio 12.4 % against a 5 % threshold.
-- **F1** (KinKal-port fit, stock-conditioned) agrees with stock KKLine acceptance in 95.6 % of tracks against a 99.5 %
-  target. The native-closure tooling is on branch `park/f1-native-closure`.
+
+## Frozen
+
+**F1 native closure** (frozen 2026-11-01). The F1 fit (KinKal port, stock-conditioned) stays opt-in and does not meet
+its targets; no closure work is planned. Nothing depends on it: `tracker_point` uses F2 and T-V3 uses stock reco.
+
+- **Acceptance** against stock KKLine on 2,315 eligible single-seed fits of 3,000 `kkts_extrap_v04` events (2,151 stock
+  good), target 99.5 % agreement, that is at most 11 disagreements:
+  - `--time-model legacy` (the default): 94.2 %, 113 gains and 21 losses, net yield +4.28 +- 0.54 %.
+  - `--time-model stock` (used by `reco.autonomous`): 95.59 +- 0.43 %, 59 gains and 43 losses, net yield
+    +0.74 +- 0.47 %. Most losses are extension ParamsDiverged.
+- **Fixed stock hit states**, within 0.1 stock sigma on both-good tracks, target 99 %: d0 97.7, phi0 97.0, z0 96.5,
+  theta 96.5, t0 99.9, momentum 42.6 % (89.8 % with the captured native seed, an opt-in diagnostic).
+- **Yield** agrees better than single tracks do: the detector-only chain on the same MC digis gives +0.35 +- 0.44 %;
+  500 uncalibrated KPP events give -16.0 +- 8.4 % ([autonomous-f1.md](autonomous-f1.md)).
+- **Ruled out as the cause:** each of these changed no acceptance decision in a full-sample arm: piece-boundary and
+  reference search, construction-fixed crossing offsets, the native constraint time, native seed momentum, covariance
+  and range, and the per-material gas scattering fraction.
+- **Not tried, the place to restart:** native conventions that were found by operand comparison but never put in the
+  fit, together in one arm: the muon mass (105.658367 against 105.6583755 MeV), the native time and longitudinal
+  residual derivatives (`kalman_jax.py` differentiates the full residual), the material derivative at the crossing's
+  offset time, and the source signal-speed coefficients. Also unresolved: a strict replay of native effect algebra
+  fails on 862 parameter vectors, and 31 of the 102 disagreements have no captured native history.
+- **Possible limit:** some gains are stock ParamsDiverged failures on ill-conditioned covariances, which a looser
+  momentum constraint nearly removes. Matching those may mean reproducing near-singular arithmetic, so 99.5 % may not
+  be reachable by an independent fit. This is an inference, not a measurement.
+
+The closure tooling is on branch `park/f1-native-closure`. The fit outputs behind these numbers were not kept: a
+restart first regenerates the stock dump and the baseline arms from those 3,000 events.
 
 ## Not implemented
 

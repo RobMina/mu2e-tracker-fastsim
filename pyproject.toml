@@ -8,7 +8,7 @@ version = "0.0.1"
 description = "Geant4-free tracker simulation and fast reconstruction for the Mu2e extracted (KPP) configuration"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
-dependencies = ["mu2efastsim", "numpy", "pandas", "uproot"]
+dependencies = ["mu2efastsim", "numpy", "pandas", "uproot", "awkward", "scipy"]
 
 [project.optional-dependencies]
 jax = ["jax"]

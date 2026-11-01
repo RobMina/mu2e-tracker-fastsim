@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 import uproot
 
-from trkfastsim.analyses import ledgercheck as lc
+from trkfastsim.validation import ledgercheck as lc
 
 
 def particles():
@@ -152,7 +152,7 @@ def test_runner_equal_seeds_settings_manifest_and_refuse_overwrite(tmp_path, mon
     assert result["complete"] and result["file_local_gen_events"] == 2
     manifest = json.loads((out / "manifest.json").read_text())
     assert manifest["tracker_ref"] == "pinned-tracker"
-    assert manifest["sources_sha256"]["tracker"]["analyses/ledgercheck.py"] == lc.sha256(lc.__file__)
+    assert manifest["sources_sha256"]["tracker"]["validation/ledgercheck.py"] == lc.sha256(lc.__file__)
     report = json.loads((out / "files.jsonl").read_text())
     assert report["gen"]["cycle"] == 2
     assert report["arms"]["energy"]["crossing_comparison"]["consistent_with_writer_only"]

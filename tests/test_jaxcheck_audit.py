@@ -1,11 +1,7 @@
 """Saved-report hard checks fail closed on absent evidence and reported errors."""
-import importlib.util
 import json
-from pathlib import Path
 
-spec = importlib.util.spec_from_file_location("jaxcheck_audit", Path(__file__).parents[1] / "scripts/jaxcheck_audit.py")
-auditmod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(auditmod)
+from trkfastsim.validation import jaxcheck_audit as auditmod
 
 
 def _report():

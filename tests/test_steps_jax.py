@@ -11,7 +11,8 @@ import jax.numpy as jnp  # noqa: E402
 from mu2efastsim import eloss, materials  # noqa: E402
 from mu2efastsim import transport as tr  # noqa: E402
 from mu2efastsim.world import CoaxialShells, SignedPieceSet  # noqa: E402
-from trkfastsim import crossings, geometry, steps as st, steps_jax as sj  # noqa: E402
+from trkfastsim import crossings, geometry
+from trkfastsim.sim import steps as st, steps_jax as sj  # noqa: E402
 
 warnings.filterwarnings("ignore", message=".*donated.*")
 NSTRAW = 48
@@ -311,7 +312,7 @@ def test_jax_rejects_unsupported_options(setup):
 
 
 def test_jaxcheck_compare_and_cross(setup):
-    from trkfastsim.analyses import jaxcheck
+    from trkfastsim.validation import jaxcheck
     geom, interior, _ = setup
     gen = _gen(400, np.random.default_rng(16))
     kw = dict(stage="A", interior=interior, exit_scatter=False)

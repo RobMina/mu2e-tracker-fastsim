@@ -1,7 +1,7 @@
 """Full-suite aggregation keeps failures, missing files and trailing unfinished tests explicit."""
 import pytest
 
-from scripts.validation_log_summary import summarize
+from trkfastsim.validation.validation_log_summary import summarize
 
 
 def test_complete_counts_and_legacy_expected_failures():

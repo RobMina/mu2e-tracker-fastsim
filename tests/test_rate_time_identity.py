@@ -1,7 +1,7 @@
 """Same-straw timing must match the generated particle, not event/straw alone."""
 import pandas as pd
 
-from trkfastsim.analyses.v1compare import _same_primary_straw
+from trkfastsim.validation.v1compare import _same_primary_straw
 
 
 def test_two_muons_in_one_straw_are_paired_by_generator_identity():

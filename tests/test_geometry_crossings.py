@@ -86,7 +86,7 @@ def test_nearest_straw_snaps_gap_points_and_rejects_far_ones():
 def test_interior_loss_accumulates_along_the_muon():
     """TrackerInterior.loss_to_straws: segment columns between consecutive straws, cumulative per muon."""
     from mu2efastsim import world as Wd
-    from trkfastsim import steps as S
+    from trkfastsim.sim import steps as S
     interior = S.TrackerInterior.__new__(S.TrackerInterior)
     # one copper slab-like shell: coaxial with z, rmin 100, rmax 110 (10 mm wall), long in z
     tube = [("G4_Cu", np.eye(3), np.array([0.0, 0.0, 0.0]), 100.0, 110.0, 1000.0, 0.0, 2 * np.pi)]
@@ -109,7 +109,7 @@ def test_interior_loss_accumulates_along_the_muon():
 def _plate_interior(thick=10.0):
     """TrackerInterior stub: a copper shell (rmin 100, rmax 100 + thick) about the z axis."""
     from mu2efastsim import world as Wd
-    from trkfastsim import steps as S
+    from trkfastsim.sim import steps as S
     interior = S.TrackerInterior.__new__(S.TrackerInterior)
     tube = [("G4_Cu", np.eye(3), np.array([0.0, 0.0, 0.0]), 100.0, 100.0 + thick, 1000.0, 0.0, 2 * np.pi)]
     interior.shells = Wd.CoaxialShells(tube, axis_point=[0.0, 0.0, 0.0])
@@ -185,7 +185,7 @@ def test_interior_transport_tail_adds_large_angles():
 def test_interior_transport_scatters_in_straws_and_air():
     """No support material: the straws alone scatter (Highland of their summed x/X0); air in the gaps adds to it."""
     from mu2efastsim import eloss as E, materials as M
-    from trkfastsim import steps as S
+    from trkfastsim.sim import steps as S
     interior = _plate_interior(10.0)
     ys = np.linspace(95.0, -95.0, 10)                 # ten layers inside the shell's hole (r < 100)
     # 41 straws per layer (+-82 mm, the tracks start at z = 0 and deflect < 10 mm) and 5,000 tracks: the 401-straw,
@@ -258,7 +258,7 @@ def test_interior_transport_does_not_truncate_chords_after_a_kink():
 def test_to_plane_marks_muons_outside_the_margin_not_alive(monkeypatch):
     """Muons whose line misses the footprint margin are not transported and must not reach a straw untouched."""
     import pandas as pd
-    from trkfastsim import steps as S
+    from trkfastsim.sim import steps as S
     g = _layers([0.0], n=11, pitch=6.0)
     monkeypatch.setattr(S, "plane_y", lambda geom: 100.0)
     monkeypatch.setattr(S.tr, "world_loss", lambda rng, o, d, p, w, e, **k: (
@@ -275,7 +275,7 @@ def test_to_plane_marks_muons_outside_the_margin_not_alive(monkeypatch):
 
 
 def test_near_tracker_accepts_shallow_lines_that_cross_the_stack_below_the_plane():
-    from trkfastsim import steps as S
+    from trkfastsim.sim import steps as S
     g = _layers([0.0, -300.0], n=11, pitch=6.0)        # stack y -300..0, |z| <= 33 mm
     # shallow muon: at the plane y = 100 it is at z = 1000 (outside a 100 mm margin), at y = -300 it is at z = 0
     d = np.array([[0.0, -0.3713907, -0.9284767]])        # dz/dy = 2.5

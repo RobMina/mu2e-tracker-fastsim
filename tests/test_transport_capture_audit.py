@@ -1,24 +1,19 @@
 """Saved algorithm-state audit tests; no real inputs or physical stopping claims."""
 import hashlib
-import importlib.util
 import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from trkfastsim import transportcapture
+from trkfastsim.sim import transportcapture
 from test_transport_capture_check import _capture
 
 
 @pytest.fixture
 def auditor():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "transport_capture_audit.py"
-    spec = importlib.util.spec_from_file_location("_test_transport_capture_audit", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    from trkfastsim.validation import transport_capture_audit
+    return transport_capture_audit
 
 
 def _phases(n=3, *, stops=True, exit_knots=False):

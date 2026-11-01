@@ -5,7 +5,7 @@ import pytest
 
 from mu2efastsim.materials import AIR, ALUMINIUM
 from mu2efastsim.world import PieceSet, SignedPieceSet, column
-from trkfastsim.convexpath import convex_intervals
+from trkfastsim.sim.convexpath import convex_intervals
 
 
 def box(material="Al", x0=1., x1=5., y0=-1., y1=1., z0=-1., z1=1., cut=None):
@@ -186,7 +186,7 @@ def test_packing_omissions_and_invalid_geometry_rejected():
 
 @pytest.mark.parametrize("use_signed", [False, True])
 def test_grid_equivalence_and_core_columns_for_clean_geometry(use_signed, monkeypatch):
-    import trkfastsim.convexpath as navigator
+    import trkfastsim.sim.convexpath as navigator
     monkeypatch.setattr(navigator, "_PAIR_CHUNK", 37)
     pieces = [box("Al", 1, 3), box("Cu", 4, 5), box("Al", -4, -2)]
     if use_signed:
@@ -229,7 +229,7 @@ def test_grid_equivalence_and_core_columns_for_clean_geometry(use_signed, monkey
 
 
 def test_explicit_signed_endpoint_policy_records_shifts_not_material_priority():
-    from trkfastsim.materialpath import IntervalOverlap
+    from trkfastsim.sim.materialpath import IntervalOverlap
     end = np.nextafter(3., 0.)
     g = PieceSet([box("Al", 1., 3.), box("Cu", end, 5.)])
     with pytest.raises(IntervalOverlap) as failure:

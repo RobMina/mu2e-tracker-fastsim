@@ -10,7 +10,7 @@ import pytest
 
 from mu2efastsim.endpoints import EndpointError, JobStatus
 from mu2efastsim.endpoints.kit import FastsimKit
-from trkfastsim import kit_task, kit_uva
+from trkfastsim.kit import kit_task, kit_uva
 from test_kit_task import metrics
 
 

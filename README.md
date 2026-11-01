@@ -43,9 +43,12 @@ Mu2e-internal and not yet published as a collaborator release (umbrella `docs/ru
 
 | Path | Content |
 |---|---|
-| `trkfastsim/` | the package and its CLI (`python3 -m trkfastsim <subcommand> -h`): geometry, crossings, step generator, library, digitisation |
+| `trkfastsim/` | the package and its CLI (`python3 -m trkfastsim <subcommand> -h`); geometry, crossings and tables at the top |
+| `trkfastsim/sim/` | step generator (world and tracker-interior transport, NumPy and JAX), secondary library, ordered navigation, ledgers |
+| `trkfastsim/digi/` | fast digitisation (`digitize`, its JAX twins), conditions, digi tables |
 | `trkfastsim/reco/` | fast reconstruction: hit reco, combos, line finding, F1/F2 fits, EventNtuple writer |
-| `trkfastsim/analyses/` | one module per comparison subcommand |
+| `trkfastsim/validation/` | one module per comparison subcommand, and the report/audit libraries behind `scripts/` |
+| `trkfastsim/kit/` | endpoint-kit tasks (`kit_task`, `kit_uva`, `kitpoint`, `kitf1`); `trkfastsim.kit.kit_task`, `kit_uva` and `worldmods` are aliases for one release |
 | `art/` | muse satellite area: StrawGasStep/digi/hit dumpers, table-to-art injectors, payload audit |
 | `grid/` | gen-only and T-V2 grid jobs |
 | `scripts/` | campaign drivers (stage C A/B, occupancy, digi and ntuple validation, UVA/EAF device runs) |

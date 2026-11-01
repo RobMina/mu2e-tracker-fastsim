@@ -4,12 +4,12 @@ import json
 import pandas as pd
 import pytest
 
-from trkfastsim.analyses import ratearms as ra
+from trkfastsim.sim import ratearms as ra
 
 
 def _chunk(directory, tag="0000", index=0, event=1, settings=None, passes=1):
     directory.mkdir(exist_ok=True)
-    config = settings or {"arm": "legacy", "source": {"steps.py": "test"}}
+    config = settings or {"arm": "legacy", "source": {"sim/steps.py": "test"}}
     rows = pd.DataFrame({"run": [1], "subrun": [1], "event": [event], "sp": [1],
                          "file_index": [index], "ngood": [12]})
     rows.to_parquet(directory / f"muons.{tag}.parquet", index=False)
@@ -41,7 +41,7 @@ def test_wrong_passing_event_count_is_rejected(tmp_path):
 
 def test_mixed_source_chunks_are_rejected(tmp_path):
     _chunk(tmp_path)
-    _chunk(tmp_path, tag="0001", index=1, event=2, settings={"arm": "legacy", "source": {"steps.py": "other"}})
+    _chunk(tmp_path, tag="0001", index=1, event=2, settings={"arm": "legacy", "source": {"sim/steps.py": "other"}})
     with pytest.raises(ValueError, match="mixed settings/source"):
         ra.load_arm(tmp_path)
 
@@ -62,17 +62,17 @@ def test_missing_requested_history_is_rejected(tmp_path):
 def test_chunk_check_requires_exact_inputs_and_physics(tmp_path, monkeypatch):
     config = {"arm": "legacy", "seed": 1, "gdml_sha256": "geometry", "g4": "g4.parquet",
               **ra.ledger.preset("legacy").as_dict(), **ra.ledger.core_world_convention(),
-              "source": {"steps.py": "transport"}}
+              "source": {"sim/steps.py": "transport"}}
     _chunk(tmp_path, settings=config)
     monkeypatch.setattr(ra, "_sha", lambda path: {"gen0.root": "hash0", "gen1.root": "hash1", "geom.gdml": "geometry"}[path])
     monkeypatch.setattr(ra.T, "expand", lambda paths: paths)
-    monkeypatch.setattr(ra, "_src_identity", lambda: {"steps.py": "transport", "analyses/ratearms.py": "reporter"})
+    monkeypatch.setattr(ra, "_src_identity", lambda: {"sim/steps.py": "transport", "sim/ratearms.py": "reporter"})
     ra.check_arm(tmp_path, ["gen0.root"], 0, "legacy", 1, "geom.gdml", "g4.parquet", tag="0000")
     with pytest.raises(ValueError, match="input file coverage"):
         ra.check_arm(tmp_path, ["gen0.root", "gen1.root"], 0, "legacy", 1, "geom.gdml", "g4.parquet")
     with pytest.raises(ValueError, match="requested settings"):
         ra.check_arm(tmp_path, ["gen0.root"], 0, "legacy", 2, "geom.gdml", "g4.parquet")
-    monkeypatch.setattr(ra, "_src_identity", lambda: {"steps.py": "changed"})
+    monkeypatch.setattr(ra, "_src_identity", lambda: {"sim/steps.py": "changed"})
     with pytest.raises(ValueError, match="transport source"):
         ra.check_arm(tmp_path, ["gen0.root"], 0, "legacy", 1, "geom.gdml", "g4.parquet")
 

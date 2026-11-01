@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from mu2efastsim import eloss
-from trkfastsim.analyses import seedcheck as sc
+from trkfastsim.validation import seedcheck as sc
 
 
 def test_crv_pass_needs_visible_edep_and_momentum_window():

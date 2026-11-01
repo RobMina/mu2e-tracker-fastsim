@@ -222,7 +222,7 @@ def fit_candidates(x, H, X, drift, chunk=32, buckets=False):
 def reconstruct(path, cond, drift, settings='mc', axes=None, chunk=32, buckets=False):
     """One digi-only file to an all-event track table, with failed seeds retained."""
     from . import linefind_jax
-    from ..kitpoint import validate_drift
+    from trkfastsim.kit.kitpoint import validate_drift
     validate_drift(drift)
     t = time.perf_counter()
     d = hitreco.read_digis([path])
@@ -333,7 +333,7 @@ def main():
     tracktable.save(table, out / 'tracks.npz')
     write_start = time.perf_counter()
     prov = ntuple.write(table, out / 'EventNtuple.root')
-    from ..kitpoint import inspect_written
+    from trkfastsim.kit.kitpoint import inspect_written
     persisted = inspect_written(out / 'EventNtuple.root',
         np.column_stack([table['events'][k] for k in ('run', 'subrun', 'event')]), int(table['goodfit'].sum()))
     report = {**table['meta'], 'writer': prov, 'persisted': persisted, 'writer_s': time.perf_counter() - write_start,

@@ -31,7 +31,7 @@ def test_cuts_on_eion_and_momentum():
 
 def test_band_threshold_accepts_zero_deviation():
     """A binned-ratio band of exactly 0 after the 2-sigma allowance passes; no usable bins fails."""
-    from trkfastsim.analyses.v1compare import _band_ok
+    from trkfastsim.validation.v1compare import _band_ok
     assert _band_ok({"max_abs_dev_minus_2sigma": 0.0}, 0.05)
     assert _band_ok({"max_abs_dev_minus_2sigma": 0.049}, 0.05)
     assert not _band_ok({"max_abs_dev_minus_2sigma": 0.06}, 0.05)

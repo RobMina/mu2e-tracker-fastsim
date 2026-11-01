@@ -8,8 +8,8 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from scripts import secondary_replay as R
-from trkfastsim import library as L, steps as S
+from trkfastsim.validation import secondary_replay as R
+from trkfastsim.sim import library as L, steps as S
 from test_anchor_topology import _source
 from test_library_v2 import _build
 

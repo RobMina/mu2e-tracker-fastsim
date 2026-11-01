@@ -13,7 +13,7 @@ apptainer exec --cleanenv \
   --env "JAX_PLATFORMS=cpu,PYTHONDONTWRITEBYTECODE=1,OPENBLAS_NUM_THREADS=1,OMP_NUM_THREADS=1,MKL_NUM_THREADS=1,PYTHONPATH=$ROOT/code/tracker:$ROOT/code/core,MU2E_SEARCH_PATH=$ANN" \
   -B "$ROOT" -B "$ANN:$ANN:ro" "$SIF" bash -c '
     set -euo pipefail
-    python3 -m trkfastsim.digitable compare "$3" "$1" --report "$2/injection_identity.json"
+    python3 -m trkfastsim.digi.digitable compare "$3" "$1" --report "$2/injection_identity.json"
     python3 -m trkfastsim reco-conditions "$1" --out "$2/conditions.json"
     python3 -m trkfastsim reco-ntuple "$1" --fit stock --settings mc --conditions "$2/conditions.json" --out "$2/stock.root"
     python3 -m trkfastsim.reco.autonomous "$1" --conditions "$2/conditions.json" --drift-source "$1" --settings mc --chunk 32 --outdir "$2/autonomous"

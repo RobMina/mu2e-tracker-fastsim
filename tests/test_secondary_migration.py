@@ -3,9 +3,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from scripts import secondary_migration as D
-from trkfastsim import library as L, steps as S
-from trkfastsim.analyses import secmigration as M
+from trkfastsim.validation import secondary_migration as D
+from trkfastsim.sim import library as L, steps as S
+from trkfastsim.validation import secmigration as M
 from test_anchor_topology import _source
 from test_library_v2 import _build
 
@@ -59,7 +59,7 @@ def test_donor_split_preserves_raw_identity_and_uses_disjoint_classes():
 
 
 def test_paired_contrast_matches_scalar_jackknife_and_empty_group_invariance():
-    from scripts.secondary_migration_report import contrast
+    from trkfastsim.validation.secondary_migration_report import contrast
     arrays = [np.array(x, float) for x in ([3, -1, 7], [20, 15, 10], [100, 80, 50], [90, 90, 45])]
     value = lambda xs: xs[0].sum() * xs[3].sum() / (xs[1].sum() * xs[2].sum())
     result = contrast(*arrays)

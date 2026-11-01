@@ -58,7 +58,7 @@ fixed F2 momentum and RNTuple reader limitations still apply (README, EventNtupl
 No installation or C++ build is needed with a compatible Python/JAX environment and `core:tracker` on `PYTHONPATH`:
 
 ```bash
-python3 -m trkfastsim.kitpoint --gen GEN.root --gdml extracted_v04.gdml \
+python3 -m trkfastsim.kit.kitpoint --gen GEN.root --gdml extracted_v04.gdml \
   --digi-cond digicond.npz --reco-cond cond_mc.json --drift-source STOCK_DUMP.root \
   --seed 1 --outdir NEW_OUTPUT --workdir /tmp --retain-ntuple
 ```
@@ -76,12 +76,12 @@ a data area. `scripts/kit_inputs_audit.py` reports persisted generator keys and 
 
 ## Local F1 companion: not an evaluator
 
-`python3 -m trkfastsim.kitf1` is a deliberately separate, **stock-conditioned diagnostic**. It reuses a saved
+`python3 -m trkfastsim.kit.kitf1` is a deliberately separate, **stock-conditioned diagnostic**. It reuses a saved
 `reco-vr2f1 --own-states --save-tracks` result where available, or runs the existing harness on a bounded stock
 candidate population. It cannot take the new fast digis as F1 candidates and does not write kit `metrics.json`:
 
 ```bash
-python3 -m trkfastsim.kitf1 --dump STOCK_DUMP.root --conditions cond_mc.json \
+python3 -m trkfastsim.kit.kitf1 --dump STOCK_DUMP.root --conditions cond_mc.json \
   --tracks EXISTING_F1/f1_tracks.npz --outdir NEW_F1_OUTPUT --workdir /tmp
 ```
 

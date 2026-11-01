@@ -39,7 +39,7 @@ segments; replacing beta with each entry's final momentum is not an integrated-t
 
 ## Comparisons and interpretation
 
-Use `python3 -m trkfastsim.analyses.ledgercheck` on a bounded set of existing gen files and the matching GDML.
+Use `python3 -m trkfastsim.validation.ledgercheck` on a bounded set of existing gen files and the matching GDML.
 The three arms use the same input and initial random seed per file. Support trajectories are identical;
 energy/eIon changes can alter subsequent gas random-number consumption. Report muon/event identity and
 crossing conservation separately from selection changes. These comparisons bound the writer contribution,

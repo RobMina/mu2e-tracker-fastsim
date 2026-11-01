@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 
-import digi_real_bench as bench
+from trkfastsim.validation import digi_real_bench as bench
 
 
 def test_real_bench_retains_empty_events_and_checks_repeats(tmp_path, monkeypatch):

@@ -103,7 +103,7 @@ Quote the globs: the subcommands expand them.
 
 `steps` also writes the tree `dump/surfsteps` (switch off with `--no-surfsteps`): the primary muon's crossings of the
 tracker virtual detectors, sids 0-4 (TT_Front, TT_Mid + TT_MidInner, TT_Back, TT_Inner, TT_Outer; surfaces from the v04
-GDML, `trkfastsim/surfaces.py`), in the columns of `StrawGasStepTableDumper`'s surfsteps tree, so path A
+GDML, `trkfastsim/sim/surfaces.py`), in the columns of `StrawGasStepTableDumper`'s surfsteps tree, so path A
 (`StrawGasStepsFromTable`) fills the SurfaceStepCollection that EventNtuple's `trksegsmc` reads. It is computed from the
 muon's own StrawGasSteps (no random numbers: `sgsteps` is bit-identical with and without it). Check against G4:
 
@@ -121,7 +121,7 @@ primary muon (delta rays crossing the VDs): the fast sim does not write those.
 The per-panel occupancy and the TDC/TOT shapes are sums over events in which one muon puts several digis into each
 panel it crosses: a Poisson chi2 over panels is about the mean cluster size (3-4) for two samples of the same physics.
 `tv2compare` therefore reports a full event-clustered panel covariance and its rank-based chi2
-(`trkfastsim/analyses/occupancy.py`, tested in `tests/test_occupancy.py`), with marginal pulls,
+(`trkfastsim/validation/occupancy.py`, tested in `tests/test_occupancy.py`), with marginal pulls,
 diagonal/Poisson diagnostic scores and G4-against-G4 floors from disjoint files. Paired occupancy
 includes cross-arm event covariance, conditional on the fixed secondary library. Input coverage,
 checked event-ID bounds, matched paired width blocks and yield-factorization checks prevent
@@ -174,7 +174,7 @@ Do not promote a production default or refit the calibration solely from a synth
 Summarize a candidate against a saved baseline without regenerating it:
 
 ```bash
-python3 -m trkfastsim.analyses.slabcompare BEFORE/slabcheck_interior.json AFTER/slabcheck_interior.json \
+python3 -m trkfastsim.validation.slabcompare BEFORE/slabcheck_interior.json AFTER/slabcheck_interior.json \
     --references "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
     "$M2FS_DATA/trk_fastsim/slab/G4_Cu/slab.*.root" "$M2FS_DATA/trk_fastsim/slab/G4_Pb/slab.*.root" \
     --tracker-ref TRACKER_SHA --core-ref CORE_SHA --out AFTER/comparison.json

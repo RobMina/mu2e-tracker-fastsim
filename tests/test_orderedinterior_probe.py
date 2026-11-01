@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-from scripts import orderedinterior_probe as P
+from trkfastsim.validation import orderedinterior_probe as P
 
 
 def test_replay_retains_refusal_and_no_overwrite(tmp_path, monkeypatch):

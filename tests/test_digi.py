@@ -1,4 +1,4 @@
-"""Unit tests: fast tracker digitisation (trkfastsim.digicond, trkfastsim.digi) on the stock job's conditions excerpt
+"""Unit tests: fast tracker digitisation (trkfastsim.digi.digicond, trkfastsim.digi.digitize) on the stock job's conditions excerpt
 and a synthetic 36 x 6 x 96 straw geometry; table round trip through the hit-reco reader."""
 import sys
 from pathlib import Path
@@ -7,8 +7,8 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from trkfastsim import digi as DG                                       # noqa: E402
-from trkfastsim import digicond as DC                                   # noqa: E402
+from trkfastsim.digi import digitize as DG                                       # noqa: E402
+from trkfastsim.digi import digicond as DC                                   # noqa: E402
 from trkfastsim import geometry as G                                    # noqa: E402
 
 FIX = Path(__file__).resolve().parent / "data" / "digi_job_excerpt.fcl"
@@ -140,7 +140,7 @@ def test_minion_cluster_budget(cond):
 
 
 def test_table_round_trip(cond, tmp_path):
-    from trkfastsim.analyses import fastdigi
+    from trkfastsim.digi import fastdigi
     from trkfastsim.reco import hitreco
     c = cond
     rows = [_step(c, 3 * 96 + k, b=0.2 * k, zpos=5.0 * k) for k in range(8)]
@@ -194,7 +194,7 @@ def test_sim_wire_offsets_in_panel_uvw():
 
 
 def test_event_clustered_and_paired_variance():
-    from trkfastsim.analyses import digicmp as DC2
+    from trkfastsim.validation import digicmp as DC2
     bins = np.arange(4) - 0.5
     # arm 1: event 0 puts 3 entries in bin 1; event 1 one in bin 0. arm 2: event 0 two in bin 1, event 1 one in bin 2
     h1 = DC2.ev_bin_counts(np.array([1, 1, 1, 0.0]), np.array([0, 0, 0, 1]), bins)

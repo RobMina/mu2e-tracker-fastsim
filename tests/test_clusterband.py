@@ -4,7 +4,7 @@ import json
 import numpy as np
 import pytest
 
-from trkfastsim.analyses import clusterband as C
+from trkfastsim.validation import clusterband as C
 
 
 def _key(ev):
@@ -299,7 +299,7 @@ def test_many_sparse_event_clusters_without_event_by_bin_dense_storage():
 
 
 def test_mean_rank_zero_after_permuting_floating_point_entries():
-    from trkfastsim.analyses.clusterband import mean_compare
+    from trkfastsim.validation.clusterband import mean_compare
     result = mean_compare([.1, .2, .3], [.3, .2, .1], [0, 0, 1], [1, 0, 0])
     assert not result['available']
     assert result['difference_error'] == 0.0

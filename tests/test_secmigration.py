@@ -3,8 +3,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from trkfastsim import geometry as G, library as L, steps as S, tables as T
-from trkfastsim.analyses import secmigration as M, seccensus as C
+from trkfastsim import geometry as G, tables as T
+from trkfastsim.sim import library as L, steps as S
+from trkfastsim.validation import secmigration as M, seccensus as C
 from test_library_v2 import _geom, _row
 
 

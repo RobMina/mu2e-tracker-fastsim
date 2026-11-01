@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from trkfastsim import library as L                                    # noqa: E402
+from trkfastsim.sim import library as L                                    # noqa: E402
 
 
 def _lib():
@@ -49,7 +49,8 @@ def test_offaxis_paste_lattice_offsets():
     """A fast muon crossing straws (plane 4, panel 2, straw 50) then (plane 5, panel 2, straw 51); library steps
     anchored on k = 0 at +1 straw, on k = 1 at +1 plane, +7 straws, and one off the lattice (plane + 80: beyond one
     mirror)."""
-    from trkfastsim import geometry as G, steps as S
+    from trkfastsim import geometry as G
+    from trkfastsim.sim import steps as S
     n = 36 * 6 * 96
     up = np.repeat(np.arange(36 * 6), 96)
     g = G.StrawGeometry(plane=up // 6, panel=up % 6, straw=np.tile(np.arange(96), 216), mid=np.zeros((n, 3)),
@@ -82,7 +83,7 @@ def test_offaxis_paste_lattice_offsets():
 
 
 def test_mirror_reflects_once():
-    from trkfastsim.steps import _mirror
+    from trkfastsim.sim.steps import _mirror
     assert _mirror(np.array([-1, -3, 0, 35, 36, 38, 80, -40]), 36).tolist() == [1, 3, 0, 35, 34, 32, 80, -40]
 
 
@@ -102,7 +103,7 @@ def test_offaxis_sampler_prefers_matching_plane_extent():
 
 def test_instraw_pasting_uses_muon_steps_only():
     """Regression: in-straw secondaries are drawn for muon crossings (sp == 1) only, never for pasted secondaries."""
-    from trkfastsim import steps as S
+    from trkfastsim.sim import steps as S
     lib = _lib()
     lib["instraw"]["nsec"] = 1
     lib["instraw_steps"] = pd.DataFrame({"xing": [0, 1, 2, 3], "eion": 1e-3, "len": 1.0, "ion": 1, "shape": 0, "pdg": 11})
@@ -122,7 +123,8 @@ def test_offaxis_edge_anchor_keeps_outside_steps_outside():
     anchored on k = 0: one step in the same plane (dpl 0), one 2 planes below (dpl -2), one 1 plane above (dpl +1). By
     relative rank all anchor on rank 0 (plane 10), so dpl +1 lands in plane 11, which the fast muon crosses; with
     edge_anchor the dpl +1 step anchors on plane 12 and lands in plane 13, dpl -2 in plane 8, dpl 0 unchanged."""
-    from trkfastsim import geometry as G, steps as S
+    from trkfastsim import geometry as G
+    from trkfastsim.sim import steps as S
     n = 36 * 6 * 96
     up = np.repeat(np.arange(36 * 6), 96)
     g = G.StrawGeometry(plane=up // 6, panel=up % 6, straw=np.tile(np.arange(96), 216), mid=np.zeros((n, 3)),

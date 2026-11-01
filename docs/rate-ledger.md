@@ -11,7 +11,7 @@ change the conventions were:
 - the world column above the plane (core `transport.world_loss`) passed `p - loss` (momentum minus an energy) to the
   next loss call before core `2bcefde`; current core main converts the remaining kinetic energy to momentum.
 
-`trkfastsim.ledger` names each convention as a separately switchable diagnostic arm. Thin loss changes transport;
+`trkfastsim.sim.ledger` names each convention as a separately switchable diagnostic arm. Thin loss changes transport;
 writer loss and the time convention have their own switches. **These arms do not yet constitute a unified
 energy/deposition/time ledger. T3 remains open.** Terminal bookkeeping and step/surface clock consistency fail
 explicit tests below. Production defaults remain unchanged; no arm is recommended for promotion.
@@ -92,7 +92,7 @@ changing material widths or adopting an arm because its rate is unchanged would 
 
 ## Rate measurement
 
-`python3 -m trkfastsim.analyses.ratearms` (module docstring): `g4` (per primary muon of the G4 reference), `fast`
+`python3 -m trkfastsim.sim.ratearms` (module docstring): `g4` (per primary muon of the G4 reference), `fast`
 (one arm on gen tables; file i of the 220 g4ref_v1 + g4ref_v2 gen tables uses the generator seed `(1, i)` in every
 arm), `compare` (paired tables), and `check` (validated restart against exact input hashes and physics settings).
 `scripts/rate_ledger_arms.sh` defaults to one worker and enforces one worker/library thread on GPVMs; failures
@@ -202,7 +202,7 @@ Set `O` to the retained campaign output root (`trk_rate_ledger_20261026`), and u
 Linux campaign. From this worktree, with the analysis Python environment and one library thread:
 
 ```bash
-python3 -m trkfastsim.analyses.ratearms compare --g4 "$O/arms_v1/g4.parquet" \
+python3 -m trkfastsim.sim.ratearms compare --g4 "$O/arms_v1/g4.parquet" \
   --arm legacy="$O/arms_v1/legacy" --arm A="$O/arms_v1/A" --arm E="$O/arms_v1/E" \
   --arm M="$O/arms_v1/M" --arm AM="$O/arms_v1/AM" --arm AMT="$O/arms_v1/AMT" \
   --arm W0="$O/arms_v1/W0" --base legacy --out "$O/reports_takeover/linux_validated.json"

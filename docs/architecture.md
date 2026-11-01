@@ -42,13 +42,13 @@ paired draw with NumPy.
 |---|---|---|
 | physics primitives | core `mu2efastsim` (energy loss, materials, scattering, world, crossings, tables) | shared with CRV and beam |
 | straws, geometry, crossings | `trkfastsim` geometry and crossings modules | straws from the GDML (StrawSD ids, radii, wire) |
-| step generator | `trkfastsim` steps (+ JAX twins), secondary library | stage A (straight) and stage C (default) |
-| digitisation | `trkfastsim` digi and digi-conditions modules | conditions from the stock job's sources |
+| step generator | `trkfastsim/sim/` steps (+ JAX twins), secondary library | stage A (straight) and stage C (default) |
+| digitisation | `trkfastsim/digi/` (digitize, digicond, digitable, JAX twins) | conditions from the stock job's sources |
 | reconstruction | `trkfastsim/reco/` | hit reco, combos, line finding, F1/F2, EventNtuple writer |
-| comparisons | `trkfastsim/analyses/` (one module per CLI subcommand) | T-V0/T-V1/T-V2/T-V3, digi and reco checks |
+| comparisons | `trkfastsim/validation/` (one module per CLI subcommand, plus the report libraries behind `scripts/`) | T-V0/T-V1/T-V2/T-V3, digi and reco checks |
 | art modules | `art/TrkFastSim/` | dumpers and table-to-art injectors (built in a muse satellite area) |
 | Geant4 references | `grid/`, `art/*.sh` | gen-only and T-V2 grid jobs, reference dumps |
-| endpoints | the `tracker_point` kit task and its Slurm/EAF runners | one shard per job |
+| endpoints | `trkfastsim/kit/`: the `tracker_point` kit task and its Slurm/EAF runners | one shard per job |
 
 ## Validation design
 

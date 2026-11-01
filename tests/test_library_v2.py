@@ -6,7 +6,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from trkfastsim import geometry as G, library as L, steps as S        # noqa: E402
+from trkfastsim import geometry as G
+from trkfastsim.sim import library as L, steps as S        # noqa: E402
 
 R = 2.5085
 

@@ -10,7 +10,7 @@ import sys
 import pandas as pd
 
 from trkfastsim import tables
-from trkfastsim.analyses import jaxcheck
+from trkfastsim.validation import jaxcheck
 
 
 def main(out, dirs):

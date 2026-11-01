@@ -8,7 +8,7 @@ PY=${PY:?Python with JAX and uproot}
 HERE=$(cd "$(dirname "$0")/.." && pwd)
 export PYTHONPATH="$HERE:$CORE" PYTHONDONTWRITEBYTECODE=1
 export JAX_PLATFORMS=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
-exec "$PY" -u -m trkfastsim.kitpoint --backend jax \
+exec "$PY" -u -m trkfastsim.kit.kitpoint --backend jax \
   --gen "$DATA/crv_fastsim/g4ref_v1_tables/gen.001400_00000011.root" \
   --gdml "$DATA/crv_fastsim/geometry/mu2e_extracted_v04.gdml" \
   --digi-cond "$DATA/trkfs_digi_20261026/v2/digicond.npz" \

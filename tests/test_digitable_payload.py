@@ -1,6 +1,4 @@
 """Complete persistent-payload audits fail on any byte or missing product."""
-import importlib.util
-from pathlib import Path
 
 import awkward as ak
 import numpy as np
@@ -9,9 +7,7 @@ import uproot
 
 from test_digitable_report import fixture
 
-SPEC = importlib.util.spec_from_file_location("digitable_report", Path(__file__).parents[1] / "scripts/digitable_report.py")
-mod = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(mod)
+from trkfastsim.validation import digitable_report as mod
 
 
 def payload(path, *, change=False, missing=False, active=True, empty_active=False):

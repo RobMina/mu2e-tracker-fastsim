@@ -1,6 +1,7 @@
 import numpy as np
 
-from trkfastsim import geometry, steps as st
+from trkfastsim import geometry
+from trkfastsim.sim import steps as st
 
 
 class _Col:
@@ -42,5 +43,5 @@ def test_envelope_exit_from_axis_downwards():
     o = geometry.to_mu2e(np.array([[0.0, 0.0, 0.0], [0.0, 900.0, 0.0]]))
     d = np.array([[0.0, -1.0, 0.0], [0.0, -1.0, 0.0]])
     t = st._envelope_exit(o, d)
-    from trkfastsim import surfaces as S
+    from trkfastsim.sim import surfaces as S
     assert np.isclose(t[0], S.R_OUT) and t[1] == 0.0

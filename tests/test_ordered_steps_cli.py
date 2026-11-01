@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from trkfastsim.analyses import steps as P
+from trkfastsim.sim import run as P
 
 
 @pytest.mark.parametrize("evaluation", ["entry", "midpoint"])

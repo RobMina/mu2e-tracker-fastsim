@@ -1,9 +1,9 @@
 # Fast tracker digitisation
 
-`trkfastsim/digi.py` is a vectorised numpy port of Offline `StrawDigisFromStrawGasSteps` (TrackerMC, Offline
+`trkfastsim/digi/digitize.py` is a vectorised numpy port of Offline `StrawDigisFromStrawGasSteps` (TrackerMC, Offline
 v13_39_00, the release behind SimJob MDC2025ay) for the extracted (KPP) configuration. It turns StrawGasStep tables
 into StrawDigi tables in the `StrawHitTableDumper` layout, so the fast hit reco (`trkfastsim.reco.hitreco`, `combo`)
-and the fast line finding and fit run on them unchanged. `trkfastsim/digicond.py` builds its conditions from the
+and the fast line finding and fit run on them unchanged. `trkfastsim/digi/digicond.py` builds its conditions from the
 sources the stock job reads.
 
 ## Conditions: same sources as the stock job
@@ -116,7 +116,7 @@ in the project environment, then select explicitly:
 
 ```bash
 python3 -m trkfastsim digi STEPS.root --cond digicond.npz --events STOCK.root --backend jax --seed 1 --outdir NEW_DIR
-python3 -m trkfastsim.kitpoint --backend jax --gen GEN.root --gdml GEOMETRY.gdml \
+python3 -m trkfastsim.kit.kitpoint --backend jax --gen GEN.root --gdml GEOMETRY.gdml \
   --digi-cond digicond.npz --reco-cond cond_mc.json --drift-source STOCK.root --outdir NEW_POINT
 ```
 

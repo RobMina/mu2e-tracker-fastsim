@@ -8,7 +8,7 @@ CORE=${M2FS_CORE:?set the fastsim core checkout}
 PY=${PY_JAX:?set a Python interpreter with JAX, uproot, pandas and scipy}
 export PYTHONPATH="$CORE:$HERE" PYTHONDONTWRITEBYTECODE=1
 export JAX_PLATFORMS=cpu OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
-exec taskset -c "${CORE_ID:-1}" "$PY" -m trkfastsim.kitpoint \
+exec taskset -c "${CORE_ID:-1}" "$PY" -m trkfastsim.kit.kitpoint \
   --gen "$DATA/crv_fastsim/g4ref_v1_tables/gen.001400_00000011.root" \
   --gdml "$DATA/crv_fastsim/geometry/mu2e_extracted_v04.gdml" \
   --digi-cond "$DATA/trkfs_digi_20261026/v2/digicond.npz" \

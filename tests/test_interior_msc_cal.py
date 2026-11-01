@@ -2,7 +2,7 @@
 import numpy as np
 
 from mu2efastsim import materials
-from trkfastsim import steps as st
+from trkfastsim.sim import steps as st
 
 CAL = {"points": [(10.0, (0.8, 0.0, 0.0)), (24.0, (0.9, 0.02, 0.0))], "clip": [0.5, 1.2]}
 

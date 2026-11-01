@@ -7,7 +7,8 @@ import pytest
 
 from mu2efastsim import eloss, materials, transport
 from mu2efastsim.world import CoaxialShells
-from trkfastsim import crossings, geometry, orderedhandoff as H, orderedinterior as O, steps
+from trkfastsim import crossings, geometry
+from trkfastsim.sim import orderedhandoff as H, orderedinterior as O, steps
 
 
 def geom():

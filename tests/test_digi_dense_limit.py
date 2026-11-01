@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 
 jax = pytest.importorskip("jax")
-from trkfastsim import digi as DG, digi_jax as DJ
-from trkfastsim.digicond import Conditions
+from trkfastsim.digi import digitize as DG, digi_jax as DJ
+from trkfastsim.digi.digicond import Conditions
 from test_digi import cond
 
 

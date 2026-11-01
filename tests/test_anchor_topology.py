@@ -2,8 +2,8 @@
 import numpy as np
 import pandas as pd
 import pytest
-from trkfastsim import library as L, steps as S
-from trkfastsim.placement import TOPOLOGY, topology_anchor, validate
+from trkfastsim.sim import library as L, steps as S
+from trkfastsim.sim.placement import TOPOLOGY, topology_anchor, validate
 from test_library_v2 import _geom, _row, _chord, _build
 
 KEYS = ['run', 'subrun', 'event', 'sp']

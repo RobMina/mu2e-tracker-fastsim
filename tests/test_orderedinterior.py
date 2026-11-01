@@ -7,8 +7,9 @@ import pytest
 
 from mu2efastsim import eloss, materials
 from mu2efastsim.world import CoaxialShells
-from trkfastsim import geometry, ledger, orderedinterior, steps, surfaces
-from trkfastsim.flighttime import linear_kinetic_dt_ns
+from trkfastsim import geometry
+from trkfastsim.sim import ledger, orderedinterior, steps, surfaces
+from trkfastsim.sim.flighttime import linear_kinetic_dt_ns
 
 
 def geometry_at(ys):

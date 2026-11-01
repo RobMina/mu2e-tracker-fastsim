@@ -4,7 +4,7 @@ import copy
 import numpy as np
 import pytest
 
-from scripts.rate_residual_summary import summarize
+from trkfastsim.validation.rate_residual_summary import summarize
 
 
 def test_paired_counts_and_fates_must_agree():

@@ -8,8 +8,8 @@ import pytest
 import uproot
 
 from mu2efastsim import tables
-from trkfastsim import kitpoint
-from trkfastsim.analyses import fastdigi
+from trkfastsim.kit import kitpoint
+from trkfastsim.digi import fastdigi
 from trkfastsim.reco import hitreco, ntuple, tracktable
 from test_digi import cond, _step
 from test_reco_jax import _cond

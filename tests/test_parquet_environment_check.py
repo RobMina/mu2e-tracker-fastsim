@@ -1,14 +1,10 @@
 """Shared Parquet checks exercise real serialization and reject the wrong engine root."""
-import importlib.util
 from pathlib import Path
 
 import pytest
 
 
-SPEC = importlib.util.spec_from_file_location(
-    "parquet_environment_check", Path(__file__).parents[1] / "scripts" / "parquet_environment_check.py")
-checker = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(checker)
+from trkfastsim.validation import parquet_environment_check as checker
 
 
 def test_real_nullable_and_empty_roundtrips():

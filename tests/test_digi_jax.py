@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 
 jax = pytest.importorskip("jax")
-from trkfastsim import digi as DG
-from trkfastsim import digi_jax as DJ
+from trkfastsim.digi import digitize as DG
+from trkfastsim.digi import digi_jax as DJ
 from test_digi import cond, _step, _steps
 
 
@@ -55,7 +55,7 @@ def test_bad_population_and_key(cond):
 
 @pytest.mark.parametrize("charge", [.2, 5.])
 def test_identical_clusters_electronics_vs_numpy(cond, charge):
-    from trkfastsim.digicond import Conditions
+    from trkfastsim.digi.digicond import Conditions
     import jax.numpy as jnp
     c = Conditions(cond.s, cond.a)
     for name in ("strawNoise", "thresholdAnalogNoise", "TDCResolution", "adcAnalogNoise"):

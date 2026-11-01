@@ -1,17 +1,13 @@
 """Exact-manifest and fail-closed library annotation regression tests."""
-import importlib.util
 from pathlib import Path
 
 import pandas as pd
 import pytest
 from test_anchor_topology import _source
 from test_library_v2 import _build
-from trkfastsim import library as L
+from trkfastsim.sim import library as L
 
-_spec = importlib.util.spec_from_file_location('secondary_library_topology',
-    Path(__file__).resolve().parents[1] / 'scripts/secondary_library_topology.py')
-M = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(M)
+from trkfastsim.validation import secondary_library_topology as M
 
 
 @pytest.mark.parametrize('metadata', [{'inputs': '../bad.root', 'nfiles': 1},

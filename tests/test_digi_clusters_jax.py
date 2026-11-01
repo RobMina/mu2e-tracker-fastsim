@@ -12,7 +12,7 @@ jax = pytest.importorskip("jax")
 import jax.numpy as jnp  # noqa: E402
 
 from test_digi import DG, _step, _steps, cond  # noqa: E402,F401
-from trkfastsim import digi_clusters_jax as DJ  # noqa: E402
+from trkfastsim.digi import digi_clusters_jax as DJ  # noqa: E402
 
 
 def _table(c, n, **kwargs):
@@ -44,7 +44,7 @@ def no_jax(name, *args, **kwargs):
         raise ImportError('deliberately absent')
     return original(name, *args, **kwargs)
 builtins.__import__ = no_jax
-from trkfastsim import digi_clusters_jax as dj
+from trkfastsim.digi import digi_clusters_jax as dj
 assert dj.jax is None
 try:
     dj.make_clusters(None, None, {}, [])

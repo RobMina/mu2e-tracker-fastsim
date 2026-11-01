@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from mu2efastsim.endpoints.kit import FastsimKit, TASKS
-from trkfastsim import kit_task, kit_uva
+from trkfastsim.kit import kit_task, kit_uva
 
 
 @pytest.fixture
@@ -96,7 +96,7 @@ def test_mounted_script_executes_metadata_only_and_cleans_scratch(tmp_path, fail
     runner = tmp_path / "runner.py"
     runner.write_text('''import json, pathlib, sys
 args = sys.argv[1:]
-assert args[:3] == ["python", "-m", "trkfastsim.kitpoint"]
+assert args[:3] == ["python", "-m", "trkfastsim.kit.kitpoint"]
 assert "--retain-ntuple" not in args
 out = pathlib.Path(args[args.index("--outdir") + 1])
 work = pathlib.Path(args[args.index("--workdir") + 1])

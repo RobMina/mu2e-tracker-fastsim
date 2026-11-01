@@ -6,7 +6,8 @@ import pandas as pd
 import pytest
 
 from mu2efastsim import eloss, materials
-from trkfastsim import geometry, orderedinterior as O, steps
+from trkfastsim import geometry
+from trkfastsim.sim import orderedinterior as O, steps
 
 
 class Uniform:

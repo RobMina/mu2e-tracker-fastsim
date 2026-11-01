@@ -12,7 +12,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from trkfastsim import geometry, steps as st, steps_jax as sj, tables, world_jax as wj
+from trkfastsim import geometry, tables
+from trkfastsim.sim import steps as st, steps_jax as sj, world_jax as wj
 
 
 def summarize(a, b):

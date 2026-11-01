@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from mu2efastsim import eloss, materials
-from trkfastsim import entryledger, steps
+from trkfastsim.sim import entryledger, steps
 from test_step_energy_ledger import generated, empty_interior, plane_state, _geometry, _momentum, P_START
 
 

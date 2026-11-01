@@ -1,5 +1,0 @@
-# Diagnostic: dump_tracks_mc_saveall_print.fcl with a loose momentum constraint (1 MeV/c instead of 1e-4), to test
-# whether the stock ParamsDiverged failures come from the momentum parameter (energy loss vs the tight constraint).
-#include "TrkFastSim/fcl/dump_tracks_mc_saveall_print.fcl"
-physics.producers.KKLine.ModuleSettings.ParameterConstraints : [0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
-services.TFileService.fileName : "tracks_ref_mc_saveall_print_momc.root"

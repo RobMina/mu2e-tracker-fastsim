@@ -1,5 +1,7 @@
 # Ordered stored-material path candidate
 
+The `--navigation ordered-*` options are on main. The geometry probes, native/guarded producers and `ordered_*` audit scripts referred to below are on branch `park/ordered-navigation`.
+
 ## Scope and explicit API
 
 `trkfastsim.orderedpath.transport(..., mode="ordered-stored-straw-mean-v1")` is a separately named, opt-in,

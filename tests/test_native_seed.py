@@ -2,10 +2,11 @@
 import json
 
 import awkward as ak
-import jax
-import jax.numpy as jnp
 import numpy as np
 import pytest
+
+jax = pytest.importorskip("jax")
+import jax.numpy as jnp  # noqa: E402
 import uproot
 
 from trkfastsim.reco import kalman_jax as K, nativeseed as N, nativetime as T

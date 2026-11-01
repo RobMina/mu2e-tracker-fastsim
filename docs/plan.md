@@ -1,5 +1,8 @@
 # Tracker fastsim and fastreco: technical plan
 
+> **Historical.** The original technical plan of the tracker stage. Current status: [validation.md](validation.md),
+> [limitations.md](limitations.md), [architecture.md](architecture.md).
+
 Technical scope only; physics results live outside this repository.
 
 ## Fast simulation

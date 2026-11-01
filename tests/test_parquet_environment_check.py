@@ -8,6 +8,7 @@ from trkfastsim.validation import parquet_environment_check as checker
 
 
 def test_real_nullable_and_empty_roundtrips():
+    pytest.importorskip("jax")    # the check records the JAX version of the environment
     result = checker.check(Path(checker.pyarrow.__file__).resolve().parent)
     assert result["roundtrip_nullable"] and result["roundtrip_empty"]
     assert result["packages"]["pyarrow"] == checker.pyarrow.__version__

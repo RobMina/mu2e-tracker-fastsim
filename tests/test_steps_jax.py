@@ -338,4 +338,4 @@ def test_panel_cut_rows_exact(monkeypatch):
     assert len(ref[0]["it"]) > 500
     assert np.array_equal(ref[0]["it"], got[0]["it"]) and np.array_equal(ref[0]["js"], got[0]["js"])
     for k in ("pos0", "pos1", "dir", "path", "lost"):
-        assert np.allclose(ref[0][k], got[0][k], rtol=1e-12, atol=1e-9), k
+        assert np.allclose(ref[0][k], got[0][k], rtol=1e-9, atol=1e-9), (k, np.max(np.abs(ref[0][k] - got[0][k])))

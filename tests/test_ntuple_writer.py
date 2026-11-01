@@ -214,9 +214,13 @@ def test_reader_access_forms(tmp_path):
         assert str(a.type) == str(trk[f"trk.{leaf}"].type), leaf
         assert ak.array_equal(a, trk[f"trk.{leaf}"]), leaf
     assert ak.to_list(ak.num(t["trk/trk.nactive"].array(), axis=1)) == [2, 0, 0]
-    # documented uproot 5.7 RNTuple limit: tree.arrays([...]) returns empty records (pyutils Importer)
-    assert "trk.nactive" not in t.arrays(["trk"])["trk"].fields
-    assert t.arrays(["evtinfo"])["evtinfo"].fields == []
+    # uproot <= 5.7.4 RNTuple: tree.arrays([...]) returns empty records (pyutils Importer); later versions fill them
+    sub = t.arrays(["trk", "evtinfo"])
+    if sub["trk"].fields:
+        assert ak.array_equal(sub["trk"]["trk.nactive"], trk["trk.nactive"])
+        assert ak.to_list(sub["evtinfo"]["run"]) == [1400] * 3
+    else:
+        assert sub["evtinfo"].fields == []
     bare = tmp_path / "bare.root"
     ntuple.write(_table([SLANT]), str(bare), split_alias=False)
     with pytest.raises(uproot.KeyInFileError):

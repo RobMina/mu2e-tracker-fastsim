@@ -1,8 +1,9 @@
 """Actual-operand trace passivity, stopped-stage masking and allocation guards."""
-import jax
-import jax.numpy as jnp
 import numpy as np
 import pytest
+
+jax = pytest.importorskip("jax")
+import jax.numpy as jnp  # noqa: E402
 
 from trkfastsim.reco import fittrace, kalman_jax as K
 

@@ -2,10 +2,19 @@
 
 ## Open discrepancies
 
-- **Any-primary-muon rate** (the PrimaryFilter tracker term) is -0.89 +- 0.32 % against Geant4 on 11 M events (2.8
-  sigma); the cause (support-structure loss, gas scattering, exit scatter, library placement) is not found.
+- **Any-primary-muon rate** (the PrimaryFilter tracker term), default: -0.82 +- 0.26 % against Geant4 (11 M events,
+  mean of three generator seeds). Cause: the default interior transport scatters a muon in the support only in front
+  of a straw it is about to cross and drops a line that crosses no further straw, so support scattering moves muons
+  off the straws but never onto them. In a subset where Geant4 keeps every event (generated line at least 300 mm
+  inside the CRV, 306,349 muons) 2.5 % fewer fast muons reach any straw, -9 % for directions nearly perpendicular to
+  the tracker axis (|u_z| < 0.05, where the 10 mm straw bands of a plane make reach depend on the tilt), from 0.5 to
+  5 GeV/c and not above. The opt-in `--scatter-in` (`make_steps(scatter_in=True)`) kinks such lines through the
+  support ahead and searches their straws again: rate +0.14 +- 0.26 %, reach -0.1 +- 0.4 %. It costs about 35 % more
+  wall time per 50,000-event file. The rate gain it brings differs between seeds by more than the paired error
+  (+1.34, +0.50, +1.05 %, each +- 0.14 %); not understood. Below 750 MeV/c at the first straw -2.3 +- 1.1 % remains.
 - **T-V3**: the reco yield on fast steps through stock reco is -2.04 +- 0.37 % (mostly selection-only) and digis
-  -1.09 +- 0.33 % against the full Geant4 chain; threshold 1 %.
+  -1.09 +- 0.33 % against the full Geant4 chain (default steps; reproduced on the saved products 2026-11-01);
+  threshold 1 %. Not rerun with `--scatter-in`: that needs new fast steps through stock digitisation and reco.
 - **Secondary eIon per straw** (T-V1b): binned ratio 12.4 % against a 5 % threshold.
 
 ## Frozen

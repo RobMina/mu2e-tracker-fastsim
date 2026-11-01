@@ -15,7 +15,7 @@ repository holds code only: no Mu2e-internal conditions, tables, data or results
 | Part | Default | State |
 |---|---|---|
 | geometry | straws from the v04 GDML | T-V0 pass |
-| primary-muon steps | stage C (world + tracker interior + single-scattering tail) | T-V1 pass; any-primary-muon rate -0.89 +- 0.32 % (open) |
+| primary-muon steps | stage C (world + tracker interior + single-scattering tail) | T-V1 pass; any-primary-muon rate -0.82 +- 0.26 % (open), +0.14 +- 0.26 % with the opt-in `--scatter-in` |
 | secondary steps | opt-in Geant4 library (`--library`) | eIon per straw 12.4 % vs 5 % (open) |
 | digitisation | NumPy port of `StrawDigisFromStrawGasSteps`; JAX opt-in | agrees with stock within the reseed floor |
 | hits, combos, clusters, seeds | NumPy, JAX twins | identical to stock on the same digis (T-VR1, T-VR1b) |

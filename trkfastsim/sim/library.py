@@ -269,6 +269,13 @@ def draw_concentration(ev_index, count):
     return {"distinct_with_steps": int(len(u)), "top10_step_share": float(np.sort(steps)[::-1][:10].sum() / steps.sum())}
 
 
+def drop_muon_rows(st):
+    """Drawn library rows without muon steps. The builder anchors on the MC-primary muon and keeps every other step of
+    the donor event, so other primary muons of multi-muon events enter as secondaries, while the fast transport already
+    carries every primary muon. The draws themselves are unchanged."""
+    return st[np.abs(st.pdg.to_numpy()) != 13].reset_index(drop=True)
+
+
 class OffAxisSampler:
     """Draw whole G4 events' off-axis secondary sets for fast muons.
 
@@ -284,7 +291,8 @@ class OffAxisSampler:
 
     COS_BINS = np.array([0.0, 0.5, 0.7, 0.85, 0.95, 1.01])
 
-    def __init__(self, lib, rng, plane_bin_width=PLANE_BIN, edge_anchor=False, topology_anchor=False):
+    def __init__(self, lib, rng, plane_bin_width=PLANE_BIN, edge_anchor=False, topology_anchor=False, drop_muons=False):
+        self.drop_muons = bool(drop_muons)     # opt-in: leave out drawn muon steps (other primary muons of the donor)
         if edge_anchor and topology_anchor:
             raise ValueError("edge and topology anchors are mutually exclusive")
         if topology_anchor:
@@ -361,15 +369,16 @@ class OffAxisSampler:
         st = self.off.iloc[src].reset_index(drop=True)
         st["i"] = i
         self.last_concentration = draw_concentration(ev, self.count)
-        return ev, st
+        return ev, drop_muon_rows(st) if self.drop_muons else st
 
 
 class InStrawSampler:
     """Draw secondary in-straw content for fast muon straw crossings from the library, by (|p| bin, path bin)."""
 
-    def __init__(self, lib, rng):
+    def __init__(self, lib, rng, drop_muons=False):
         ins = lib["instraw"]
         self.rng = rng
+        self.drop_muons = bool(drop_muons)     # opt-in, as OffAxisSampler
         key = ins.pbin.to_numpy() * len(LEN_BINS) + ins.lbin.to_numpy()
         order = np.argsort(key, kind="stable")
         self.key_sorted = key[order]
@@ -408,4 +417,4 @@ class InStrawSampler:
         src = np.repeat(self.first[xing], n) + (np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n))
         st = self.steps.iloc[src].reset_index(drop=True)
         st["i"] = i
-        return xing, st
+        return xing, drop_muon_rows(st) if self.drop_muons else st

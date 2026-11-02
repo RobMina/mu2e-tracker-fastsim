@@ -70,6 +70,9 @@ def build_parser():
             sp.add_argument("--offaxis-topology-anchor", action="store_true", help="opt-in donor topology anchor; requires buildlib --topology")
             sp.add_argument("--offaxis-edge-anchor", action="store_true",
                             help="off-axis paste: steps outside the library muon's planes anchor on the fast muon's first/last plane (opt-in)")
+            sp.add_argument("--library-drop-muons", action="store_true",
+                            help="with --library: leave out drawn muon steps (other primary muons of the donor event, which the "
+                                 "fast transport already carries; opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
             sp.add_argument("--first-muon-only", action="store_true",

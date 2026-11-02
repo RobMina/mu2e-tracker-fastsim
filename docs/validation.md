@@ -40,6 +40,7 @@ Samples: `g4ref_v1` = the Geant4 reference of the extracted (KPP) configuration 
 | T-V2 occupancy on fast steps | full Geant4 chain, G4 even/odd floors | `g4ref_v2`, 10 M generated, paired | panel occupancy (event-clustered covariance) | within floors | floor | pass | 2026-10-27 | `da8df42` |
 | T-V3 reco yield on fast steps | full Geant4 chain | same, paired | track yield; digis | -2.04 +- 0.37 % (mostly selection-only); -1.09 +- 0.33 % | 1 % | **fail** | 2026-10-27 | `6d67cf5` |
 | T-V3, saved products rescored | as above | same | track yield; digis | -2.04 +- 0.37 %; -1.09 +- 0.33 % (reproduced; default steps, without `--scatter-in`) | 1 % | **fail** | 2026-11-01 | `ff2204b` |
+| T-V3, current steps, same 20 groups through the same stock digitisation and reco (UVA) | as above | same, paired | track yield; digis | default: -1.42 +- 0.37 %; -0.85 +- 0.33 %. `--scatter-in`: -0.85 +- 0.37 %; -0.85 +- 0.33 %. `--scatter-in` vs default (paired): yield +0.58 +- 0.21 %, digis +0.01 +- 0.29 % | 1 % | default **fail**; `--scatter-in` pass on central values (opt-in) | 2026-11-02 | `c36bc3f` |
 
 ## Performance
 

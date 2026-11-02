@@ -12,9 +12,11 @@
   support ahead and searches their straws again: rate +0.14 +- 0.26 %, reach -0.1 +- 0.4 %. It costs about 35 % more
   wall time per 50,000-event file. The rate gain it brings differs between seeds by more than the paired error
   (+1.34, +0.50, +1.05 %, each +- 0.14 %); not understood. Below 750 MeV/c at the first straw -2.3 +- 1.1 % remains.
-- **T-V3**: the reco yield on fast steps through stock reco is -2.04 +- 0.37 % (mostly selection-only) and digis
-  -1.09 +- 0.33 % against the full Geant4 chain (default steps; reproduced on the saved products 2026-11-01);
-  threshold 1 %. Not rerun with `--scatter-in`: that needs new fast steps through stock digitisation and reco.
+- **T-V3**: with the current default steps the reco yield on fast steps through stock reco is -1.42 +- 0.37 % and
+  digis -0.85 +- 0.33 % against the full Geant4 chain (threshold 1 %; the older saved products gave -2.04 +- 0.37 %
+  and -1.09 +- 0.33 %). With `--scatter-in`, on the same 20 groups and the same stock digitisation and reco: yield
+  -0.85 +- 0.37 %, digis -0.85 +- 0.33 %; against the default arm the yield moves by +0.58 +- 0.21 % (selected rate
+  +0.83 +- 0.15 %) and the TT_Outer angle width by +4.4 +- 1.1 % (against Geant4 +2.1 +- 1.8 %).
 - **Secondary eIon per straw** (T-V1b): binned ratio 12.4 % against a 5 % threshold.
 
 ## Frozen

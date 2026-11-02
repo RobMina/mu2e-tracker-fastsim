@@ -114,3 +114,14 @@ def test_batched_shard_ids():
     assert SH._sidx(full, ids).tolist() == [7, 0, 13]
     with pytest.raises(ValueError):
         SH._sidx(full, np.array([135]))
+
+
+def test_bin_table(tmp_path):
+    a = np.full((10, 3), 100)
+    b = a.copy()
+    b[:, 1] += np.arange(10) % 3          # +10 in bin 1 with a spread
+    sh = SS.Shards(_write(tmp_path, {"r": {"k": a}, "c": {"k": b}}, nshard=10))
+    t = SS.bin_table(sh, "r", "c", "k")
+    assert t["ratio"][1] == pytest.approx(1.009)
+    assert t["ratio"][0] == 1.0 and t["pull"][1] > 0
+    assert "k" in SS.bin_text(t, "k")

@@ -21,7 +21,7 @@ Method, one rule for every histogram:
 - Unpaired split null (`split_null`): half of one arm's shards against the other half, per-arm batch variances; the
   fixed first-vs-second and even-vs-odd splits are the tests, random halves give the reference.
 
-Output: <outdir>/shardstats.json and a text table.
+Output: <outdir>/shardstats.json and a text table; --detail KEY adds the per-bin ratios with paired errors.
 """
 import json
 import os
@@ -271,6 +271,36 @@ def split_null(sh, arm, keys=None, nsplit=4000, seed=7, alpha=0.01):
     return {"hists": out, "meta": meta}
 
 
+def bin_table(sh, ref, cand, key, shards=None, shape=False):
+    """Per bin (flows included): edges, n_ref, n_cand, cand/ref with its paired error, pull D/sigma."""
+    s = common_shards(sh, ref, cand) if shards is None else shards
+    scale = 1.0
+    if shape:
+        scale = sh.h(ref, "sel/events", s).sum() / max(sh.h(cand, "sel/events", s).sum(), 1.0)
+    r, c = sh.h(ref, key, s), sh.h(cand, key, s) * scale
+    x = c - r
+    D, v = x.sum(0), batch_var(x)
+    nr = r.sum(0)
+    e = sh.edges(key)
+    lo = np.concatenate([[-np.inf], e]) if e is not None else np.full(len(D), np.nan)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return {"lo": lo.tolist(), "n_ref": nr.tolist(), "n_cand": c.sum(0).tolist(), "ratio": ((nr + D) / nr).tolist(),
+                "ratio_err": (np.sqrt(v) / nr).tolist(), "pull": (D / np.sqrt(v)).tolist()}
+
+
+def bin_text(b, key, minpull=0.0):
+    rows = [f"## {key}: bin lower edge, n_ref, n_cand, ratio +- paired error, pull"]
+    for i in range(len(b["n_ref"])):
+        if b["n_ref"][i] == 0 and b["n_cand"][i] == 0:
+            continue
+        p = b["pull"][i]
+        if np.isfinite(p) and abs(p) < minpull:
+            continue
+        rows.append(f"{b['lo'][i]:12.4g} {b['n_ref'][i]:12.0f} {b['n_cand'][i]:12.1f} {b['ratio'][i]:8.4f} +- "
+                    f"{b['ratio_err'][i]:.4f} {p:+7.2f}")
+    return "\n".join(rows)
+
+
 def pull_summary(t):
     if not len(t):
         return {}
@@ -297,7 +327,8 @@ def table(per, meta):
     return "\n".join(rows)
 
 
-def run(inputs, outdir, pairs=None, splits=None, shape=False, nflip=20000, alpha=0.01, keys=None, **kw):
+def run(inputs, outdir, pairs=None, splits=None, shape=False, nflip=20000, alpha=0.01, keys=None, detail=None,
+        detail_min_pull=0.0, **kw):
     """pairs: 'ref:cand' strings; splits: arm names for the unpaired split null."""
     os.makedirs(outdir, exist_ok=True)
     sh = Shards(inputs)
@@ -316,6 +347,11 @@ def run(inputs, outdir, pairs=None, splits=None, shape=False, nflip=20000, alpha
             meta["pulls"] = pull_summary(pulls(sh, ref, cand, ks))
             res["comparisons"][f"{cand}_vs_{ref}{'_shape' if mode else ''}"] = {"meta": meta, "hists": per}
             text.append(table(per, meta))
+            for key in detail or []:
+                if sh.has(ref, key) and sh.has(cand, key):
+                    b = bin_table(sh, ref, cand, key, shape=mode)
+                    res["comparisons"][f"{cand}_vs_{ref}{'_shape' if mode else ''}"].setdefault("bins", {})[key] = b
+                    text.append(bin_text(b, f"{cand} vs {ref}{' shape' if mode else ''} {key}", detail_min_pull))
     for arm in splits or []:
         ks = sel(sh.keys(arm)) if sel else None
         res["splits"][arm] = split_null(sh, arm, ks, alpha=alpha)

@@ -226,6 +226,8 @@ def build_parser():
             sp.add_argument("--keys", nargs="+", default=None, metavar="GLOB", help="histogram keys to use (fnmatch globs)")
             sp.add_argument("--nflip", type=int, default=20000)
             sp.add_argument("--alpha", type=float, default=0.01, help="family-wise rate per comparison")
+            sp.add_argument("--detail", nargs="+", default=None, metavar="KEY", help="per-bin ratio and pull of these keys")
+            sp.add_argument("--detail-min-pull", type=float, default=0.0, help="print only bins with |pull| >= this")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")
             sp.add_argument("--merge", action="store_true", help="inputs are --emit JSONs: sum and report")

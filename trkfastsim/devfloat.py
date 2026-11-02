@@ -1,11 +1,14 @@
-"""Floating-point precision of the tracker step and digitisation JAX kernels: TRKFASTSIM_DEVICE_FLOAT=float64
-(default) or float32 (opt-in).
+"""Floating-point precision of the tracker step and digitisation JAX kernels.
 
-The tracker does not follow the core device default (mu2efastsim.precision, MU2EFS_DEVICE_FLOAT) until its float32
-validation is accepted: unset or float64 leaves every tracker kernel as before (jax.jit, float64). float32 runs the
-step kernels (world column and loss, interior transport, exit scatter, gas eIon) and the JAX digitiser (clusters,
-charge, electronics) in float32 through the core mechanism (dprec.jit, so it needs MU2EFS_DEVICE_FLOAT=float32, the
-core default), with float32 cancellations removed by precision-aware forms that apply in float32 mode only:
+The device float comes from core (mu2efastsim.precision, MU2EFS_DEVICE_FLOAT, float32 by default), as for the CRV,
+with one tracker-level override that keeps the tracker at float64 until its float32 validation is accepted:
+
+    TRKFASTSIM_DEVICE_FLOAT=float64 (default)   every tracker kernel as before (jax.jit, float64)
+    TRKFASTSIM_DEVICE_FLOAT=core                follow MU2EFS_DEVICE_FLOAT (float32 unless that says float64)
+
+Following core in float32 mode, the step kernels (world column and loss, interior transport, exit scatter, gas eIon)
+and the JAX digitiser (clusters, charge, electronics) are dprec.jit kernels of modules registered with core
+(dprec.register), with float32 cancellations removed by precision-aware forms that apply in float32 mode only:
 
 - positions: the step kernels work in a frame centred on the straws (frame_of, whole mm), the digitiser in
   coordinates relative to each straw's middle;
@@ -23,18 +26,22 @@ import numpy as np
 
 from mu2efastsim import precision as dprec
 
-DEFAULT = "float64"
-NAME = os.environ.get("TRKFASTSIM_DEVICE_FLOAT", DEFAULT) or DEFAULT
-if NAME not in ("float64", "float32"):
-    raise ValueError(f"TRKFASTSIM_DEVICE_FLOAT must be float64 or float32, not {NAME!r}")
-SINGLE = NAME == "float32"
-if SINGLE and not dprec.SINGLE:
-    raise ValueError("TRKFASTSIM_DEVICE_FLOAT=float32 needs the core device float in float32 mode "
-                     "(MU2EFS_DEVICE_FLOAT=float32, the core default)")
+DEFAULT = "float64"   # the tracker override; "core" makes the tracker follow MU2EFS_DEVICE_FLOAT
+SETTING = os.environ.get("TRKFASTSIM_DEVICE_FLOAT", DEFAULT) or DEFAULT
+if SETTING not in ("float64", "core"):
+    raise ValueError(f"TRKFASTSIM_DEVICE_FLOAT must be float64 or core, not {SETTING!r}")
+SINGLE = SETTING == "core" and dprec.SINGLE
+NAME = "float32" if SINGLE else "float64"
 FLOAT = np.dtype(NAME)
 TINY = dprec.tiny_of(FLOAT)          # divide guard / smallest positive: 1e-300 in float64, as shipped
 DRAW64 = SINGLE and os.environ.get("TRKFASTSIM_DRAW64", "") == "1"
 COMMON_PERIOD = 20.0                 # ns: ADCPeriod; a multiple of TDCLSB and TOTLSB in the supported conditions
+
+
+def register(module_name):
+    """A tracker device module declares itself precision-aware with core (only when following core in float32)."""
+    if SINGLE:
+        dprec.register(module_name)
 
 
 def jit(fun=None, **kw):
@@ -78,5 +85,5 @@ def check_common_period(c):
 
 
 def provenance():
-    """Tracker device float for output metadata."""
-    return {"tracker_device_float": NAME, "tracker_draw64": DRAW64}
+    """Device precision for output metadata: core's (device float, determinism, device models) and the tracker's."""
+    return {**dprec.provenance(), "tracker_device_float": NAME, "tracker_setting": SETTING, "tracker_draw64": DRAW64}

@@ -24,6 +24,7 @@ except ImportError:
 else:
     jax.config.update("jax_enable_x64", True)
     from trkfastsim import devfloat as df
+    df.register(__name__)
 
 __all__ = ["make_clusters", "cluster_gain", "wire_coordinates"]
 BATCH_SIZE = 4096 if jax is not None and jax.default_backend() == "gpu" else 128
@@ -286,7 +287,7 @@ def _wire(pos, smid, sdir, wmid, wdir, radius):
     d = pos - wmid
     dw = jnp.sum(d * wdir, axis=1)
     cp = d - dw[:, None] * wdir
-    pdir = jnp.cross(wdir, jnp.array([0.0, 0.0, 1.0]))
+    pdir = jnp.cross(wdir, jnp.array([0.0, 0.0, 1.0], wdir.dtype))
     pdir *= jnp.where(jnp.sum(pdir * wmid, axis=1) < 0, -1.0, 1.0)[:, None]
     phi = jnp.arctan2(jnp.sum(cp * pdir, axis=1), cp[:, 2])
     return jnp.linalg.norm(cp, axis=1), dw, phi

@@ -15,6 +15,7 @@ from jax import lax, random
 
 from trkfastsim import devfloat as df
 from trkfastsim.digi import digitize as reference
+df.register(__name__)   # follows the core device float when TRKFASTSIM_DEVICE_FLOAT=core
 
 jax.config.update("jax_enable_x64", True)
 
@@ -137,6 +138,8 @@ def _electronics_kernel(c, cap, pair_cap, batch):
     @df.jit
     def run(key, t, q, wd, step, n, straw_us, straw_ra, straw_key, live_straw, jitter, n_ref=None):
         n = n.astype(jnp.int32)
+        if rel and n_ref is None:     # absolute times (direct kernel callers)
+            n_ref = jnp.zeros(batch, jnp.int64)
         tref = n_ref.astype(df.FLOAT) * df.COMMON_PERIOD if rel else 0.0     # [batch], exact multiples
         us = jnp.repeat(straw_us, 2)
         live = jnp.repeat(live_straw, 2)

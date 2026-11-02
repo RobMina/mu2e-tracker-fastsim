@@ -14,6 +14,7 @@ from jax import lax
 from mu2efastsim import eloss, eloss_jax, materials, transport as tr
 from trkfastsim import devfloat as df
 from trkfastsim.sim import steps as st, steps_jax as sj
+df.register(__name__)   # follows the core device float when TRKFASTSIM_DEVICE_FLOAT=core
 
 WORLD_LANES = 16384
 KEY_WORLD = 17

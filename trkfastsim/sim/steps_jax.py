@@ -32,6 +32,7 @@ from mu2efastsim import transport as tr
 
 from trkfastsim import crossings, devfloat as df, geometry
 from trkfastsim.sim import steps as st
+df.register(__name__)   # follows the core device float when TRKFASTSIM_DEVICE_FLOAT=core
 
 jax.config.update("jax_enable_x64", True)
 

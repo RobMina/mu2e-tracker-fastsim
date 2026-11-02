@@ -1,5 +1,5 @@
-"""Tracker device float (trkfastsim.devfloat): float64 default unchanged; float32 opt-in in subprocesses, where the
-centred forms keep straw crossings and digitiser counts at float32 rounding of tracker-local quantities."""
+"""Tracker device float (trkfastsim.devfloat): float64 default unchanged; following the core float32 (opt-in,
+TRKFASTSIM_DEVICE_FLOAT=core) in subprocesses, where the centred forms keep straw crossings and digitiser counts at float32 rounding of tracker-local quantities."""
 import json
 import os
 import subprocess
@@ -15,7 +15,7 @@ from trkfastsim import devfloat  # noqa: E402
 TESTS = Path(__file__).resolve().parent
 
 
-def _run(code, tmp_path, tracker="float32", core="float32", draw64=False):
+def _run(code, tmp_path, tracker="core", core="float32", draw64=False):
     env = dict(os.environ, MU2EFS_DEVICE_FLOAT=core, TRKFASTSIM_DEVICE_FLOAT=tracker, JAX_PLATFORMS="cpu",
                PYTHONPATH=os.pathsep.join([str(TESTS), str(TESTS.parent), os.environ.get("PYTHONPATH", "")]))
     env.pop("TRKFASTSIM_DRAW64", None)
@@ -33,11 +33,19 @@ def test_default_is_float64():
     assert devfloat.dev(x) is x and devfloat.host(x) is not None
 
 
-def test_float32_needs_core_float32(tmp_path):
-    r = _run("import trkfastsim.devfloat", tmp_path, core="float64")
-    assert r.returncode != 0 and "MU2EFS_DEVICE_FLOAT=float32" in r.stderr
-    r = _run("import trkfastsim.devfloat", tmp_path, tracker="float16")
-    assert r.returncode != 0 and "float64 or float32" in r.stderr
+def test_setting_follows_core(tmp_path):
+    probe = ("import json; from trkfastsim import devfloat as d; from mu2efastsim import precision as p; "
+             "print(json.dumps([d.NAME, d.SINGLE, 'trkfastsim.digi.digi_jax' in p._AWARE or None, d.provenance()]))")
+    probe = probe.replace("print(", "import trkfastsim.digi.digi_jax; print(")
+    for tracker, core, name in (("core", "float32", "float32"), ("core", "float64", "float64"),
+                                ("float64", "float32", "float64")):
+        r = _run(probe, tmp_path, tracker=tracker, core=core)
+        assert r.returncode == 0, r.stderr[-2000:]
+        got, single, aware, prov = json.loads(r.stdout.strip().splitlines()[-1])
+        assert got == name and single == (name == "float32") and bool(aware) == single
+        assert prov["tracker_device_float"] == name and prov["device_float"] == core and prov["tracker_setting"] == tracker
+    r = _run("import trkfastsim.devfloat", tmp_path, tracker="float32")
+    assert r.returncode != 0 and "float64 or core" in r.stderr
 
 
 CROSSINGS = """

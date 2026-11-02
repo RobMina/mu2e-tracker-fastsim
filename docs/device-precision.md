@@ -1,9 +1,17 @@
 # Tracker: device precision (float32 opt-in)
 
-The tracker's JAX kernels run in float64 by default. `TRKFASTSIM_DEVICE_FLOAT=float32` (opt-in) runs the step kernels
-and the JAX digitiser in float32. It needs the core device float in float32 mode (`MU2EFS_DEVICE_FLOAT=float32`, the
-core default; `mu2efastsim.precision`), whose precision-aware `jit` it uses. With the variable unset or `float64` every
-tracker output is byte-identical per seed to the code before the option. Code: `trkfastsim/devfloat.py`.
+The device float comes from core, as for the CRV: `MU2EFS_DEVICE_FLOAT` (`mu2efastsim.precision`, float32 by default).
+The tracker adds one override, `TRKFASTSIM_DEVICE_FLOAT`, which keeps it at float64 until its float32 validation is
+accepted:
+
+| `TRKFASTSIM_DEVICE_FLOAT` | Tracker kernels |
+|---|---|
+| unset or `float64` (default) | float64, byte-identical per seed to the code before the setting |
+| `core` (opt-in) | follow `MU2EFS_DEVICE_FLOAT`: float32 by default, float64 if that says float64 |
+
+Following core in float32, the step and digitiser modules register with core's precision module (`dprec.register`) and
+their kernels are `dprec.jit` kernels. Output provenance (`devfloat.provenance()`) records core's device float,
+determinism setting and device model, and the tracker's effective float and setting. Code: `trkfastsim/devfloat.py`.
 
 ## What follows the setting
 

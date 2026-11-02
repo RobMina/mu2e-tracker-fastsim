@@ -94,7 +94,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 |---|---|
 | JAX step generator (`steps --backend jax`) | [device-world.md](docs/device-world.md) |
 | JAX digitiser (`digi --backend jax`) | [fast-digi.md](docs/fast-digi.md#opt-in-jax-backend) |
-| float32 step and digitiser kernels (`TRKFASTSIM_DEVICE_FLOAT=float32`) | [device-precision.md](docs/device-precision.md) |
+| float32 step and digitiser kernels (`TRKFASTSIM_DEVICE_FLOAT=core`: follow the core device float) | [device-precision.md](docs/device-precision.md) |
 | ordered stored-material navigation (`steps --navigation ordered-*`) | [ordered-stored-path.md](docs/ordered-stored-path.md) |
 | leave other primary muons out of the library draws (`steps --library-drop-muons`) | [limitations.md](docs/limitations.md) |
 | detector-only F1 prototype (`reco.autonomous`) | [autonomous-f1.md](docs/autonomous-f1.md), [autonomous-reference-inputs.md](docs/autonomous-reference-inputs.md) |

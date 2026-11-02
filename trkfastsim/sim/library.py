@@ -316,7 +316,8 @@ class OffAxisSampler:
     COS_BINS = np.array([0.0, 0.5, 0.7, 0.85, 0.95, 1.01])
 
     def __init__(self, lib, rng, plane_bin_width=PLANE_BIN, edge_anchor=False, topology_anchor=False, drop_muons=False,
-                 width_match=False, plane_sign=False):
+                 width_match=False, plane_sign=False, shift_from_muon=False):
+        self.shift_from_muon = bool(shift_from_muon)   # opt-in: move steps landing in a fast muon straw, not drop them
         if plane_sign and (edge_anchor or topology_anchor):
             raise ValueError("plane_sign applies to the default anchor only")
         if plane_sign and "uz" not in lib["events"]:

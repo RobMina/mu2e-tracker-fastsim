@@ -1131,6 +1131,7 @@ def _mirror(x, n):
     x = np.asarray(x)
     y = np.where(x < 0, -x, np.where(x >= n, 2 * (n - 1) - x, x))
     return np.where((y >= 0) & (y < n), y, x)
+MUON_SHIFT_MAX = 3      # opt-in shift_from_muon: straws an off-axis step may move to leave a fast muon straw
 OFFAXIS_KEY0 = 100000   # SimParticle keys of pasted off-axis secondaries: 100000 + (G4 particle rank within the set)
 
 
@@ -1214,12 +1215,30 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     ev = anc[KEY]
     mu_st = mu[KEY + ["sid"]].drop_duplicates().assign(_m=1)
     in_mu = ev.assign(sid=geom.sid[js]).merge(mu_st, on=KEY + ["sid"], how="left")._m.notna().to_numpy() & ok
+    shifted = 0
+    if getattr(sampler, "shift_from_muon", False):
+        # a donor's off-axis step never shares a straw with its muon: move a step that lands in a fast muon straw to
+        # the next straw in the direction of its straw offset (at most MUON_SHIFT_MAX straws) instead of dropping it
+        step_dir = np.where(st.dst.to_numpy() < 0, -1, 1)
+        for n in range(1, MUON_SHIFT_MAX + 1):
+            if not in_mu.any():
+                break
+            s2 = straw + n * step_dir
+            okn = in_mu & (s2 >= 0) & (s2 < NSTRAWS_)
+            j2 = np.where(okn, (plane * NPANELS_ + panel) * NSTRAWS_ + np.clip(s2, 0, NSTRAWS_ - 1), 0).astype(np.int64)
+            hit = ev.assign(sid=geom.sid[j2]).merge(mu_st, on=KEY + ["sid"], how="left")._m.notna().to_numpy()
+            free = okn & ~hit
+            js = np.where(free, j2, js)
+            in_mu = in_mu & ~free
+            shifted += int(free.sum())
     keep = ok & ~in_mu
     stats.update({"reflected": int((reflected & ok).sum()), "off_lattice": int((~ok).sum()),
                   "in_muon_straw": int(in_mu.sum()), "placed": int(keep.sum()),
                   "draw_level_counts": np.bincount(np.maximum(sampler.last_level, 0), minlength=4).tolist()
                   if getattr(sampler, "last_level", None) is not None else [],
                   **getattr(sampler, "last_concentration", {})})
+    if getattr(sampler, "shift_from_muon", False):
+        stats["shifted_from_muon_straw"] = shifted
     if not keep.any():
         return steps, parts, stats
     st, i, js, t_anc, anc = st[keep].reset_index(drop=True), i[keep], js[keep], anc.t.to_numpy()[keep], anc[keep]

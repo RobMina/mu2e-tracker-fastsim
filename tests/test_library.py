@@ -237,3 +237,33 @@ def test_own_event_sampler_returns_each_recipients_own_set():
     e, st = s.draw(np.full(3, 3000.0), np.full(3, -0.99))
     assert s.ev.event.to_numpy()[e].tolist() == [3, 1, 2]
     assert st.groupby("i").dst.apply(list).to_dict() == {0: [2, 3], 2: [1]}
+
+
+def test_shift_from_muon_moves_a_colliding_step_to_the_next_free_straw():
+    from trkfastsim import geometry as G
+    from trkfastsim.sim import steps as S
+    n = 36 * 6 * 96
+    up = np.repeat(np.arange(36 * 6), 96)
+    g = G.StrawGeometry(plane=up // 6, panel=up % 6, straw=np.tile(np.arange(96), 216), mid=np.zeros((n, 3)),
+                        dir=np.tile([1.0, 0, 0], (n, 1)), halflen=np.full(n, 500.0), radius=2.5085,
+                        panel_R=np.tile(np.eye(3), (216, 1, 1)), panel_t=np.zeros((216, 3)),
+                        plane_R=np.tile(np.eye(3), (36, 1, 1)), plane_t=np.zeros((36, 3)))
+    def row(s_, t):
+        return {"run": 1400, "subrun": 1, "event": 1, "nsgs": 3, "sid": int(G.straw_id(4, 2, s_)), "plane": 4,
+                "panel": 2, "straw": s_, "upanel": 26, "shape": 0, "ion": 0, "sp": 1, "eion": 1e-3, "len": 4.0,
+                "width": 0.0, "t": t, "x0": 0.0, "y0": 0.0, "z0": 0.0, "x1": 0.0, "y1": 0.0, "z1": 0.0,
+                "px": 0.0, "py": -3000.0, "pz": 0.0}
+    steps = pd.DataFrame([row(50, 10.0), row(51, 10.1), row(52, 10.2)])
+    parts = pd.DataFrame({"run": [1400], "subrun": [1], "event": [1], "key": [1], "parent": [-1], "pdg": [13],
+                          "isprim": [1], "ismcprim": [1]})
+    ev = pd.DataFrame({"run": [1400], "subrun": [1], "event": [7], "p": [3000.0], "ux": [0.0], "uy": [-1.0], "uz": [0.0],
+                       "plane_min": [4], "plane_max": [4], "nstraw_mu": [3]})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": [1400], "subrun": [1], "event": [7], "eion": [2e-3], "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": 11, "sp": [9], "k": [0], "dpl": [0], "dpa": 0, "dst": [1], "dt": [0.5]})
+    lib = {"events": ev, "offaxis": off}
+    out_d, _, st_d = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler(lib, np.random.default_rng(1)), g)
+    out_s, _, st_s = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler(lib, np.random.default_rng(1),
+                                                                              shift_from_muon=True), g)
+    assert st_d["in_muon_straw"] == 1 and (out_d.sp != 1).sum() == 0 and "shifted_from_muon_straw" not in st_d
+    assert st_s["shifted_from_muon_straw"] == 1 and out_s[out_s.sp != 1].straw.tolist() == [53]

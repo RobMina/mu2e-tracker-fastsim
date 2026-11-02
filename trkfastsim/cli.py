@@ -80,6 +80,9 @@ def build_parser():
             sp.add_argument("--offaxis-plane-sign", action="store_true",
                             help="off-axis paste: mirror a drawn set's plane offsets when the library muon and the fast muon "
                                  "travel opposite ways along the planes (sign of u_z; opt-in)")
+            sp.add_argument("--offaxis-shift-from-muon", action="store_true",
+                            help="off-axis paste: a step that lands in a fast muon straw moves up to 3 straws along its straw "
+                                 "offset instead of being dropped (opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
             sp.add_argument("--first-muon-only", action="store_true",

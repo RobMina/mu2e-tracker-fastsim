@@ -300,7 +300,12 @@ class OffAxisSampler:
     COS_BINS = np.array([0.0, 0.5, 0.7, 0.85, 0.95, 1.01])
 
     def __init__(self, lib, rng, plane_bin_width=PLANE_BIN, edge_anchor=False, topology_anchor=False, drop_muons=False,
-                 width_match=False):
+                 width_match=False, plane_sign=False):
+        if plane_sign and (edge_anchor or topology_anchor):
+            raise ValueError("plane_sign applies to the default anchor only")
+        if plane_sign and "uz" not in lib["events"]:
+            raise ValueError("plane_sign needs the library events' direction (uz)")
+        self.plane_sign = bool(plane_sign)     # opt-in: plane offsets follow the muon's direction along the planes
         self.drop_muons = bool(drop_muons)     # opt-in: leave out drawn muon steps (other primary muons of the donor)
         self.width_match = bool(width_match)   # opt-in: plane key = the extent's width bin, not its position
         if edge_anchor and topology_anchor:

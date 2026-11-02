@@ -1198,7 +1198,13 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     acols = ["x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"] if v2 else []
     anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in MK}, "k": k}).merge(
         mu[MK + ["k", "plane", "panel", "straw", "t"] + acols], on=MK + ["k"], how="left")
-    plane0 = anc.plane.to_numpy() + st.dpl.to_numpy()
+    dpl = st.dpl.to_numpy()
+    if getattr(sampler, "plane_sign", False):
+        # donor and recipient travelling opposite ways along the planes: mirror the plane offset, so a step behind
+        # (ahead of) the donor's muon stays behind (ahead of) the recipient's
+        uz_d = sampler.ev.uz.to_numpy()[st.ei.to_numpy()]
+        dpl = np.where(np.sign(uz_d) * np.sign((f.pz.to_numpy() / p)[i]) < 0, -dpl, dpl)
+    plane0 = anc.plane.to_numpy() + dpl
     panel = (anc.panel.to_numpy() + st.dpa.to_numpy()) % NPANELS_
     straw0 = anc.straw.to_numpy() + st.dst.to_numpy()
     plane, straw = _mirror(plane0, NPLANES_), _mirror(straw0, NSTRAWS_)

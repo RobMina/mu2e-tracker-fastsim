@@ -90,6 +90,22 @@ def entry_states_surface(surf, origin, surfs=TRACKER_SURFS):
     return v
 
 
+def _entry_geometry(ent, origin):
+    """Per entry type: quantiles (10, 50, 90 %) of the radius about the tracker axis, z, the radial direction cosine,
+    and for SurfaceStep entries the step length |x1 - x0|."""
+    out = {}
+    for v, g in ent.groupby("vdid"):
+        r = np.hypot(g.x - origin[0], g.y - origin[1])
+        p = np.sqrt(g.px ** 2 + g.py ** 2 + g.pz ** 2)
+        ur = ((g.x - origin[0]) * g.px + (g.y - origin[1]) * g.py) / np.maximum(r * p, 1e-9)
+        q = lambda a: [float(np.quantile(a, k)) for k in (0.1, 0.5, 0.9)]
+        d = {"n": int(len(g)), "r": q(r), "z": q(g.z), "u_r": q(ur)}
+        if "x1" in g and g.x1.notna().any():
+            d["step_mm"] = q(np.sqrt((g.x1 - g.x0) ** 2 + (g.y1 - g.y0) ** 2 + (g.z1 - g.z0) ** 2).dropna())
+        out[int(v)] = d
+    return out
+
+
 def fit_origin_z(sgs, geom, x_det=-3904.0):
     """Detector-frame z origin in the Mu2e frame from the G4 steps: median of straw-mid z minus step-mid z."""
     j = _straw_index(sgs, geom)
@@ -169,6 +185,10 @@ def compare(g4, fast, ent, final, geom):
         {"p_lo": float(lo), "p_hi": float(hi), "tracks": int(k.sum()), "g4": _mean_err(per.ng[k]),
          "fast_minus_g4": _mean_err((per.nf - per.ng)[k]), "match": _mean_err(per.match[k])}
         for lo, hi in zip(P_EDGES[:-1], P_EDGES[1:]) for k in [(per.pent >= lo) & (per.pent < hi)] if k.sum() >= 5]
+    if "vdid" in ent:
+        pv = per.merge(ent[key + ["vdid"]], on=key)
+        hp = pv.pent >= 2000.0
+        out["match_by_entry_above_2GeV"] = {int(v): _mean_err(g.match) for v, g in pv[hp].groupby("vdid")}
     out["len_mm"] = {"g4": _mean_err(g4.len), "fast": _mean_err(fast.len),
                      **_hist_chi2(g4.len, fast.len, np.linspace(0, 12, 49))}
     out["eion_keV"] = {"g4_mean": _mean_err(1e3 * g4.eion), "fast_mean": _mean_err(1e3 * fast.eion),
@@ -206,6 +226,18 @@ def compare(g4, fast, ent, final, geom):
     f1 = fast.sort_values("t").groupby(key).first().reset_index()[key + ["sid", "t"]]
     t1 = g1.merge(f1, on=key + ["sid"], suffixes=("_g", "_f"))
     out["first_straw_dt_ns"] = _mean_err(t1.t_f - t1.t_g)
+    # entry point offset at the first G4 straw (both arms cross it first), per entry type, above 2 GeV/c: the spread of
+    # the scattering between the entry state and the straws (support material), same field in both arms
+    g1x = g4.sort_values("t").groupby(key).first().reset_index()[key + ["sid", "x0", "y0", "z0"]]
+    f1x = fast.sort_values("t").groupby(key).first().reset_index()[key + ["sid", "x0", "y0", "z0"]]
+    fx = g1x.merge(f1x, on=key + ["sid"], suffixes=("_g", "_f")).merge(pe, on=key)
+    if "vdid" in ent:
+        fx = fx.merge(ent[key + ["vdid"]], on=key)
+        dd = np.sqrt((fx.x0_f - fx.x0_g) ** 2 + (fx.y0_f - fx.y0_g) ** 2 + (fx.z0_f - fx.z0_g) ** 2)
+        hp = (fx.pent >= 2000.0).to_numpy()
+        out["first_straw_offset_mm_above_2GeV"] = {
+            int(v): [int(k.sum()), float(np.median(dd[k])), float(np.quantile(dd[k], 0.9))]
+            for v in np.unique(fx.vdid) for k in [hp & (fx.vdid == v).to_numpy()] if k.sum() >= 5}
     out["final_status"] = final.status.value_counts().sort_index().to_dict()
     return out
 
@@ -227,7 +259,9 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
         ent = entry_states_surface(surf, org)
     else:                          # earliest of the two
         cols = T.KEY + ["sp", "pdg", "x", "y", "z", "px", "py", "pz", "t", "vdid"]
-        ent = pd.concat([entry_states(vd, entry_vds)[cols], entry_states_surface(surf, org)[cols]]).sort_values("t")
+        cols += ["x0", "y0", "z0", "x1", "y1", "z1"]
+        ent = pd.concat([entry_states(vd, entry_vds).reindex(columns=cols),
+                         entry_states_surface(surf, org).reindex(columns=cols)]).sort_values("t")
         ent = ent.groupby(T.KEY + ["sp"], sort=False).first().reset_index()
     if no_field:
         field = None
@@ -236,6 +270,7 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     else:
         field = np.array([0.0, 0.0, float(bz if bz is not None else 1.0)])
     env = fs.Envelope(geom, axis_xy=org[:2])
+    census["entry_geometry"] = _entry_geometry(ent, org)
     inter = fs.interior(gdml, geom, env, origin=org) if interior else None
     bnom = ehelix.field_at(field if field is not None else np.zeros(3), org[None])[0]
     t0 = time.perf_counter()
@@ -262,6 +297,43 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     res = json.loads(json.dumps(res, default=lambda o: o.item() if hasattr(o, "item") else str(o)))
     with open(os.path.join(outdir, "fieldcompare.json"), "w") as f:
         json.dump(res, f, indent=1)
+    if inter is not None and len(g4):
+        # support material on the straight line from each entry to its first G4 straw entry, per entry type
+        key = T.KEY + ["sp"]
+        g1 = g4.sort_values("t").groupby(key).first().reset_index()[key + ["x0", "y0", "z0"]]
+        m = ent.merge(g1, on=key, suffixes=("", "_s"))
+        a = m[["x", "y", "z"]].to_numpy()
+        b = geometry.to_mu2e(m[["x0_s", "y0_s", "z0_s"]].to_numpy(), org) if "x0_s" in m else \
+            geometry.to_mu2e(m[["x0", "y0", "z0"]].to_numpy(), org)
+        dv = b - a
+        L = np.linalg.norm(dv, axis=1)
+        col, _ = inter._support(a, dv / np.maximum(L, 1e-9)[:, None], L, False)
+        from mu2efastsim import eloss as _el, materials as _mt
+        xx = sum(c / _el.radiation_length_mm(_mt.get(nm)) for nm, c in col.items()) if col else np.zeros(len(m))
+        sc = {}
+        for v in np.unique(m.vdid):
+            k = (m.vdid == v).to_numpy()
+            sc[int(v)] = {"n": int(k.sum()), "x_over_X0_q50_q90_q99": [float(np.quantile(xx[k], q)) for q in (0.5, 0.9, 0.99)],
+                          "by_material_mean_mm": {nm: float(c[k].mean()) for nm, c in col.items() if c[k].mean() > 0}}
+        res["support_to_first_straw"] = sc
+        with open(os.path.join(outdir, "fieldcompare.json"), "w") as f:
+            json.dump(res, f, indent=1)
+    if kw.get("dump_tracks"):
+        # per-track step lists (time order) of the first N high-momentum tracks of each entry type, both arms
+        key = T.KEY + ["sp"]
+        pe = np.sqrt(ent.px ** 2 + ent.py ** 2 + ent.pz ** 2)
+        sel = ent[pe > 2000.0].groupby("vdid").head(int(kw["dump_tracks"]))
+        cols = ["sid", "t", "x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"]
+        dump = []
+        for _, r in sel.iterrows():
+            k = {c: r[c] for c in key}
+            g = g4.loc[(g4[key] == pd.Series(k)).all(1)].sort_values("t")
+            f = fast.loc[(fast[key] == pd.Series(k)).all(1)].sort_values("t")
+            dump.append({"key": [int(v) for v in k.values()], "vdid": int(r.vdid),
+                         "entry": [float(r[c]) for c in ("x", "y", "z", "px", "py", "pz", "t")],
+                         "g4": g[cols].round(3).values.tolist(), "fast": f[cols].round(3).values.tolist()})
+        with open(os.path.join(outdir, "tracks.json"), "w") as fo:
+            json.dump(dump, fo)
     if kw.get("write_tables"):
         # primary-only step tables for the art injector (StrawGasStepsFromTable): fast, and G4 after the entry state
         from mu2efastsim import tables as core_tables

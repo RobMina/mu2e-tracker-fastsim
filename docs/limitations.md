@@ -15,7 +15,19 @@
 - **T-V3**: the reco yield on fast steps through stock reco is -2.04 +- 0.37 % (mostly selection-only) and digis
   -1.09 +- 0.33 % against the full Geant4 chain (default steps; reproduced on the saved products 2026-11-01);
   threshold 1 %. Not rerun with `--scatter-in`: that needs new fast steps through stock digitisation and reco.
-- **Secondary eIon per straw** (T-V1b): binned ratio 12.4 % against a 5 % threshold.
+- **Secondary content and placement** (T-V1b, paired per-shard statistic on 10 M events). The 12.4 % per-straw eIon
+  band of 2026-10-18 was the legacy metric's noise: Geant4 against itself gives 5.6 % on that sample
+  ([shard-statistics.md](shard-statistics.md)). Under the paired statistic eIon per straw is just resolved (1.83 +- 0.47
+  against a limit of 1.81, rms excess 1.4 %). Its causes:
+  - The off-axis placement: 4.4 +- 1.7 % fewer secondary-only straws, with same-plane steps +25 % and steps one or more
+    planes away -27 to -29 %. This is the main cause.
+  - In-straw secondaries are drawn independently of the muon's own loss: straws with only a muon step have 8-12 % more
+    entries at 3.4-4 keV.
+  - The library builder keeps other primary muons of a donor event as secondaries (0.29 % of other steps), which the
+    fast transport already carries. Opt-in `steps --library-drop-muons` leaves them out. With it the species flag goes
+    and eIon per straw is no longer flagged (1.78 +- 0.47).
+  - Other steps per event are -3.2 +- 1.1 %. Through stock digitisation the per-straw content shows in straw
+    occupancy, TOT, PMP and hit energy (rms 1.2-1.9 %); panel occupancy passes.
 
 ## Frozen
 

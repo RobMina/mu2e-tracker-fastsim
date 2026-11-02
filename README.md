@@ -56,7 +56,7 @@ Mu2e-internal and not yet published as a collaborator release (umbrella `docs/ru
 
 Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md), [`validation.md`](docs/validation.md),
 [`limitations.md`](docs/limitations.md), [`fast-digi.md`](docs/fast-digi.md), [`eventntuple.md`](docs/eventntuple.md),
-[`secondary-validation.md`](docs/secondary-validation.md), [`kit-task.md`](docs/kit-task.md),
+[`secondary-validation.md`](docs/secondary-validation.md), [`shard-statistics.md`](docs/shard-statistics.md), [`kit-task.md`](docs/kit-task.md),
 [`device-world.md`](docs/device-world.md); opt-in features below. [`docs/plan.md`](docs/plan.md) is the original plan
 (historical).
 
@@ -77,6 +77,8 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | `digi-cond` | fast digitisation conditions (`.npz`) from the stock job's `fhicl-dump`, the DbService CSVs and the GDML |
 | `digi` | fast digitisation: StrawGasStep tables to `StrawHitTableDumper`-layout digis; NumPy default, experimental explicit-key `--backend jax` ([status/limits](docs/fast-digi.md#opt-in-jax-backend)) |
 | `digicmp` | fast against stock digis on the same steps, with a reseeded stock floor: digis per event, occupancy, TDC, TOT, ADC/PMP, dt, hit reco and the F2 fit yield |
+| `shardhist` | per-shard (subrun) histograms of one arm: steps, digis, fast hit reco, F2 fits, stored stock hits and KKLine fits; the input of `shardstats` |
+| `shardstats` | paired per-shard statistic: batch variance of per-shard differences, sign-flip null, family-wise limits, sizes and multiplicities, split-shard null ([shard-statistics.md](docs/shard-statistics.md)) |
 | `seccensus` | T-V1b: secondary steps per primary-muon step and their eIon share, by species, eIon, path, place relative to the muon, wire distance, along-wire position, muon \|p\|, G4 creation process; eIon per straw with a G4 half-vs-half floor; step-level panel occupancy with event-clustered errors; `--paired` on the same CRY primaries |
 | `tv2compare` | T-V2/T-V3 on path A EventNtuples (and `StrawHitTableDumper` tables with `--hits`): yield, hits, chi2, TT_Outer residual widths (jackknife errors, entry/exit split), digis, TDC/TOT, panel occupancy over the 216 uniquePanels with Poisson and event-clustered errors and G4 even/odd-file floors; `--paired` splits the yield difference into selection-only and both-selected parts; every row against its threshold |
 | `reco-conditions` | the straw conditions a fast reco job needs, read from the conditions tree of a `StrawHitTableDumper` output |
@@ -93,6 +95,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | JAX step generator (`steps --backend jax`) | [device-world.md](docs/device-world.md) |
 | JAX digitiser (`digi --backend jax`) | [fast-digi.md](docs/fast-digi.md#opt-in-jax-backend) |
 | ordered stored-material navigation (`steps --navigation ordered-*`) | [ordered-stored-path.md](docs/ordered-stored-path.md) |
+| leave other primary muons out of the library draws (`steps --library-drop-muons`) | [limitations.md](docs/limitations.md) |
 | detector-only F1 prototype (`reco.autonomous`) | [autonomous-f1.md](docs/autonomous-f1.md), [autonomous-reference-inputs.md](docs/autonomous-reference-inputs.md) |
 | F1 numerical-validity diagnostics | [f1-validity.md](docs/f1-validity.md) |
 | entry-ledger, transport-ledger and transport-capture diagnostics | [entry-ledger.md](docs/entry-ledger.md), [transport-ledger.md](docs/transport-ledger.md), [transport-capture.md](docs/transport-capture.md), [rate-ledger.md](docs/rate-ledger.md) |

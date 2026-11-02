@@ -426,7 +426,7 @@ def digitize(st, nev, c, key, stats=None):
         pad = group_size - size
         args = (np.pad(us[cs[first:last]], (0, pad)), np.pad(pos[first:last], ((0, pad), (0, 0))),
                 np.pad(ne[first:last], (0, pad), constant_values=1), np.pad(ctime[first:last], (0, pad)))
-        result = _charge_blocks_kernel(c)(key, jnp.int64(first), *map(jnp.asarray, args))
+        result = _charge_blocks_kernel(c)(key, jnp.int64(first), *map(jnp.asarray, df.dev(args)))
         charge_blocks.append(tuple(np.asarray(x)[:size] for x in result))
     gt, charge, wd = (np.concatenate([b[i] for b in charge_blocks]) for i in range(3))
     if df.SINGLE:
@@ -480,8 +480,8 @@ def digitize(st, nev, c, key, stats=None):
             pair_cap = 4
             while True:
                 result = _electronics_kernel(c, int(cap), pair_cap, batch)(random.fold_in(key, 3),
-                    *[jnp.asarray(x.reshape(2 * batch, cap)) for x in (t, q, w, steps)], jnp.asarray(n.ravel()),
-                    jnp.asarray(su), jnp.asarray(sr), jnp.asarray(sk), jnp.asarray(live), jnp.asarray(ji), *extra)
+                    *[jnp.asarray(df.dev(x.reshape(2 * batch, cap))) for x in (t, q, w, steps)], jnp.asarray(n.ravel()),
+                    jnp.asarray(su), jnp.asarray(sr), jnp.asarray(sk), jnp.asarray(live), jnp.asarray(df.dev(ji)), *extra)
                 result = {k: np.asarray(v) for k, v in result.items()}
                 if result["sat_overflow"]:
                     raise RuntimeError("JAX ADC saturation time bucket overflow; no output returned")

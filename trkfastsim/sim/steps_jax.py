@@ -992,7 +992,8 @@ class DeviceInterior:
         mc = [eloss_jax.consts(m) for m in mats]
         T = {"invx0": 1.0 / x0, "coef_nuc": np.array([coef(m, False) for m in mats]),
              "coef_el": np.array([coef(m, True) - coef(m, False) for m in mats]), "a13": a13}
-        self.MC = eloss_jax.MatConsts(*(jnp.asarray(np.array([getattr(c, f) for c in mc])) for f in eloss_jax.MatConsts._fields))
+        self.MC = df.dev(eloss_jax.MatConsts(*(jnp.asarray(np.array([getattr(c, f) for c in mc]))
+                                               for f in eloss_jax.MatConsts._fields)))   # device float once, not per call
         # straws (+ one dummy straw that no line crosses) and panel boxes (+ one dummy panel)
         ns = len(geom.mid)
         T["smid"] = np.r_[geom.mid, [[1e12, 1e12, 1e12]]]
@@ -1050,10 +1051,11 @@ class DeviceInterior:
             T = _shift_tables(T, self.frame)
             self.calo_sets = [(lo_ - self.frame, hi_ - self.frame, _shift_planes(P_, self.frame), gm_, sg)
                               for lo_, hi_, P_, gm_, sg in self.calo_sets]
-        self.calo_boxes = tuple((lo_, hi_) for lo_, hi_, _, _, _ in self.calo_sets)
-        self.calo_arrays = tuple((lo_, hi_, P_, gm_) for lo_, hi_, P_, gm_, _ in self.calo_sets)
+        self.calo_boxes = df.dev(tuple((jnp.asarray(lo_), jnp.asarray(hi_)) for lo_, hi_, _, _, _ in self.calo_sets))
+        self.calo_arrays = df.dev(tuple(tuple(jnp.asarray(x) for x in (lo_, hi_, P_, gm_))
+                                        for lo_, hi_, P_, gm_, _ in self.calo_sets))
         self.calo_signs = tuple(int(sg) for *_, sg in self.calo_sets)
-        self.T = {k: jnp.asarray(v) for k, v in T.items()}
+        self.T = df.dev({k: jnp.asarray(v) for k, v in T.items()})
         self.cfg = Cfg(ns=ns, npanel=lo.shape[0], m_sup=M_sup, m_all=M, ngroup=G, nsub=int(interior.nsub) if interior is not None else 8,
                        rflag2=float(rflag) ** 2, r_in=float(r_in), r_out=float(r_out), f_metal=float(f_metal),
                        rw=float(rw), rw_in=float(rw_in), has_calo=calo is not None)
@@ -1397,7 +1399,7 @@ def sample_gas_eion(key, p, path, mu, chunk=1 << 16):
     first = np.r_[True, mu[1:] != mu[:-1]]
     start = np.flatnonzero(first)
     rank = np.arange(n) - np.repeat(start, np.diff(np.r_[start, n]))
-    c = eloss_jax.consts(st.STRAW_GAS)
+    c = df.dev(eloss_jax.consts(st.STRAW_GAS))
     ke = jax.random.fold_in(key, KEY_EION)
     out = []
     for s in range(0, n, chunk):

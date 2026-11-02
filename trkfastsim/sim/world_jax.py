@@ -254,21 +254,21 @@ class DeviceWorld:
                                  [0.157 * tr._zz_over_a(m, False) * m.rho * 0.1 for m in mats],
                                  np.sqrt(20) * tr.HBARC_MEV_FM / (tr.R_NUCLEUS_FM * a13)])
             arrays = tuple(jnp.asarray(x) for x in (plo, phi, pP, ps.mat))
-            self.bands.append((arrays, mc, coeff, len(ps.mats)))
+            self.bands.append(df.dev((arrays, mc, coeff, len(ps.mats))))   # device float once, not per call
             padded = (len(ps) + PIECE_TILE - 1) // PIECE_TILE * PIECE_TILE
             pad = padded - len(ps)
             lo = np.pad(plo, ((0, pad), (0, 0)), constant_values=1e30)
             hi = np.pad(phi, ((0, pad), (0, 0)), constant_values=1e30)
             planes = np.pad(pP, ((0, pad), (0, 0), (0, 0)))
             mi = np.pad(ps.mat, (0, pad), constant_values=len(ps.mats))
-            self.tiles.append(tuple(jnp.asarray(v.reshape((padded // PIECE_TILE, PIECE_TILE) + v.shape[1:]))
-                                    for v in (lo, hi, planes, mi)))
+            self.tiles.append(df.dev(tuple(jnp.asarray(v.reshape((padded // PIECE_TILE, PIECE_TILE) + v.shape[1:]))
+                                           for v in (lo, hi, planes, mi))))
 
     def column(self, k, o, d, L, valid):
         _, _, _, nm = self.bands[k]
         if not nm:
             return jnp.zeros((len(o), 0))
-        return _tiled_column(*self.tiles[k], o, d, L, valid, nm) / sj.QSCALE[0]
+        return (_tiled_column(*self.tiles[k], o, d, L, valid, nm) / sj.QSCALE[0]).astype(df.FLOAT)
 
     def transport(self, key, o, d, p, indices=None, sliced=True, spread=False, tail=True, tail_k=None, lanes=None):
         lanes = lanes or min(sj.LANES, WORLD_LANES)
@@ -283,13 +283,13 @@ class DeviceWorld:
             n = min(lanes, len(p) - start)
             B = sj._bucket(n)
             sl = slice(start, start + n)
-            oo = jnp.asarray(np.pad(o[sl], ((0, B - n), (0, 0))))
-            dd = jnp.asarray(np.vstack([d[sl], np.tile([0.0, -1.0, 0.0], (B - n, 1))]))
-            pp = jnp.asarray(np.pad(p[sl], (0, B - n), constant_values=1000.0))
+            oo = jnp.asarray(df.dev(np.pad(o[sl], ((0, B - n), (0, 0)))))      # device float on the host, once
+            dd = jnp.asarray(df.dev(np.vstack([d[sl], np.tile([0.0, -1.0, 0.0], (B - n, 1))])))
+            pp = jnp.asarray(df.dev(np.pad(p[sl], (0, B - n), constant_values=1000.0)))
             valid = jnp.arange(B) < n
             ix = jnp.asarray(np.pad(indices[sl], (0, B - n)).astype(np.uint32))
             keys = jax.vmap(lambda i: jax.random.fold_in(jax.random.fold_in(key, KEY_WORLD), i))(ix)
-            lost = jnp.zeros(B)
+            lost = jnp.zeros(B, df.FLOAT)
             bands = []
             for k, (top, bot) in enumerate(zip(self.kedges[:-1], self.kedges[1:])):
                 origin, length, height = _band_segment(oo, dd, top, bot, self.kedges[-1], valid)

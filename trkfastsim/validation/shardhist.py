@@ -13,7 +13,7 @@ Kinds:
   occupied straw (summed eIon of all, muon and secondary-only straws, steps per straw, straw occupancy).
 - digis: StrawHitTableDumper or fast digi tables, restricted to the events selected on --select-steps (events absent
   from the digi tables count as events with no digi). Keys: the digicmp histograms (digi/*; hit/* from the fast hit
-  reco on these digis) and sel/events. --stock-hits adds an arm <arm>@stockreco with the stored stock straw and combo
+  reco on these digis) and sel/events. --hit-cond defaults to the conditions of --drift-source or inputs[0]. --stock-hits adds an arm <arm>@stockreco with the stored stock straw and combo
   hits under the same hit/* keys (stock dumper tables only). --f2 adds fit/* from the fast reco chain per shard
   (fits per event, active hits, chi2/ndf of good fits); --kkline NTUPLES adds an arm <arm>@kkline with fit/* from the
   stock KKLine fits of those events (status > 0).
@@ -334,6 +334,10 @@ def digis_arm(paths, arm, outdir, select_steps, hit_cond, stock_hits=False, f2=F
     sel = np.concatenate(sel)
     sel = sel[np.lexsort((sel[:, 2], sel[:, 1], sel[:, 0]))]
     ev_si = _sidx(shards, sel[:, 1])
+    if hit_cond is None:
+        hit_cond = os.path.join(outdir, f"{arm}.hitcond.json")
+        os.makedirs(outdir, exist_ok=True)
+        hitreco.extract_conditions(drift_source or paths[0], hit_cond)
     cond = hitreco.load_conditions(hit_cond)
     d, absent = _selected_order(sel, hitreco.read_digis(paths))
     obs = DC.observables(d, cond)
@@ -367,8 +371,8 @@ def run(inputs, outdir, arm=None, kind="steps", select_steps=None, hit_cond=None
     if kind == "steps":
         info = steps_arm(inputs, arm, outdir)
     else:
-        if not select_steps or not hit_cond:
-            raise ValueError("digis need --select-steps and --hit-cond")
+        if not select_steps:
+            raise ValueError("digis need --select-steps")
         info = digis_arm(inputs, arm, outdir, select_steps, hit_cond, stock_hits, f2, drift_source, kkline)
     print(json.dumps({k: v for k, v in info.items() if k != "totals"}))
     return info

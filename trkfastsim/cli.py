@@ -213,7 +213,7 @@ def build_parser():
             sp.add_argument("--kind", default="steps", choices=["steps", "digis"])
             sp.add_argument("--select-steps", nargs="+", default=None, metavar="ROOT",
                             help="digis: step tables of this arm; their tracker-term events and subruns are used")
-            sp.add_argument("--hit-cond", default=None, metavar="JSON", help="digis: hit-reco conditions")
+            sp.add_argument("--hit-cond", default=None, metavar="JSON", help="digis: hit-reco conditions (default: from --drift-source or inputs[0])")
             sp.add_argument("--stock-hits", action="store_true", help="digis: also the stored stock straw/combo hits (arm@stockreco)")
             sp.add_argument("--f2", action="store_true", help="digis: fast reco chain per shard (fit/*; JAX)")
             sp.add_argument("--drift-source", default=None, metavar="ROOT", help="digis --f2: drift conditions (default inputs[0])")

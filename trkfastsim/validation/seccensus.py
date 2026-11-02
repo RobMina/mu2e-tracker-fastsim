@@ -18,7 +18,12 @@ Also the combined eIon per straw (muon + secondaries, what the digitiser sees; v
 a G4-against-G4 floor from two disjoint halves of the event groups, and the step-level panel occupancy (straws with a
 step per uniquePanel, all particles and muon straws only) with Poisson and event-clustered errors (occupancy.py).
 
-    seccensus FAST_TABLES [...] --compare G4_TABLES [...] [--paired] [--gdml G] --outdir DIR
+With --trees (opt-in) also the step-tree diagnostic (_tree_moments): every secondary step's tree root (library.tree_roots,
+the ancestor that is a direct child of a primary), the covariance of the secondary eIon between consecutive crossings and
+consecutive planes along each primary muon, the share of it from single trees, and how the library's in-straw/off-axis
+split cuts the trees; the fast arm's trees are its pasted SimParticles.
+
+    seccensus FAST_TABLES [...] --compare G4_TABLES [...] [--paired] [--trees] [--gdml G] --outdir DIR
 """
 import json
 import os
@@ -55,10 +60,18 @@ def _bin(x, edges):
     return np.clip(np.digitize(x, edges) - 1, 0, len(edges) - 2)
 
 
-def _load(path, g4):
+def _load(path, g4, trees=False):
     s = T.read(path, "sgsteps")
-    cols = T.KEY + ["key", "pdg", "isprim", "ismcprim"] + (["ccode", "spx", "spy", "spz"] if g4 else [])
-    p = T.read(path, "particles", cols).rename(columns={"key": "sp"})
+    cols = T.KEY + ["key", "pdg", "isprim", "ismcprim"] + (["ccode", "spx", "spy", "spz"] if g4 else []) + \
+        (["parent"] + (["se"] if g4 else []) if trees else [])
+    p = T.read(path, "particles", cols)
+    if trees:
+        from trkfastsim.sim.library import tree_roots
+        p["root"] = tree_roots(p)
+        r = p[T.KEY + ["key", "ccode", "pdg", "se"] if g4 else T.KEY + ["key"]].rename(
+            columns={"key": "root", "ccode": "root_ccode", "pdg": "root_pdg", "se": "root_e"})
+        p = p.merge(r, on=T.KEY + ["root"], how="left").drop(columns=["parent"] + (["se"] if g4 else []))
+    p = p.rename(columns={"key": "sp"})
     s = s.merge(p, on=T.KEY + ["sp"], how="left")
     s["pdg"] = s.pdg.fillna(0).astype(np.int64)
     s["isprim"] = s.isprim.fillna(0).astype(np.int64)
@@ -163,6 +176,179 @@ def _counts(s, group, g4):
            "mu_eion": float(1e3 * mu.eion.sum()), "sec_steps": float(len(sec)), "sec_eion": float(e.sum()),
            "sec_pdg13": float((sec.pdg.abs() == 13).sum())}
     return out, den, tot
+
+
+TREE_LAGS = (1, 2)
+TREE_CAT = ["one_crossing", "several_crossings", "crossing_and_offaxis", "offaxis_only"]
+ROOT_KE_EDGES = np.array([0.0, 0.1, 0.3, 1.0, 3.0, 10.0, 1e9])                    # MeV, root start kinetic energy
+
+
+def _pair_moments(cells, pairs, comp=False):
+    """Moments of x (first cell) and y (second cell) over `pairs` (DataFrame KEY + c0, c1 of cell ids): n, sums, the
+    cross product, and its same-tree part (sum over trees of x_t y_t). `cells` holds per (KEY, cell, root[, comp]) the
+    secondary eIon (keV); with comp the same-tree part is split by component (0 = in a muon straw, 1 = off-axis) into
+    in-in, in-off (both orders) and off-off."""
+    tot = cells.groupby(T.KEY + ["cell"], as_index=False).e.sum()
+    a = pairs.merge(tot.rename(columns={"cell": "c0", "e": "x"}), on=T.KEY + ["c0"], how="left")
+    a = a.merge(tot.rename(columns={"cell": "c1", "e": "y"}), on=T.KEY + ["c1"], how="left").fillna({"x": 0.0, "y": 0.0})
+    x, y = a.x.to_numpy(), a.y.to_numpy()
+    out = {"n": float(len(a)), "sx": float(x.sum()), "sy": float(y.sum()), "sxx": float((x * x).sum()),
+           "syy": float((y * y).sum()), "sxy": float((x * y).sum())}
+    tc = ["root", "comp"] if comp else ["root"]
+    t = cells.groupby(T.KEY + ["cell"] + tc, as_index=False).e.sum()
+    b = pairs.merge(t.rename(columns={"cell": "c0", "e": "x", **({"comp": "k0"} if comp else {})}), on=T.KEY + ["c0"])
+    b = b.merge(t.rename(columns={"cell": "c1", "e": "y", **({"comp": "k1"} if comp else {})}), on=T.KEY + ["c1", "root"])
+    xy = b.x.to_numpy() * b.y.to_numpy()
+    out["sxy_same"] = float(xy.sum())
+    if comp:
+        k = b.k0.to_numpy() + b.k1.to_numpy()
+        for i, name in enumerate(("sxy_same_in_in", "sxy_same_in_off", "sxy_same_off_off")):
+            out[name] = float(xy[k == i].sum())
+    return out
+
+
+def _tree_moments(s, g4):
+    """Step-tree diagnostic of one file's selected, classified steps (columns root, loc): covariance of the secondary
+    eIon between consecutive crossings of a primary muon (the muon's straws, in time order) and between consecutive
+    planes along it (whole planes), the share of each cross product from single step trees, and how the library's split
+    (in-straw draws per crossing, off-axis draws per event) cuts the trees. G4 only: the tree census."""
+    mu, sec = s[s.mu], s[~s.mu].copy()
+    sec["e"] = 1e3 * sec.eion.to_numpy()
+    sec["comp"] = (sec["loc"] > 0).astype(np.int64)
+    xing = mu.sort_values("t", kind="stable").drop_duplicates(T.KEY + ["sp", "sid"])[T.KEY + ["sp", "sid", "plane", "t"]].copy()
+    xing["k"] = xing.groupby(T.KEY + ["sp"]).cumcount()
+    out = {}
+    cells = sec[T.KEY + ["sid", "root", "e"]].rename(columns={"sid": "cell"})
+    for lag in TREE_LAGS:
+        nx = xing.assign(k=xing.k - lag)[T.KEY + ["sp", "k", "sid"]].rename(columns={"sid": "c1"})
+        pr = xing.rename(columns={"sid": "c0"}).merge(nx, on=T.KEY + ["sp", "k"])[T.KEY + ["c0", "c1"]]
+        out[f"crossing_lag{lag}"] = _pair_moments(cells, pr)
+    pl = xing.drop_duplicates(T.KEY + ["sp", "plane"])[T.KEY + ["sp", "plane"]].copy()
+    pl["k"] = pl.groupby(T.KEY + ["sp"]).cumcount()
+    pcells = sec[T.KEY + ["plane", "root", "comp", "e"]].rename(columns={"plane": "cell"})
+    for lag in TREE_LAGS:
+        nx = pl.assign(k=pl.k - lag)[T.KEY + ["sp", "k", "plane"]].rename(columns={"plane": "c1"})
+        pr = pl.rename(columns={"plane": "c0"}).merge(nx, on=T.KEY + ["sp", "k"])[T.KEY + ["c0", "c1"]]
+        out[f"plane_lag{lag}"] = _pair_moments(pcells, pr, comp=True)
+    # per tree: muon crossings it puts steps in, off-axis steps; energy by category, and off-axis energy by location
+    tr = sec.groupby(T.KEY + ["root"]).agg(e=("e", "sum"), n=("e", "size"), off=("comp", "max")).reset_index()
+    ins = sec[sec.comp == 0].groupby(T.KEY + ["root"]).sid.nunique().rename("nx").reset_index()
+    tr = tr.merge(ins, on=T.KEY + ["root"], how="left").fillna({"nx": 0})
+    cat = np.where(tr.nx == 0, 3, np.where(tr.off == 1, 2, np.where(tr.nx > 1, 1, 0)))
+    tr["cat"] = cat
+    out["tree_category"] = {TREE_CAT[c]: {"trees": float((cat == c).sum()), "eion_keV": float(tr.e[cat == c].sum()),
+                                          "steps": float(tr.n[cat == c].sum())} for c in range(4)}
+    sc = sec.merge(tr[T.KEY + ["root", "cat"]], on=T.KEY + ["root"])
+    off = sc[sc.comp == 1]
+    out["offaxis_location_by_tree"] = {f"{LOC[l]}:{TREE_CAT[c]}": {"steps": float(((off["loc"] == l) & (off.cat == c)).sum()),
+                                                                  "eion_keV": float(off.e[(off["loc"] == l) & (off.cat == c)].sum())}
+                                       for l in range(1, len(LOC)) for c in (2, 3)}
+    # off-axis rows: the library's anchor (muon step nearest in plane, then time: library.anchor_offsets) against the
+    # tree's anchor (its first crossing in time, else the anchor of its earliest step); dk = row anchor rank - tree's
+    if len(off):
+        a = off[T.KEY + ["root", "plane", "t", "e", "loc"]].reset_index(drop=True).reset_index().merge(
+            xing[T.KEY + ["sp", "k", "plane", "t"]].rename(columns={"plane": "aplane", "t": "ta", "sp": "asp"}), on=T.KEY)
+        a["_key"] = (a.plane - a.aplane).abs() * 1e6 + (a.t - a.ta).abs()
+        a = a.sort_values("_key", kind="stable").groupby("index", sort=True).first().reset_index()
+        tx = sec[sec.comp == 0][T.KEY + ["root", "sid"]].merge(xing[T.KEY + ["sp", "sid", "k"]], on=T.KEY + ["sid"])
+        tx = tx.sort_values("k").drop_duplicates(T.KEY + ["root"])[T.KEY + ["root", "sp", "k"]].rename(
+            columns={"sp": "tsp", "k": "tk"})
+        first = a.sort_values("t", kind="stable").drop_duplicates(T.KEY + ["root"])[T.KEY + ["root", "asp", "k"]].rename(
+            columns={"asp": "tsp", "k": "tk"})
+        ta = pd.concat([tx, first.merge(tx[T.KEY + ["root"]], on=T.KEY + ["root"], how="left", indicator=True)
+                        .query("_merge == 'left_only'").drop(columns="_merge")], ignore_index=True)
+        a = a.merge(ta, on=T.KEY + ["root"], how="left")
+        dk = np.where(a.asp.to_numpy() == a.tsp.to_numpy(), a.k.to_numpy() - a.tk.to_numpy(), 99)
+        db = np.clip(np.abs(dk), 0, 3)
+        out["offaxis_row_vs_tree_anchor"] = {f"{LOC[l]}:dk{b if b < 3 else 'ge3'}": {
+            "steps": float(((a["loc"] == l) & (db == b)).sum()), "eion_keV": float(a.e[(a["loc"] == l) & (db == b)].sum())}
+            for l in range(1, len(LOC)) for b in range(4)}
+    # within a muon straw: the muon's own eIon against the secondary eIon of the same straw
+    me = mu.groupby(T.KEY + ["sp", "sid"], as_index=False).eion.sum()
+    se = sec[sec.comp == 0].groupby(T.KEY + ["sid"], as_index=False).e.sum()
+    q = me.merge(se, on=T.KEY + ["sid"], how="left").fillna({"e": 0.0})
+    x, y = 1e3 * q.eion.to_numpy(), q.e.to_numpy()
+    out["straw_mu_vs_sec"] = {"n": float(len(q)), "sx": float(x.sum()), "sy": float(y.sum()), "sxx": float((x * x).sum()),
+                              "syy": float((y * y).sum()), "sxy": float((x * y).sum()), "sxy_same": 0.0}
+    if g4:
+        rr = sec.drop_duplicates(T.KEY + ["root"])
+        ke = rr.root_e.to_numpy() - np.where(rr.root_pdg.abs().to_numpy() == 11, ME, 0.0)
+        ew = tr.set_index(T.KEY + ["root"]).e.reindex(pd.MultiIndex.from_frame(rr[T.KEY + ["root"]])).to_numpy()
+        out["root_process"] = pd.DataFrame({"b": rr.root_ccode.fillna(-1).astype(np.int64).to_numpy(), "e": ew}).groupby(
+            "b").e.agg(["size", "sum"]).rename(columns={"size": "trees", "sum": "eion_keV"}).to_dict("index")
+        out["root_ke_MeV"] = pd.DataFrame({"b": _bin(ke, ROOT_KE_EDGES), "e": ew}).groupby("b").e.agg(
+            ["size", "sum"]).rename(columns={"size": "trees", "sum": "eion_keV"}).to_dict("index")
+    return out
+
+
+def _add_moments(acc, m):
+    for k, v in m.items():
+        if isinstance(v, dict):
+            _add_moments(acc.setdefault(k, {}), v)
+        else:
+            acc[k] = acc.get(k, 0.0) + v
+
+
+def _cov_summary(m):
+    """cov, Pearson r and the same-tree share of the cross product's excess (sxy_same / (n cov)) from pair moments."""
+    n = m.get("n", 0.0)
+    if n < 2:
+        return {}
+    mx, my = m["sx"] / n, m["sy"] / n
+    cov = m["sxy"] / n - mx * my
+    vx, vy = m["sxx"] / n - mx * mx, m["syy"] / n - my * my
+    out = {"pairs": n, "mean_x_keV": mx, "mean_y_keV": my, "cov_keV2": cov,
+           "r": cov / np.sqrt(vx * vy) if vx > 0 and vy > 0 else float("nan"),
+           "same_tree_share": m["sxy_same"] / n / cov if cov != 0 else float("nan")}
+    for k in ("sxy_same_in_in", "sxy_same_in_off", "sxy_same_off_off"):
+        if k in m:
+            out[k.replace("sxy_same_", "same_tree_share_")] = m[k] / n / cov if cov != 0 else float("nan")
+    return out
+
+
+def _tree_report(TM):
+    """Per arm and definition: totals over groups with delete-one-group jackknife errors on r and the same-tree shares,
+    and the fast/G4 ratio of r with the jackknife over paired groups."""
+    rep = {}
+    groups = sorted(set(TM["fast"]) | set(TM["g4"]))
+    defs = sorted(k for k in next(iter(TM["g4"].values()), {}) if k.startswith(("crossing_", "plane_", "straw_")))
+
+    def total(lab, d, skip=None):
+        acc = {}
+        for g in groups:
+            if g != skip and g in TM[lab]:
+                _add_moments(acc, TM[lab][g][d])
+        return acc
+
+    for d in defs:
+        row = {}
+        for lab in ("fast", "g4"):
+            if not TM[lab]:
+                continue
+            full = _cov_summary(total(lab, d))
+            reps = [_cov_summary(total(lab, d, g)) for g in groups if g in TM[lab]]
+            for k in [k for k in full if k == "r" or k.startswith("same_tree_share")]:
+                v = np.array([r[k] for r in reps if k in r])
+                full[k + "_err"] = float(np.sqrt((len(v) - 1) / len(v) * ((v - v.mean()) ** 2).sum())) if len(v) > 1 else float("nan")
+            row[lab] = full
+        if TM["fast"] and TM["g4"]:
+            rf = _cov_summary(total("fast", d))["r"] / _cov_summary(total("g4", d))["r"]
+            v = []
+            for g in groups:
+                a, b = _cov_summary(total("fast", d, g)), _cov_summary(total("g4", d, g))
+                if "r" in a and "r" in b:
+                    v.append(a["r"] / b["r"])
+            v = np.array(v)
+            row["r_ratio_fast_over_g4"] = [float(rf), float(np.sqrt((len(v) - 1) / len(v) * ((v - v.mean()) ** 2).sum()))
+                                           if len(v) > 1 else float("nan")]
+        rep[d] = row
+    for lab in ("fast", "g4"):
+        acc = {}
+        for g in groups:
+            if g in TM[lab]:
+                _add_moments(acc, {k: v for k, v in TM[lab][g].items() if not k.startswith(("crossing_", "plane_", "straw_"))})
+        rep[f"census_{lab}"] = acc
+    return rep
 
 
 def _straw_eion(s):
@@ -273,7 +459,7 @@ def _report(C, D, TT, names):
     return rep
 
 
-def run(inputs, outdir, compare=None, gdml=None, paired=False, **kw):
+def run(inputs, outdir, compare=None, gdml=None, paired=False, trees=False, **kw):
     if not compare:
         raise SystemExit("seccensus FAST --compare G4 [--paired]")
     ff, fr = T.expand(inputs), T.expand(compare)
@@ -290,6 +476,7 @@ def run(inputs, outdir, compare=None, gdml=None, paired=False, **kw):
     straw = {"fast": [], "g4": [], "g4_group": [], "fast_keys": [], "g4_keys": []}
     occ = {"fast": {}, "g4": {}, "g4_even": {}, "g4_odd": {}}
     cross_occ = {}
+    TM = {"fast": {}, "g4": {}}
     nsel = {"fast": 0, "g4": 0, "both": 0}
     lt = {"fast": 0.0, "g4": 0.0}
     for f_fast, f_g4, g in pairs:
@@ -297,7 +484,7 @@ def run(inputs, outdir, compare=None, gdml=None, paired=False, **kw):
         for lab, f in (("fast", [f_fast] if f_fast else None), ("g4", f_g4)):
             if f is None:
                 continue
-            s = pd.concat([_load(x, lab == "g4") for x in f], ignore_index=True)
+            s = pd.concat([_load(x, lab == "g4", **({"trees": True} if trees else {})) for x in f], ignore_index=True)
             arms[lab] = (s, _selected_keys(s))
             lt[lab] += T.livetime(f)
             nsel[lab] += len(arms[lab][1])
@@ -313,6 +500,8 @@ def run(inputs, outdir, compare=None, gdml=None, paired=False, **kw):
                 C[lab][k] = pd.concat([C[lab].get(k), v]) if k in C[lab] else v
             for k, v in d.items():
                 D[lab][k] = pd.concat([D[lab].get(k), v]) if k in D[lab] else v
+            if trees:
+                _add_moments(TM[lab].setdefault(g, {}), _tree_moments(s, lab == "g4"))
             prev = TT[lab].get(g, {})
             TT[lab][g] = {k: prev.get(k, 0) + v for k, v in t.items() if k != "group"}
             energies = s.groupby(T.KEY + ["sid"], as_index=False).eion.sum()
@@ -400,6 +589,8 @@ def run(inputs, outdir, compare=None, gdml=None, paired=False, **kw):
            "occupancy_steps_g4_floor": {k: O.compare(occ["g4_even"].get(k, O.accumulate([], [])),
                                                          occ["g4_odd"].get(k, O.accumulate([], [])))
                                         for k in occ["g4"]}}
+    if trees:
+        res["trees"] = _tree_report(TM)
     with open(os.path.join(outdir, "seccensus.json"), "w") as fh:
         json.dump(res, fh, indent=1, default=float)
     _print(res)
@@ -419,6 +610,18 @@ def _print(res):
         print(f"== {name} (G4)")
         for r in rows:
             print(f"  {r['bin']:>6d} {r.get('process', ''):>12s}  steps {r['steps']:9.0f}  share {r['share']:.3f}  eion {r['eion_keV']:.0f}")
+    for d, row in res.get("trees", {}).items():
+        if d.startswith("census_"):
+            print(f"== trees {d}: {json.dumps(row, default=float)}")
+            continue
+        for lab in ("fast", "g4"):
+            if lab in row:
+                r = row[lab]
+                print(f"== trees {d} {lab}: pairs {r['pairs']:.0f} cov {r['cov_keV2']:.4g} keV2 r {r['r']:.3f} +- {r['r_err']:.3f} "
+                      f"same tree {r['same_tree_share']:.3f} +- {r['same_tree_share_err']:.3f}" +
+                      "".join(f" {k[16:]} {r[k]:.3f}" for k in r if k.startswith("same_tree_share_") and not k.endswith("_err")))
+        if "r_ratio_fast_over_g4" in row:
+            print(f"   r fast/G4 {row['r_ratio_fast_over_g4'][0]:.3f} +- {row['r_ratio_fast_over_g4'][1]:.3f}")
     for k, v in [(f"{a}", b) for a, b in res["occupancy_steps"].items()] + \
             [(f"{a} G4 even/odd", b) for a, b in res["occupancy_steps_g4_floor"].items()]:
         print(f"== step occupancy {k}: chi2/ndf Poisson {v['chi2ndf_poisson']:.2f} clustered {v['chi2ndf_clustered']:.2f} "

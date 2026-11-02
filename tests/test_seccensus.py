@@ -237,3 +237,35 @@ def test_jackknife_does_not_count_empty_file_groups():
     a = SC._jack(f, r, r, r)
     b = SC._jack(f[:2], r[:2], r[:2], r[:2])
     assert np.allclose(a, b)
+
+
+def test_tree_roots_climb_to_the_direct_child_of_a_primary():
+    from trkfastsim.sim.library import tree_roots
+    p = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1] * 6 + [2], "key": [1, 2, 3, 4, 5, 6, 3],
+                      "parent": [-1, 1, 2, 3, 1, 99, 2]})
+    # event 1: 1 primary; 2 -> 3 -> 4 one tree, 5 its own tree; 6's parent is missing (its own root); event 2: key 3's
+    # parent 2 is not in that event, so it is a root there
+    assert tree_roots(p).tolist() == [1, 2, 2, 2, 5, 6, 3]
+
+
+def test_tree_moments_split_same_tree_products_by_component():
+    # muon crossings in planes 10 and 11 (straw 40 of panel 2); tree 2 has an in-straw step in the first crossing and an
+    # off-axis step in plane 11, tree 3 an in-straw step in the second crossing
+    rows = [(10, 2, 40, 13, 1, 1, 0.0), (11, 2, 40, 13, 1, 1, 1.0), (10, 2, 40, 11, 0, 2, 2.0), (11, 4, 7, 11, 0, 2, 3.0),
+            (11, 2, 40, 11, 0, 3, 4.0)]
+    d = [{"run": 1400, "subrun": 1, "event": 1, "sid": int(G.straw_id(pl, pa, st)), "plane": pl, "panel": pa, "straw": st,
+          "upanel": pl * 6 + pa, "eion": 1e-3 * (i + 1), "len": 2.0, "t": t, "x0": -100.0, "y0": 1.0, "z0": 0.0,
+          "x1": 100.0, "y1": 1.0, "z1": 0.0, "px": 0.0, "py": -1000.0, "pz": 0.0, "pdg": pdg, "isprim": prim,
+          "ismcprim": prim, "sp": sp, "root": sp} for i, (pl, pa, st, pdg, prim, sp, t) in enumerate(rows)]
+    s = pd.DataFrame(d)
+    s["mu"] = (s.isprim == 1) & (s.pdg.abs() == 13)
+    m = SC._tree_moments(SC._classify(s, _geom()), False)
+    c = m["crossing_lag1"]
+    assert c["n"] == 1 and c["sxy"] == pytest.approx(3.0 * 5.0) and c["sxy_same"] == 0.0
+    p = m["plane_lag1"]
+    assert p["sxy"] == pytest.approx(3.0 * (4.0 + 5.0)) and p["sxy_same"] == pytest.approx(12.0)
+    assert p["sxy_same_in_off"] == pytest.approx(12.0) and p["sxy_same_in_in"] == 0.0 and p["sxy_same_off_off"] == 0.0
+    cat = m["tree_category"]
+    assert cat["crossing_and_offaxis"]["trees"] == 1 and cat["one_crossing"]["trees"] == 1
+    assert m["offaxis_row_vs_tree_anchor"]["same_plane:dk1"]["steps"] == 1   # anchored on crossing 1, its tree on 0
+    assert m["straw_mu_vs_sec"]["n"] == 2 and m["straw_mu_vs_sec"]["sxy"] == pytest.approx(1 * 3 + 2 * 5)

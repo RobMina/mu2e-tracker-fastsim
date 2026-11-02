@@ -238,6 +238,22 @@ def build(paths, geom=None, topology=False):
     return {"instraw": ins, "instraw_steps": ins_steps, "offaxis": off_out.reset_index(drop=True), "events": ev}
 
 
+def tree_roots(parts):
+    """Per particle row of `parts` (KEY, key, parent), the key of its step-tree root: the ancestor whose parent has no
+    parent in the table (a direct child of a primary), the particle itself for a primary or a child of a primary."""
+    p = parts[T.KEY + ["key", "parent"]]
+    uid = pd.Series(np.arange(len(p)), index=pd.MultiIndex.from_frame(p[T.KEY + ["key"]]))
+    par = uid.reindex(pd.MultiIndex.from_frame(p[T.KEY + ["parent"]].rename(columns={"parent": "key"}))).to_numpy()
+    par = np.where(np.isnan(par), -1, par).astype(np.int64)
+    cur = np.arange(len(p))
+    while True:
+        nxt = par[cur]
+        up = (nxt >= 0) & (par[np.maximum(nxt, 0)] >= 0)
+        if not up.any():
+            return p.key.to_numpy()[cur]
+        cur = np.where(up, nxt, cur)
+
+
 def write(path, lib, provenance):
     """Library trees to `path`; provenance (inputs, counts, format) goes beside it as <path>.meta.json (no string trees)."""
     import json

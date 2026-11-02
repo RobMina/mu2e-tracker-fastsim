@@ -275,7 +275,7 @@ class DeviceWorld:
         outputs = []
         for start in range(0, len(p), lanes):
             n = min(lanes, len(p) - start)
-            B = sj._bucket(n)
+            B = sj._bucket(n, 64, lanes)
             sl = slice(start, start + n)
             oo = jnp.asarray(np.pad(o[sl], ((0, B - n), (0, 0))))
             dd = jnp.asarray(np.vstack([d[sl], np.tile([0.0, -1.0, 0.0], (B - n, 1))]))

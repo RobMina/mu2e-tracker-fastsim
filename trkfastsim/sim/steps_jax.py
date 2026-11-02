@@ -19,6 +19,7 @@ K_ROWS straw crossings ahead of the muon (the kink trigger comes within ~10 stra
 compacted work list of (segment, shell z-interval) items, and every cap is counted in the stats (*_overflow must be 0).
 """
 from functools import partial
+import os
 from typing import NamedTuple
 
 import numpy as np
@@ -54,9 +55,35 @@ QSCALE = (1e9, 1e6, 1e3)
 _NBIG = 1 << 30   # out-of-bounds index of padding entries (gathers clamp, mode="drop" writes skip it)
 
 
-def _bucket(n, lo=64):
+# padded-size growth between compiled shapes: 2 = powers of two (default); a larger power of two (opt-in
+# TRKFASTSIM_JAX_SHAPE_GROWTH=8) gives fewer shapes per kernel, so a stream of new inputs recompiles less, at the cost
+# of more padding lanes; padding lanes are inert, so the outputs are unchanged
+SHAPE_GROWTH = int(os.environ.get("TRKFASTSIM_JAX_SHAPE_GROWTH", "2"))
+if SHAPE_GROWTH < 2 or SHAPE_GROWTH & (SHAPE_GROWTH - 1):
+    raise ValueError("TRKFASTSIM_JAX_SHAPE_GROWTH must be a power of two >= 2")
+
+
+def _rows(n):
+    """Rows of a transport chunk's state for n muons: n + 1 (the last row is the dummy lane); with SHAPE_GROWTH > 2
+    padded with inactive rows to a tier (at most LANES + 1), so partial chunks reuse compiled shapes."""
+    if SHAPE_GROWTH == 2:
+        return n + 1
+    return min(_bucket(n + 1, 64), max(LANES, n) + 1)
+
+
+def _bucket(n, lo=64, hi=None):
+    """Padded size for n entries: lo * SHAPE_GROWTH**k >= n (lo a power of two); never above the power-of-two size of
+    `hi` (the most entries the call can have)."""
     n = max(int(n), 1)
-    return max(lo, 1 << (n - 1).bit_length())
+    b = max(lo, 1 << (n - 1).bit_length())
+    if SHAPE_GROWTH == 2:
+        return b
+    t = lo
+    while t < n:
+        t *= SHAPE_GROWTH
+    if hi is not None:
+        t = min(t, max(b, 1 << (max(int(hi), 1) - 1).bit_length()))
+    return t
 
 
 def key_from(rng):
@@ -1134,20 +1161,21 @@ class DeviceInterior:
     def _transport_chunk(self, key, o, d, p, base, tail, tail_k, kink_xx0, kink_sup_xx0, max_iter):
         cfg, T = self.cfg, self.T
         N = len(p)
-        pad = lambda x, v=0.0: jnp.asarray(np.concatenate([x, np.full((1,) + x.shape[1:], v, x.dtype)]))
+        R1 = _rows(N)                   # state rows: muons, inactive padding, the dummy lane last
+        pad = lambda x, v=0.0: jnp.asarray(np.concatenate([x, np.full((R1 - N,) + x.shape[1:], v, x.dtype)]))
         tk0 = np.sqrt(p ** 2 + MMU ** 2) - MMU
         kt = jax.random.fold_in(key, KEY_TRANSPORT)
-        S = {"o": pad(o), "d": jnp.asarray(np.r_[d, [[0.0, -1.0, 0.0]]]), "tk0": pad(tk0), "lost": jnp.zeros(N + 1), "trav": jnp.zeros(N + 1),
-             "xcum": jnp.zeros(N + 1), "restarted": jnp.zeros(N + 1, bool),
-             "active": jnp.asarray(np.r_[np.ones(N, bool), False]), "nrec": jnp.zeros(N + 1, jnp.int32),
-             "nkink": jnp.zeros(N + 1, jnp.int32),
-             "key": jax.vmap(lambda i: jax.random.fold_in(kt, i))(jnp.arange(base, base + N + 1, dtype=jnp.uint32))}
-        done = jnp.zeros((N + 1, cfg.ns + 1), bool)
-        rec = {"js": jnp.zeros((N + 1, R_CAP), jnp.int32), "pos0": jnp.zeros((N + 1, R_CAP, 3)),
-               "pos1": jnp.zeros((N + 1, R_CAP, 3)), "dir": jnp.zeros((N + 1, R_CAP, 3)),
-               "path": jnp.zeros((N + 1, R_CAP)), "lost": jnp.zeros((N + 1, R_CAP))}
-        kb = {"end": jnp.zeros((N + 1, KK_CAP, 3)), "pos": jnp.zeros((N + 1, KK_CAP, 3)),
-              "dir": jnp.zeros((N + 1, KK_CAP, 3)), "path": jnp.zeros((N + 1, KK_CAP)), "p": jnp.zeros((N + 1, KK_CAP))}
+        S = {"o": pad(o), "d": jnp.asarray(np.r_[d, np.tile([[0.0, -1.0, 0.0]], (R1 - N, 1))]), "tk0": pad(tk0),
+             "lost": jnp.zeros(R1), "trav": jnp.zeros(R1), "xcum": jnp.zeros(R1), "restarted": jnp.zeros(R1, bool),
+             "active": jnp.asarray(np.r_[np.ones(N, bool), np.zeros(R1 - N, bool)]), "nrec": jnp.zeros(R1, jnp.int32),
+             "nkink": jnp.zeros(R1, jnp.int32),
+             "key": jax.vmap(lambda i: jax.random.fold_in(kt, i))(jnp.arange(base, base + R1, dtype=jnp.uint32))}
+        done = jnp.zeros((R1, cfg.ns + 1), bool)
+        rec = {"js": jnp.zeros((R1, R_CAP), jnp.int32), "pos0": jnp.zeros((R1, R_CAP, 3)),
+               "pos1": jnp.zeros((R1, R_CAP, 3)), "dir": jnp.zeros((R1, R_CAP, 3)),
+               "path": jnp.zeros((R1, R_CAP)), "lost": jnp.zeros((R1, R_CAP))}
+        kb = {"end": jnp.zeros((R1, KK_CAP, 3)), "pos": jnp.zeros((R1, KK_CAP, 3)),
+              "dir": jnp.zeros((R1, KK_CAP, 3)), "path": jnp.zeros((R1, KK_CAP)), "p": jnp.zeros((R1, KK_CAP))}
         stats = {"kinks": 0, "tail_scatters": 0, "stopped": 0, "iterations": 0, "capped": 0, "wire_hits": 0,
                  "support_splits": 0}
         acc = []
@@ -1157,12 +1185,12 @@ class DeviceInterior:
             if not n_act:
                 break
             stats["iterations"] += 1
-            B = _bucket(n_act, 32)
+            B = _bucket(n_act, 32, R1)
             lane, _ = _active_lanes(S["active"], B)
             rows, cnt, pst, cutl = _pass(T, cfg, S, lane, done, kink_xx0, K_ROWS, P=P_CAP)
             ncand, ncutl = (int(x) for x in jax.device_get(cnt))
             if ncutl:   # lines with more panel boxes than P_CAP: their rows again with every box
-                pos, sl = _cut_lanes(lane, cutl, N, _bucket(ncutl, 8))
+                pos, sl = _cut_lanes(lane, cutl, R1 - 1, _bucket(ncutl, 8))
                 sub, _, sst, _ = _pass(T, cfg, S, sl, done, kink_xx0, K_ROWS, P=cfg.npanel)
                 rows, ncand, pst = _splice_rows(rows, sub, pos, pst, sst)
                 ncand = int(ncand)
@@ -1239,22 +1267,23 @@ class DeviceInterior:
     def _exit_chunk(self, key, o, d, p, xcum, base, length, tail, tail_k):
         cfg, T = self.cfg, self.T
         N = len(p)
-        pad = lambda x, v=0.0: jnp.asarray(np.concatenate([x, np.full((1,) + x.shape[1:], v, x.dtype)]))
-        oj, dj = pad(o), jnp.asarray(np.r_[d, [[0.0, -1.0, 0.0]]])
-        L = jnp.minimum(jnp.full(N + 1, float(length)), _envelope_exit(oj, dj) + st.ENVELOPE_PAD_MM)
+        R1 = _rows(N)
+        pad = lambda x, v=0.0: jnp.asarray(np.concatenate([x, np.full((R1 - N,) + x.shape[1:], v, x.dtype)]))
+        oj, dj = pad(o), jnp.asarray(np.r_[d, np.tile([[0.0, -1.0, 0.0]], (R1 - N, 1))])
+        L = jnp.minimum(jnp.full(R1, float(length)), _envelope_exit(oj, dj) + st.ENVELOPE_PAD_MM)
         kt = jax.random.fold_in(key, KEY_EXIT)
-        S = {"o": oj, "d": dj, "p": pad(p), "xc": pad(xcum), "trav": jnp.zeros(N + 1), "length": L,
-             "nk": jnp.zeros(N + 1, jnp.int32),
-             "active": jnp.concatenate([(pad(p)[:N] > 1.0) & (L[:N] > 1.0), jnp.zeros(1, bool)]),
-             "key": jax.vmap(lambda i: jax.random.fold_in(kt, i))(jnp.arange(base, base + N + 1, dtype=jnp.uint32))}
-        kb = {"end": jnp.zeros((N + 1, KX_CAP, 3)), "pos": jnp.zeros((N + 1, KX_CAP, 3)),
-              "dir": jnp.zeros((N + 1, KX_CAP, 3)), "path": jnp.zeros((N + 1, KX_CAP)), "p": jnp.zeros((N + 1, KX_CAP))}
+        S = {"o": oj, "d": dj, "p": pad(p), "xc": pad(xcum), "trav": jnp.zeros(R1), "length": L,
+             "nk": jnp.zeros(R1, jnp.int32),
+             "active": jnp.concatenate([(pad(p)[:N] > 1.0) & (L[:N] > 1.0), jnp.zeros(R1 - N, bool)]),
+             "key": jax.vmap(lambda i: jax.random.fold_in(kt, i))(jnp.arange(base, base + R1, dtype=jnp.uint32))}
+        kb = {"end": jnp.zeros((R1, KX_CAP, 3)), "pos": jnp.zeros((R1, KX_CAP, 3)),
+              "dir": jnp.zeros((R1, KX_CAP, 3)), "path": jnp.zeros((R1, KX_CAP)), "p": jnp.zeros((R1, KX_CAP))}
         acc = []
         n_act = int(jnp.sum(S["active"]))
         for it in range(64):
             if not n_act:
                 break
-            B = _bucket(n_act, 32)
+            B = _bucket(n_act, 32, R1)
             lane, v = _active_lanes(S["active"], B)
             ol, dl, left = _exit_inputs(S, lane)
             col = self.column(ol, dl, left, v)

@@ -196,11 +196,11 @@ def test_point_backend_key_provenance_and_numpy_transport(point_inputs, cond, tm
     from test_kitpoint import _sgs
     jax = pytest.importorskip("jax")
     monkeypatch.setattr(kitpoint, "simulate", lambda g, gdml, seed: (_sgs(cond, 0), g[g.pdg.abs() == 13]))
-    real_table, calls = fastdigi.digitize_table, []
-    def fake(path, c, rng, **kw):
+    real_steps, calls = fastdigi.digitize_steps, []
+    def fake(frame, c, rng, **kw):
         calls.append((rng, kw.pop("backend")))
-        return real_table(path, c, np.random.default_rng(1), **kw)
-    monkeypatch.setattr(fastdigi, "digitize_table", fake)
+        return real_steps(frame, c, np.random.default_rng(1), **kw)
+    monkeypatch.setattr(fastdigi, "digitize_steps", fake)
     for i in range(2):
         out = tmp_path / f"out{i}"
         metrics = kitpoint.run(**point_inputs, outdir=out, backend=backend)

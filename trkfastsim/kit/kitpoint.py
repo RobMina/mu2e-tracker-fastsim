@@ -139,8 +139,6 @@ def run(gen, gdml, digi_cond, reco_cond, drift_source, seed, outdir, workdir=Non
         skeys = sgs[tables.KEY].drop_duplicates()
         if not pd.MultiIndex.from_frame(skeys).isin(pd.MultiIndex.from_arrays(keys.T)).all():
             raise ValueError("step table contains events absent from the generator population")
-        stepfile = tmp / "steps.root"
-        write_step_table(stepfile, sgs)
         times["steps_s"] = time.perf_counter() - t
         t = time.perf_counter()
         stats = {}
@@ -149,13 +147,12 @@ def run(gen, gdml, digi_cond, reco_cond, drift_source, seed, outdir, workdir=Non
         else:
             from jax import random as jr
             rng = jr.fold_in(jr.fold_in(jr.key(seed), 0), 3)  # File zero, digitizer domain three; steps stay NumPy.
-        _, digis, _ = fastdigi.digitize_table(str(stepfile), dc, rng,
-                                             keys=keys, chunk=1000, stats=stats, backend=backend)
-        digifile = tmp / "digis.root"
-        fastdigi.write_digis(str(digifile), keys, digis, dc.nADCSamples)
+        # in memory: identical to the step and digi table round trips (fastdigi.digis_as_read)
+        _, digis, _ = fastdigi.digitize_steps(sgs, dc, rng, keys=keys, chunk=1000, stats=stats, backend=backend)
         times["digitization_s"] = time.perf_counter() - t
         t = time.perf_counter()
-        tb = tracktable.from_f2(str(digifile), rc, settings="mc", niter=4, all_fits=True, drift=drift)
+        tb = tracktable.from_f2_digis(fastdigi.digis_as_read(keys, digis, dc.nADCSamples), fastdigi.events_as_read(keys),
+                                      rc, settings="mc", niter=4, all_fits=True, drift=drift)
         times["reco_s"] = time.perf_counter() - t
         t = time.perf_counter()
         rootfile = out / "EventNtuple.root" if retain_ntuple else tmp / "EventNtuple.root"

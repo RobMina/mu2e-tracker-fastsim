@@ -49,6 +49,7 @@ Samples: `g4ref_v1` = the Geant4 reference of the extracted (KPP) configuration 
 | T-V2 stock digis, paired per-shard | stock digitisation of Geant4 steps | saved default-L vs `g4ref_v2`, 200 subruns | 17 digi and hit histograms, shape mode | panel occupancy 1.17 (limit 1.39); digis per selected event -1.09 +- 0.44 %; flagged with rms 1.2-1.9 %: straw occupancy, TOT, PMP, dt, hit energy and wire distance | per-histogram limit | panel occupancy pass; per-straw content open | 2026-11-02 | `6ee2a15` |
 | T-V3 reco yield on fast steps | full Geant4 chain | same, paired | track yield; digis | -2.04 +- 0.37 % (mostly selection-only); -1.09 +- 0.33 % | 1 % | **fail** | 2026-10-27 | `6d67cf5` |
 | T-V3, saved products rescored | as above | same | track yield; digis | -2.04 +- 0.37 %; -1.09 +- 0.33 % (reproduced; default steps, without `--scatter-in`) | 1 % | **fail** | 2026-11-01 | `ff2204b` |
+| T-V3, current steps, same 20 groups through the same stock digitisation and reco (UVA) | as above | same, paired | track yield; digis | default: -1.42 +- 0.37 %; -0.85 +- 0.33 %. `--scatter-in`: -0.85 +- 0.37 %; -0.85 +- 0.33 %. `--scatter-in` vs default (paired): yield +0.58 +- 0.21 %, digis +0.01 +- 0.29 % | 1 % | default **fail**; `--scatter-in` pass on central values (opt-in) | 2026-11-02 | `c36bc3f` |
 
 The paired per-shard rows use one rule for every histogram: the variance of the per-subrun difference, a sign-flip
 null and a family-wise 1 % limit per comparison ([shard-statistics.md](shard-statistics.md)).

@@ -137,3 +137,18 @@ def test_electrons_run_with_the_electron_loss_model():
     steps, final = fs.transport(np.random.default_rng(12), _start(o, d, 105.0, pdg=11), geom, np.array([0, 0, 1.0]),
                                 envelope=env, origin=np.zeros(3), loss=fs.electron_loss, tail=False)
     assert len(steps) > 0 and (final.status == 0).all()
+
+
+def test_chord_index_finds_the_straw_crossings_clipped_to_the_chord():
+    geom = _geometry()
+    rng = np.random.default_rng(13)
+    o = np.c_[rng.uniform(-400, 400, 3000), rng.uniform(-80, 80, 3000), rng.uniform(-12, 12, 3000)]
+    d = rng.normal(size=(3000, 3))
+    d /= np.linalg.norm(d, axis=1)[:, None]
+    L = rng.uniform(0.5, 25.0, 3000)
+    ref = crossings.straw_crossings(o, d, geom)
+    ref = ref[ref[:, 2] < L[ref[:, 0].astype(int)]]
+    got = fs.ChordIndex(geom).crossings(o, d, L, geom)
+    assert len(got) == len(ref) > 100
+    np.testing.assert_array_equal(got[:, :2], ref[:, :2])
+    np.testing.assert_allclose(got[:, 2:], ref[:, 2:], rtol=0, atol=1e-9)

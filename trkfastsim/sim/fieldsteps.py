@@ -14,7 +14,7 @@ On each chord (a straight segment from the step start to the helix end point):
     shells, if given). The tracker volume itself is vacuum (the DS);
   * energy loss: support and wall/wire material sampled per material with the muon slice sampler
     (transport.slab_loss); the gas debits its mean unrestricted loss (with `loss` given, every material uses it), and its deposited eIon is sampled once per merged
-    crossing (eloss.sample_loss with the tracker delta cut, as the default chain);
+    crossing (eloss.sample_loss with the tracker delta cut, as the default chain; electrons: electron_gas_eion);
   * scattering: the chord's material (support, walls, wire, gas) as one angular kink at the chord end, Highland with
     the log term on the cumulative in-tracker x/X0 and the single-scattering tail (steps._kink_core, _group_tail);
     the lateral displacement of the kink is dropped (micrometres on chords of a few mm to tens of mm).
@@ -117,11 +117,96 @@ def electron_loss(rng, mat, p, length, mass=eloss.ME):
     return np.minimum(lost, T)
 
 
+class ChordIndex:
+    """Panel boxes sorted by their low z, for the straw search on short chords: a chord is tested only against the
+    panels whose z extent overlaps its own (a few of the 216), then their 96 straws (same rows as straw_crossings)."""
+
+    def __init__(self, geom):
+        self.lo, self.hi, self.straws_of = crossings.panel_index(geom)
+        self.order = np.argsort(self.lo[:, 2], kind="stable")
+        self.lo_z = self.lo[self.order, 2]
+        self.width = float((self.hi[:, 2] - self.lo[:, 2]).max())
+
+    def crossings(self, x, c, L, geom):
+        """Rows (lane, straw, s_in, s_out) of the chords x + s c, s in [0, L], with every straw gas volume, sorted."""
+        z0 = np.minimum(x[:, 2], x[:, 2] + c[:, 2] * L)
+        z1 = np.maximum(x[:, 2], x[:, 2] + c[:, 2] * L)
+        a = np.searchsorted(self.lo_z, z0 - self.width, "left")
+        b = np.searchsorted(self.lo_z, z1, "right")
+        cnt = np.maximum(b - a, 0)
+        lane = np.repeat(np.arange(len(x)), cnt)
+        if not len(lane):
+            return np.zeros((0, 4))
+        off = np.arange(len(lane)) - np.repeat(np.cumsum(cnt) - cnt, cnt)
+        pan = self.order[np.repeat(a, cnt) + off]
+        o, d = x[lane], c[lane]
+        inv = 1.0 / np.where(d == 0, 1e-300, d)
+        t1 = (self.lo[pan] - o) * inv
+        t2 = (self.hi[pan] - o) * inv
+        tin = np.maximum(np.minimum(t1, t2).max(1), 0.0)
+        tout = np.minimum(np.maximum(t1, t2).min(1), L[lane])
+        ok = tout >= tin
+        lane, pan = lane[ok], pan[ok]
+        if not len(lane):
+            return np.zeros((0, 4))
+        ns = self.straws_of.shape[1]
+        it = np.repeat(lane, ns)
+        js = self.straws_of[pan].ravel()
+        w = x[it] - geom.mid[js]
+        aa = geom.dir[js]
+        dd = c[it]
+        da = (dd * aa).sum(1)
+        wa = (w * aa).sum(1)
+        u = dd - da[:, None] * aa
+        v = w - wa[:, None] * aa
+        A = (u * u).sum(1)
+        B = 2 * (u * v).sum(1)
+        C = (v * v).sum(1) - geom.radius ** 2
+        disc = B * B - 4 * A * C
+        par = A <= 1e-15
+        good = np.where(par, C <= 0, disc > 0)
+        sq = np.sqrt(np.where(good & ~par, disc, 0.0))
+        A_ = np.where(par, 1.0, A)
+        s0 = np.where(par, -np.inf, (-B - sq) / (2 * A_))
+        s1 = np.where(par, np.inf, (-B + sq) / (2 * A_))
+        h = geom.halflen[js]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            q0, q1 = (-h - wa) / da, (h - wa) / da
+        zl = np.where(np.abs(da) > 1e-12, np.minimum(q0, q1), -np.inf)
+        zh = np.where(np.abs(da) > 1e-12, np.maximum(q0, q1), np.inf)
+        inside_len = (np.abs(da) > 1e-12) | (np.abs(wa) <= h)
+        s_in, s_out = np.maximum(np.maximum(s0, zl), 0.0), np.minimum(s1, zh)
+        keep = good & inside_len & (s_out > s_in) & (s_in < L[it])
+        r = np.stack([it[keep], js[keep], s_in[keep], s_out[keep]], 1)
+        if len(r) > 1:   # a straw seen through two overlapping panel boxes: once
+            r = r[np.lexsort((r[:, 2], r[:, 1], r[:, 0]))]
+            dup = np.r_[False, (r[1:, 0] == r[:-1, 0]) & (r[1:, 1] == r[:-1, 1])]
+            r = r[~dup]
+        return r[np.lexsort((r[:, 2], r[:, 0]))]
+
+
+def electron_gas_eion(rng, p, length, tcut=None):
+    """Restricted ionisation [MeV] of electrons in the straw gas over `length` [mm]: Moller mean below the tracker
+    delta cut (eioni.dedx_restricted) with Urban fluctuations and the electron's largest transfer T/2, no Gaussian
+    regime (as eioni.continuous_loss, without brem). The muon path uses eloss.sample_loss."""
+    from mu2efastsim import eioni
+    tcut = st.delta_cut_mev() if tcut is None else tcut
+    p = np.asarray(p, float)
+    T = np.sqrt(p ** 2 + eloss.ME ** 2) - eloss.ME
+    length = np.asarray(length, float) * np.ones_like(T)
+    tmax = 0.5 * T
+    gam = 1.0 + T / eloss.ME
+    beta2 = 1.0 - 1.0 / gam ** 2
+    mean = eioni.dedx_restricted(st.STRAW_GAS, T, tcut) * length
+    return eloss.fluctuate(rng, st.STRAW_GAS, mean, length, np.minimum(tcut, tmax), tmax, beta2, gam, gaussian=False)
+
+
 def _straw_pieces(x, c, L, geom, r_out, rw, rw_in, index=None):
     """Gas crossings of chords (x, c, L): rows (lane, straw, s_in, s_out, wall, wire, plate, s_wire) with the wall chord
     (outer cylinder minus gas, both clipped to the chord and the straw length) and the wire/plating chords at the
     closest approach to the axis (assigned to the chord holding that point)."""
-    xs = crossings.straw_crossings(x, c, geom, index=index)
+    xs = index.crossings(x, c, L, geom) if isinstance(index, ChordIndex) else \
+        crossings.straw_crossings(x, c, geom, index=index)
     if not len(xs):
         return None
     lane = xs[:, 0].astype(np.int64)
@@ -218,7 +303,7 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
     tm = transport.timing = {"field": 0.0, "straws": 0.0, "support": 0.0, "loss_msc": 0.0, "merge": 0.0,
                              "iterations": 0}
     pieces = []
-    pidx = crossings.panel_index(geom)
+    pidx = ChordIndex(geom)
     act = np.flatnonzero(~env.leaving(x, u))
     status[np.setdiff1d(np.arange(n), act)] = 0
     for _ in range(int(max_chords)):
@@ -369,7 +454,12 @@ def _merge_rows(rng, pieces, start, geom, mass, q, origin, bdir, bnomc):
     pvec = 0.5 * (p0[:, None] * d0 + p1[:, None] * r["dir"][last])
     pmag = np.linalg.norm(pvec, axis=1)
     ms = mass[it]
-    eion = eloss.sample_loss(rng, st.STRAW_GAS, p0, ln, st.delta_cut_mev(), ms)
+    eion = np.empty(len(it))
+    ele = ms == eloss.ME
+    if (~ele).any():
+        eion[~ele] = eloss.sample_loss(rng, st.STRAW_GAS, p0[~ele], ln[~ele], st.delta_cut_mev(), ms[~ele])
+    if ele.any():
+        eion[ele] = electron_gas_eion(rng, p0[ele], ln[ele])
     bg = p0 / ms
     ke = np.sqrt(p0 ** 2 + ms ** 2) - ms
     pstraw = bnomc * geom.radius

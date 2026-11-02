@@ -254,7 +254,7 @@ def build_parser():
             sp.add_argument("--interior", action=argparse.BooleanOptionalAction, default=True,
                             help="support structure from the GDML (default on)")
             sp.add_argument("--max-events", type=int, default=None, help="first N events with a primary (quick checks)")
-            sp.add_argument("--save-steps", action="store_true", help="also write the fast steps and final states (parquet)")
+            sp.add_argument("--save-steps", action="store_true", help="also write the fast steps and final states (fast_steps.root)")
             sp.add_argument("--write-tables", action="store_true",
                             help="also write primary-only sgsteps/particles TTrees (fast and G4) for the StrawGasStepsFromTable injector")
         if name in BATCHABLE:

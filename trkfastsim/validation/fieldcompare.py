@@ -272,6 +272,7 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
         for name, df in (("fasttrk_field.root", fast), ("g4prim_field.root", g4w)):
             core_tables.write(os.path.join(outdir, name), {"sgsteps": df[cols].reset_index(drop=True),
                                                            "particles": parts}, as_ttree=True)
-    fast.to_parquet(os.path.join(outdir, "fast_sgsteps.parquet")) if kw.get("save_steps") else None
-    final.to_parquet(os.path.join(outdir, "fast_final.parquet")) if kw.get("save_steps") else None
+    if kw.get("save_steps"):
+        from mu2efastsim import tables as core_tables
+        core_tables.write(os.path.join(outdir, "fast_steps.root"), {"sgsteps": fast, "final": final})
     return res

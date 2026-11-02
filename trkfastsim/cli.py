@@ -14,6 +14,7 @@ from trkfastsim.validation import digicmp
 from trkfastsim.digi import fastdigi
 from trkfastsim.validation import seccensus
 from trkfastsim.validation import shardhist, shardstats
+from trkfastsim.validation import fieldcompare
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -34,6 +35,7 @@ ANALYSES = {
     "jaxcheck": (jaxcheck.run, "steps --backend jax against numpy on the same primaries: statistics, paired PrimaryFilter, reproducibility, timing"),
     "digi-cond": (fastdigi.run_cond, "fast digitisation conditions (.npz) from the stock job's fhicl-dump, DB CSVs and the GDML"),
     "digi": (fastdigi.run_digi, "fast digitisation (port of StrawDigisFromStrawGasSteps): step tables -> StrawHitTableDumper-layout digi tables"),
+    "field-compare": (fieldcompare.run, "field-on primary StrawGasSteps: fast chord transport (sim.fieldsteps) vs G4, restarted from the G4 tracker-VD entry state"),
     "digicmp": (digicmp.run, "fast vs stock digis on the same steps: digis/event, occupancy, TDC/TOT/PMP, dt, hit reco and combo hits, with a reseeded stock floor"),
     "shardhist": (shardhist.run, "per-shard (subrun) histograms of one arm: steps, digis, hit reco, fits; input of shardstats"),
     "shardstats": (shardstats.run, "paired per-shard statistic: batch variance, sign-flip null, family-wise limits, sizes; split-shard null"),
@@ -233,6 +235,28 @@ def build_parser():
             sp.add_argument("--alpha", type=float, default=0.01, help="family-wise rate per comparison")
             sp.add_argument("--detail", nargs="+", default=None, metavar="KEY", help="per-bin ratio and pull of these keys")
             sp.add_argument("--detail-min-pull", type=float, default=0.0, help="print only bins with |pull| >= this")
+        if name == "field-compare":
+            sp.add_argument("--gdml", required=True, help="GDML world export of the sample's geometry (straws, support)")
+            sp.add_argument("--species", type=int, default=13, choices=[11, 13], help="MC primary |pdg| (13 muons, 11 electrons)")
+            sp.add_argument("--map", dest="field_map", default=None, metavar="HEADER", help="G4BL field map header (e.g. DSMap.header)")
+            sp.add_argument("--bz", type=float, default=None, help="constant Bz [T] instead of a map (default 1.0 without --map)")
+            sp.add_argument("--no-field", action="store_true", help="straight-line control arm")
+            sp.add_argument("--seed", type=int, default=1)
+            sp.add_argument("--chord-mm", type=float, default=20.0, help="longest chord of the helix [mm]")
+            sp.add_argument("--sagitta-mm", type=float, default=0.02, help="largest chord sagitta [mm]")
+            sp.add_argument("--entry-vds", type=int, nargs="+", default=list(fieldcompare.TRACKER_VDS),
+                            help="VirtualDetectorIds whose first crossing is the entry state (13 = TT_FrontHollow)")
+            sp.add_argument("--entry", choices=["vd", "surface", "first"], default="vd",
+                            help="entry state from the first tracker VD crossing (default), the first tracker SurfaceStep "
+                                 "(entry vdid = -1 - SurfaceId in the output), or the earlier of the two")
+            sp.add_argument("--origin", type=float, nargs=3, default=None,
+                            help="detector-frame origin in the Mu2e frame [mm] (default: fitted from the G4 steps)")
+            sp.add_argument("--interior", action=argparse.BooleanOptionalAction, default=True,
+                            help="support structure from the GDML (default on)")
+            sp.add_argument("--max-events", type=int, default=None, help="first N events with a primary (quick checks)")
+            sp.add_argument("--save-steps", action="store_true", help="also write the fast steps and final states (parquet)")
+            sp.add_argument("--write-tables", action="store_true",
+                            help="also write primary-only sgsteps/particles TTrees (fast and G4) for the StrawGasStepsFromTable injector")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")
             sp.add_argument("--merge", action="store_true", help="inputs are --emit JSONs: sum and report")

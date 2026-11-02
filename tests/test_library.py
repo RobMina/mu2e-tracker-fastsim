@@ -176,3 +176,19 @@ def test_drop_muons_keeps_the_draws_and_removes_only_muon_rows():
     ea, ta = oa.draw(np.full(100, 3000.0), np.full(100, -0.99))
     eb, tb = ob.draw(np.full(100, 3000.0), np.full(100, -0.99))
     assert np.array_equal(ea, eb) and set(tb.pdg) == {11} and len(tb) == (ta.pdg == 11).sum()
+
+
+def test_width_match_draws_donors_of_the_same_plane_extent_width():
+    ev = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1, 2, 3], "p": 3000.0, "ux": 0.0, "uy": -1.0, "uz": 0.0,
+                       "plane_min": [4, 20, 10], "plane_max": [4, 23, 10]})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1, 2, 3], "eion": 1e-3, "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": 11, "sp": 5, "k": 0, "dpl": 0, "dpa": 0, "dst": 1, "dt": 0.1})
+    s = L.OffAxisSampler({"events": ev, "offaxis": off}, np.random.default_rng(3), width_match=True)
+    e, st = s.draw(np.full(200, 3000.0), np.full(200, -0.99), np.full(200, 5), np.full(200, 8))   # width 3 at planes 5-8
+    assert set(s.ev.event.to_numpy()[e]) == {2} and (s.last_level == 0).all()
+    e1, _ = s.draw(np.full(200, 3000.0), np.full(200, -0.99), np.full(200, 30), np.full(200, 30))  # width 0
+    assert set(s.ev.event.to_numpy()[e1]) == {1, 3}
+    d = L.OffAxisSampler({"events": ev, "offaxis": off}, np.random.default_rng(3))
+    ed, _ = d.draw(np.full(200, 3000.0), np.full(200, -0.99), np.full(200, 5), np.full(200, 8))
+    assert 2 not in set(d.ev.event.to_numpy()[ed])             # default: position bins, a width-0 donor near planes 5-8

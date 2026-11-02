@@ -73,6 +73,9 @@ def build_parser():
             sp.add_argument("--library-drop-muons", action="store_true",
                             help="with --library: leave out drawn muon steps (other primary muons of the donor event, which the "
                                  "fast transport already carries; opt-in)")
+            sp.add_argument("--offaxis-width-match", action="store_true",
+                            help="off-axis draw keyed on the width of the muon's plane extent (last - first plane) instead "
+                                 "of its position in --offaxis-plane-bin bins (opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
             sp.add_argument("--first-muon-only", action="store_true",
@@ -231,6 +234,8 @@ def build_parser():
             sp.add_argument("--alpha", type=float, default=0.01, help="family-wise rate per comparison")
             sp.add_argument("--detail", nargs="+", default=None, metavar="KEY", help="per-bin ratio and pull of these keys")
             sp.add_argument("--detail-min-pull", type=float, default=0.0, help="print only bins with |pull| >= this")
+            sp.add_argument("--shard-range", type=int, nargs=2, default=None, metavar=("LO", "HI"),
+                            help="use only shards with LO <= id <= HI (e.g. a development or confirmation subset)")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")
             sp.add_argument("--merge", action="store_true", help="inputs are --emit JSONs: sum and report")

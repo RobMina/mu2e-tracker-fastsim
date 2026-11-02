@@ -163,3 +163,12 @@ def test_steps_arm_place_by_width(tmp_path):
     assert w[1 + 2] == 1 and w[1 + 0] == 1                    # event 1 spans planes 3-5, event 2 one plane
     pw = z["h|a|sec/place_by_width"][0]
     assert pw[1 + 3 * SH.NWIDTH + 2] == 1                     # the e- at plane 9: >= 3 planes from 3-5, width 2
+
+
+def test_run_shard_range(tmp_path):
+    rng = np.random.default_rng(2)
+    x = rng.poisson(30, size=(40, 5))
+    p = _write(tmp_path, {"r": {"k": x}, "c": {"k": x + rng.poisson(1, size=x.shape)}}, nshard=40)
+    res = SS.run([str(p)], str(tmp_path / "o"), pairs=["r:c"], shard_range=[21, 40], nflip=200)
+    m = res["comparisons"]["c_vs_r"]["meta"]
+    assert m["N"] == 20 and m["shard_range"] == [21, 40]

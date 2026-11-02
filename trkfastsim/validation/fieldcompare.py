@@ -337,11 +337,16 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     if kw.get("write_tables"):
         # primary-only step tables for the art injector (StrawGasStepsFromTable): fast, and G4 after the entry state
         from mu2efastsim import tables as core_tables
-        parts = ent[T.KEY + ["sp", "pdg"]].rename(columns={"sp": "key"}).assign(parent=-1, isprim=1, ismcprim=1)
+        # keys renumbered 1..n per event (resampled-stage keys exceed 2^31, which the stock compression does not take)
+        rk = ent[T.KEY + ["sp", "pdg"]].sort_values(T.KEY + ["sp"]).copy()
+        rk["key"] = rk.groupby(T.KEY).cumcount() + 1
+        parts = rk[T.KEY + ["key", "pdg"]].assign(parent=-1, isprim=1, ismcprim=1)
+        rmap = rk[T.KEY + ["sp", "key"]]
         cols = T.KEY + ["nsgs", "sid", "plane", "panel", "straw", "upanel", "shape", "ion", "sp", "eion", "len",
                         "width", "t", "x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"]
         g4w = g4.assign(nsgs=g4.groupby(T.KEY).sid.transform("size"))
         for name, df in (("fasttrk_field.root", fast), ("g4prim_field.root", g4w)):
+            df = df.merge(rmap, on=T.KEY + ["sp"]).drop(columns="sp").rename(columns={"key": "sp"})
             core_tables.write(os.path.join(outdir, name), {"sgsteps": df[cols].reset_index(drop=True),
                                                            "particles": parts}, as_ttree=True)
     if kw.get("save_steps"):

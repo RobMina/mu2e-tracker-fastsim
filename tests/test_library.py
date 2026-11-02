@@ -155,3 +155,24 @@ def test_offaxis_edge_anchor_keeps_outside_steps_outside():
         planes[edge] = new[["plane", "straw"]].values.tolist()
     assert planes[False] == [[10, 50], [8, 40], [11, 40]]
     assert planes[True] == [[10, 50], [8, 40], [13, 44]]
+
+
+def test_drop_muons_keeps_the_draws_and_removes_only_muon_rows():
+    lib = _lib()
+    lib["instraw_steps"].loc[1, "pdg"] = -13                        # another primary muon in crossing 2
+    a, b = L.InStrawSampler(lib, np.random.default_rng(7)), L.InStrawSampler(lib, np.random.default_rng(7), drop_muons=True)
+    xa, sa = a.draw(np.full(500, 3000.0), np.full(500, 4.8))
+    xb, sb = b.draw(np.full(500, 3000.0), np.full(500, 4.8))
+    assert np.array_equal(xa, xb) and a.rng.random() == b.rng.random()
+    assert (sa.pdg.abs() == 13).sum() > 0 and (sb.pdg.abs() == 13).sum() == 0
+    keep = sa[sa.pdg.abs() != 13].reset_index(drop=True)
+    pd.testing.assert_frame_equal(keep, sb)
+    ev = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1, 2], "p": 3000.0, "ux": 0.0, "uy": -1.0, "uz": 0.0})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": 1400, "subrun": 1, "event": [2, 2], "eion": 1e-3, "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": [11, 13], "sp": [5, 6], "k": 0, "dpl": 0, "dpa": 0, "dst": [1, 2], "dt": 0.1})
+    oa = L.OffAxisSampler({"events": ev, "offaxis": off}, np.random.default_rng(5))
+    ob = L.OffAxisSampler({"events": ev, "offaxis": off}, np.random.default_rng(5), drop_muons=True)
+    ea, ta = oa.draw(np.full(100, 3000.0), np.full(100, -0.99))
+    eb, tb = ob.draw(np.full(100, 3000.0), np.full(100, -0.99))
+    assert np.array_equal(ea, eb) and set(tb.pdg) == {11} and len(tb) == (ta.pdg == 11).sum()

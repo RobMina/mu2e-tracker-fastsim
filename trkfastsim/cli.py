@@ -13,6 +13,7 @@ from trkfastsim.validation import jaxcheck
 from trkfastsim.validation import digicmp
 from trkfastsim.digi import fastdigi
 from trkfastsim.validation import seccensus
+from trkfastsim.validation import shardhist, shardstats
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -34,6 +35,8 @@ ANALYSES = {
     "digi-cond": (fastdigi.run_cond, "fast digitisation conditions (.npz) from the stock job's fhicl-dump, DB CSVs and the GDML"),
     "digi": (fastdigi.run_digi, "fast digitisation (port of StrawDigisFromStrawGasSteps): step tables -> StrawHitTableDumper-layout digi tables"),
     "digicmp": (digicmp.run, "fast vs stock digis on the same steps: digis/event, occupancy, TDC/TOT/PMP, dt, hit reco and combo hits, with a reseeded stock floor"),
+    "shardhist": (shardhist.run, "per-shard (subrun) histograms of one arm: steps, digis, hit reco, fits; input of shardstats"),
+    "shardstats": (shardstats.run, "paired per-shard statistic: batch variance, sign-flip null, family-wise limits, sizes; split-shard null"),
 }
 BATCHABLE = {"refcheck"}
 
@@ -67,6 +70,9 @@ def build_parser():
             sp.add_argument("--offaxis-topology-anchor", action="store_true", help="opt-in donor topology anchor; requires buildlib --topology")
             sp.add_argument("--offaxis-edge-anchor", action="store_true",
                             help="off-axis paste: steps outside the library muon's planes anchor on the fast muon's first/last plane (opt-in)")
+            sp.add_argument("--library-drop-muons", action="store_true",
+                            help="with --library: leave out drawn muon steps (other primary muons of the donor event, which the "
+                                 "fast transport already carries; opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
             sp.add_argument("--first-muon-only", action="store_true",
@@ -205,6 +211,26 @@ def build_parser():
             sp.add_argument("--require-same-events", action="store_true", help="reject unequal or duplicate event keys instead of intersecting")
             sp.add_argument("--drift-source", default=None, metavar="ROOT",
                             help="F2 drift conditions shared by all arms (default: --ref[0]); permits digi-only references")
+        if name == "shardhist":
+            sp.add_argument("--arm", required=True, help="arm name (output <outdir>/<arm>.npz)")
+            sp.add_argument("--kind", default="steps", choices=["steps", "digis"])
+            sp.add_argument("--select-steps", nargs="+", default=None, metavar="ROOT",
+                            help="digis: step tables of this arm; their tracker-term events and subruns are used")
+            sp.add_argument("--hit-cond", default=None, metavar="JSON", help="digis: hit-reco conditions (default: from --drift-source or inputs[0])")
+            sp.add_argument("--stock-hits", action="store_true", help="digis: also the stored stock straw/combo hits (arm@stockreco)")
+            sp.add_argument("--f2", action="store_true", help="digis: fast reco chain per shard (fit/*; JAX)")
+            sp.add_argument("--drift-source", default=None, metavar="ROOT", help="digis --f2: drift conditions (default inputs[0])")
+            sp.add_argument("--kkline", nargs="+", default=None, metavar="ROOT", help="digis: stock EventNtuples of these events (arm@kkline)")
+            sp.add_argument("--batches", type=int, default=1, help="shards per subrun, by event number modulo this (default 1)")
+        if name == "shardstats":
+            sp.add_argument("--pairs", nargs="+", default=None, metavar="REF:CAND", help="paired comparisons (arm names)")
+            sp.add_argument("--splits", nargs="+", default=None, metavar="ARM", help="unpaired split-shard null of these arms")
+            sp.add_argument("--shape", action="store_true", help="also the shape mode (candidate scaled by the selected-event ratio)")
+            sp.add_argument("--keys", nargs="+", default=None, metavar="GLOB", help="histogram keys to use (fnmatch globs)")
+            sp.add_argument("--nflip", type=int, default=20000)
+            sp.add_argument("--alpha", type=float, default=0.01, help="family-wise rate per comparison")
+            sp.add_argument("--detail", nargs="+", default=None, metavar="KEY", help="per-bin ratio and pull of these keys")
+            sp.add_argument("--detail-min-pull", type=float, default=0.0, help="print only bins with |pull| >= this")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")
             sp.add_argument("--merge", action="store_true", help="inputs are --emit JSONs: sum and report")

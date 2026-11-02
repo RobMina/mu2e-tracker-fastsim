@@ -13,6 +13,7 @@ from trkfastsim.validation import jaxcheck
 from trkfastsim.validation import digicmp
 from trkfastsim.digi import fastdigi
 from trkfastsim.validation import seccensus
+from trkfastsim.validation import shardhist, shardstats
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -34,6 +35,8 @@ ANALYSES = {
     "digi-cond": (fastdigi.run_cond, "fast digitisation conditions (.npz) from the stock job's fhicl-dump, DB CSVs and the GDML"),
     "digi": (fastdigi.run_digi, "fast digitisation (port of StrawDigisFromStrawGasSteps): step tables -> StrawHitTableDumper-layout digi tables"),
     "digicmp": (digicmp.run, "fast vs stock digis on the same steps: digis/event, occupancy, TDC/TOT/PMP, dt, hit reco and combo hits, with a reseeded stock floor"),
+    "shardhist": (shardhist.run, "per-shard (subrun) histograms of one arm: steps, digis, hit reco, fits; input of shardstats"),
+    "shardstats": (shardstats.run, "paired per-shard statistic: batch variance, sign-flip null, family-wise limits, sizes; split-shard null"),
 }
 BATCHABLE = {"refcheck"}
 
@@ -205,6 +208,23 @@ def build_parser():
             sp.add_argument("--require-same-events", action="store_true", help="reject unequal or duplicate event keys instead of intersecting")
             sp.add_argument("--drift-source", default=None, metavar="ROOT",
                             help="F2 drift conditions shared by all arms (default: --ref[0]); permits digi-only references")
+        if name == "shardhist":
+            sp.add_argument("--arm", required=True, help="arm name (output <outdir>/<arm>.npz)")
+            sp.add_argument("--kind", default="steps", choices=["steps", "digis"])
+            sp.add_argument("--select-steps", nargs="+", default=None, metavar="ROOT",
+                            help="digis: step tables of this arm; their tracker-term events and subruns are used")
+            sp.add_argument("--hit-cond", default=None, metavar="JSON", help="digis: hit-reco conditions")
+            sp.add_argument("--stock-hits", action="store_true", help="digis: also the stored stock straw/combo hits (arm@stockreco)")
+            sp.add_argument("--f2", action="store_true", help="digis: fast reco chain per shard (fit/*; JAX)")
+            sp.add_argument("--drift-source", default=None, metavar="ROOT", help="digis --f2: drift conditions (default inputs[0])")
+            sp.add_argument("--kkline", nargs="+", default=None, metavar="ROOT", help="digis: stock EventNtuples of these events (arm@kkline)")
+        if name == "shardstats":
+            sp.add_argument("--pairs", nargs="+", default=None, metavar="REF:CAND", help="paired comparisons (arm names)")
+            sp.add_argument("--splits", nargs="+", default=None, metavar="ARM", help="unpaired split-shard null of these arms")
+            sp.add_argument("--shape", action="store_true", help="also the shape mode (candidate scaled by the selected-event ratio)")
+            sp.add_argument("--keys", nargs="+", default=None, metavar="GLOB", help="histogram keys to use (fnmatch globs)")
+            sp.add_argument("--nflip", type=int, default=20000)
+            sp.add_argument("--alpha", type=float, default=0.01, help="family-wise rate per comparison")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")
             sp.add_argument("--merge", action="store_true", help="inputs are --emit JSONs: sum and report")

@@ -1,7 +1,8 @@
 """shardhist -- per-shard histograms of one arm for the paired per-shard statistic (`shardstats`).
 
 A shard is a subrun: arms made from the same generated primaries share their subruns, and subruns are independent, so
-per-shard differences carry the event clustering and the pairing of the arms. Every histogram keeps its underflow and
+per-shard differences carry the event clustering and the pairing of the arms. --batches K splits each subrun into K
+shards by event number modulo K (for samples with few subruns; events are independent, the pairing is kept). Every histogram keeps its underflow and
 overflow bins. Output: <outdir>/<arm>.npz with h|<arm>|<key> (shards x (bins + 2), int64), edges|<key> and
 shards|<arm>; a small <arm>.json with counts and settings.
 
@@ -79,16 +80,22 @@ class Hists:
         return info
 
 
-def _shards_of(paths):
-    """Sorted subruns of the step tables' subruns trees."""
+def _shards_of(paths, batches=1):
+    """Sorted shard ids of the step tables' subruns: subrun * batches + j, j < batches."""
     sr = T.read_many(paths, "subruns", ["run", "subrun"])
     if sr.duplicated().any():
         raise ValueError("a subrun appears twice in the step tables")
-    return np.sort(sr.subrun.to_numpy(np.int64))
+    s = np.sort(sr.subrun.to_numpy(np.int64))
+    return (s[:, None] * batches + np.arange(batches)[None, :]).ravel()
 
 
-def _sidx(shards, subrun):
-    i = np.searchsorted(shards, subrun)
+def _sid(subrun, event, batches):
+    """Shard id of events: subrun alone, or subrun * batches + event % batches (events are independent)."""
+    return np.asarray(subrun, np.int64) * batches + np.asarray(event, np.int64) % batches
+
+
+def _sidx(shards, sid):
+    i = np.searchsorted(shards, sid)
     if np.any(i >= len(shards)) or np.any(shards[np.minimum(i, len(shards) - 1)] != subrun):
         raise ValueError("entries outside the shard list")
     return i
@@ -130,18 +137,18 @@ def _place(s):
     return place, np.where(inmu, -1, dmin)
 
 
-def steps_arm(paths, arm, outdir):
+def steps_arm(paths, arm, outdir, batches=1):
     paths = T.expand(paths)
-    shards = _shards_of(paths)
+    shards = _shards_of(paths, batches)
     H = Hists(shards)
     nsel = 0
     for path in paths:
         s, keys = load_selected_steps(path)
         nsel += len(keys)
-        H.fill("sel/events", _sidx(shards, keys.subrun.to_numpy()), np.zeros(len(keys)))
+        H.fill("sel/events", _sidx(shards, _sid(keys.subrun, keys.event, batches)), np.zeros(len(keys)))
         if not len(s):
             continue
-        si = _sidx(shards, s.subrun.to_numpy())
+        si = _sidx(shards, _sid(s.subrun, s.event, batches))
         s = s.assign(si=si)
         e = 1e3 * s.eion.to_numpy()
         g = s.groupby(T.KEY, sort=False)
@@ -180,7 +187,8 @@ def steps_arm(paths, arm, outdir):
         H.fill("straw/eion_muonly_keV", st.si[only], ek[only])
         H.fill("straw/nsteps", st.si, st.n)
         H.fill("straw/occupancy", st.si, st.upanel.to_numpy() * 96 + st.straw.to_numpy())
-    return H.save(outdir, arm, {"kind": "steps", "inputs": [os.path.basename(p) for p in paths], "selected_events": nsel})
+    return H.save(outdir, arm, {"kind": "steps", "inputs": [os.path.basename(p) for p in paths], "selected_events": nsel,
+                                "batches": batches})
 
 
 def _restrict_events(d, keep):
@@ -322,18 +330,19 @@ def _kkline(paths, sel_keys, ev_si, H):
     return int((~seen).sum())
 
 
-def digis_arm(paths, arm, outdir, select_steps, hit_cond, stock_hits=False, f2=False, drift_source=None, kkline=None):
+def digis_arm(paths, arm, outdir, select_steps, hit_cond, stock_hits=False, f2=False, drift_source=None, kkline=None,
+              batches=1):
     from trkfastsim.reco import hitreco
     from trkfastsim.validation import digicmp as DC
     paths, select_steps = T.expand(paths), T.expand(select_steps)
-    shards = _shards_of(select_steps)
+    shards = _shards_of(select_steps, batches)
     sel = []
     for p in select_steps:                                  # one file at a time keeps memory low
         _, keys = load_selected_steps(p)
         sel.append(keys.to_numpy(np.int64))
     sel = np.concatenate(sel)
     sel = sel[np.lexsort((sel[:, 2], sel[:, 1], sel[:, 0]))]
-    ev_si = _sidx(shards, sel[:, 1])
+    ev_si = _sidx(shards, _sid(sel[:, 1], sel[:, 2], batches))
     if hit_cond is None:
         hit_cond = os.path.join(outdir, f"{arm}.hitcond.json")
         os.makedirs(outdir, exist_ok=True)
@@ -345,7 +354,7 @@ def digis_arm(paths, arm, outdir, select_steps, hit_cond, stock_hits=False, f2=F
     H.fill("sel/events", ev_si, np.zeros(len(sel)))
     _digi_fill(H, obs, ev_si)
     extra = {"kind": "digis", "inputs": [os.path.basename(p) for p in paths], "selected_events": int(len(sel)),
-             "selected_absent_from_digis": absent, "digis": int(len(d["sid"]))}
+             "selected_absent_from_digis": absent, "digis": int(len(d["sid"])), "batches": batches}
     if f2:
         from trkfastsim.reco.cli import _drift_table
         extra.update(_f2_fill(H, d, cond, _drift_table(drift_source or paths[0]), ev_si, len(shards)))
@@ -365,14 +374,14 @@ def digis_arm(paths, arm, outdir, select_steps, hit_cond, stock_hits=False, f2=F
 
 
 def run(inputs, outdir, arm=None, kind="steps", select_steps=None, hit_cond=None, stock_hits=False, f2=False,
-        drift_source=None, kkline=None, **kw):
+        drift_source=None, kkline=None, batches=1, **kw):
     if not arm:
         raise ValueError("--arm is required")
     if kind == "steps":
-        info = steps_arm(inputs, arm, outdir)
+        info = steps_arm(inputs, arm, outdir, batches)
     else:
         if not select_steps:
             raise ValueError("digis need --select-steps")
-        info = digis_arm(inputs, arm, outdir, select_steps, hit_cond, stock_hits, f2, drift_source, kkline)
+        info = digis_arm(inputs, arm, outdir, select_steps, hit_cond, stock_hits, f2, drift_source, kkline, batches)
     print(json.dumps({k: v for k, v in info.items() if k != "totals"}))
     return info

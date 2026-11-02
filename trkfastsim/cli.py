@@ -218,6 +218,7 @@ def build_parser():
             sp.add_argument("--f2", action="store_true", help="digis: fast reco chain per shard (fit/*; JAX)")
             sp.add_argument("--drift-source", default=None, metavar="ROOT", help="digis --f2: drift conditions (default inputs[0])")
             sp.add_argument("--kkline", nargs="+", default=None, metavar="ROOT", help="digis: stock EventNtuples of these events (arm@kkline)")
+            sp.add_argument("--batches", type=int, default=1, help="shards per subrun, by event number modulo this (default 1)")
         if name == "shardstats":
             sp.add_argument("--pairs", nargs="+", default=None, metavar="REF:CAND", help="paired comparisons (arm names)")
             sp.add_argument("--splits", nargs="+", default=None, metavar="ARM", help="unpaired split-shard null of these arms")

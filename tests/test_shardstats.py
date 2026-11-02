@@ -105,3 +105,12 @@ def test_place_classes():
     # (300, 9) five planes away; event 2 has no muon step
     assert place.tolist() == [0, 1, 2, 3, 4]
     assert dmin.tolist() == [-1, 0, 2, 5, 99]
+
+
+def test_batched_shard_ids():
+    ids = SH._sid(np.array([11, 11, 12]), np.array([7, 10, 3]), 10)
+    assert ids.tolist() == [117, 110, 123]
+    full = (np.array([11, 12])[:, None] * 10 + np.arange(10)[None, :]).ravel()
+    assert SH._sidx(full, ids).tolist() == [7, 0, 13]
+    with pytest.raises(ValueError):
+        SH._sidx(full, np.array([135]))

@@ -82,16 +82,43 @@ def panel_hits(sh, backend, settings="mc"):
     return combo_jax.panel_hits(sh, settings)
 
 
-DEVICE_SHAPE_GROWTH = 8     # padded-shape growth of the JAX step kernels in this chain (steps_jax.SHAPE_GROWTH)
+# JAX step-kernel settings of this chain (module attributes, set for the call and restored): fewer compiled shapes
+# (SHAPE_GROWTH), slab loss in one device call per material (SLICE_ROUNDS >= N_SLICES_MAX) and no host count per
+# world material (SYNC_FREE_PAIRS). Their step floats differ from the steps --backend jax defaults at rounding level.
+DEVICE_STEP_SETTINGS = {"steps_jax.SHAPE_GROWTH": 8, "steps_jax.SLICE_ROUNDS": 256, "steps_jax.SLAB_UNROLL": 8,
+                        "steps_jax.SAMPLER_UNROLL": True,
+                        "world_jax.SYNC_FREE_PAIRS": True}
+DEVICE_SHAPE_GROWTH = DEVICE_STEP_SETTINGS["steps_jax.SHAPE_GROWTH"]
 
 
-def run(gen, ctx, seed, backends=None, sync=None, digi_compact=None, shape_growth=None):
+class _module_settings:
+    """Set module attributes ("module.NAME" in trkfastsim.sim) for a block, then restore them."""
+
+    def __init__(self, settings):
+        import importlib
+        self.items = [(importlib.import_module("trkfastsim.sim." + k.split(".")[0]), k.split(".")[1], v)
+                      for k, v in settings.items()]
+
+    def __enter__(self):
+        self.old = [(m, n, getattr(m, n)) for m, n, _ in self.items]
+        for m, n, v in self.items:
+            if not hasattr(m, n):
+                raise ValueError(f"unknown step setting {m.__name__}.{n}")
+            setattr(m, n, type(getattr(m, n))(v))
+        return {f"{m.__name__.rsplit('.', 1)[1]}.{n}": getattr(m, n) for m, n, _ in self.items}
+
+    def __exit__(self, *exc):
+        for m, n, v in self.old:
+            setattr(m, n, v)
+
+
+def run(gen, ctx, seed, backends=None, sync=None, digi_compact=None, shape_growth=None, step_settings=None):
     """One pass over a generator table. Returns counts, per-stage wall seconds, per-stage output digests and the
     products (steps, digis, hits, combos, clusters, seeds, table). `sync`: called after each stage (e.g. to wait for
     the device) so stage times do not leak into the next stage. digi_compact (default: on for the JAX digitiser, off
     for NumPy, which then equals tracker_point): digitise in chunks of events with steps (fastdigi.digitize_steps).
-    shape_growth (JAX steps only; default DEVICE_SHAPE_GROWTH): fewer compiled shapes for a stream of tables; the step
-    floats then differ from growth 2 (the steps --backend jax default) at the rounding level."""
+    step_settings (JAX steps only; default DEVICE_STEP_SETTINGS, {} for the steps --backend jax defaults) and
+    shape_growth (overrides its SHAPE_GROWTH entry)."""
     from trkfastsim.kit.kitpoint import generated_keys
     b = check_backends(backends)
     compact = (b["digi"] == "jax") if digi_compact is None else bool(digi_compact)
@@ -99,20 +126,18 @@ def run(gen, ctx, seed, backends=None, sync=None, digi_compact=None, shape_growt
     t_all = t = time.perf_counter()
     timing = {}
     keys = generated_keys(gen)
-    growth = None
+    settings = {}
     if b["steps"] == "jax":
-        from trkfastsim.sim import steps_jax
-        g = int(shape_growth or DEVICE_SHAPE_GROWTH)
+        settings = dict(DEVICE_STEP_SETTINGS if step_settings is None else step_settings)
+        if shape_growth:
+            settings["steps_jax.SHAPE_GROWTH"] = int(shape_growth)
+        g = settings.get("steps_jax.SHAPE_GROWTH", 2)
         if g < 2 or g & (g - 1):
             raise ValueError("shape_growth must be a power of two >= 2")
-        growth, steps_jax.SHAPE_GROWTH = steps_jax.SHAPE_GROWTH, g
-    try:
+    with _module_settings(settings) as used:
         sgs, parts = steps_mod.make_steps(gen, ctx.geom, np.random.default_rng([seed, 0]), stage="C", world=ctx.world,
                                           interior=ctx.interior, sliced_msc=True, all_muons=True, backend=b["steps"])
-    finally:
-        if growth is not None:
-            used, steps_jax.SHAPE_GROWTH = steps_jax.SHAPE_GROWTH, growth
-            growth = used
+    growth = used or None
     sync()
     timing["steps_s"] = time.perf_counter() - t
     sub = {f"steps.{k}_s": float(v) for k, v in getattr(steps_mod.make_steps, "timing", {}).items() if k != "total"}
@@ -151,6 +176,6 @@ def run(gen, ctx, seed, backends=None, sync=None, digi_compact=None, shape_growt
               "clusters": digest(stages["clusters"]), "seeds": digest({k: v for k, v in seeds.items()
                                                                        if isinstance(v, np.ndarray)}),
               "table": digest(table)}
-    return {"backends": b, "digi_compact": compact, "shape_growth": growth, "seed": seed, "counts": counts, "timing": timing, "hashes": hashes,
+    return {"backends": b, "digi_compact": compact, "step_settings": growth, "seed": seed, "counts": counts, "timing": timing, "hashes": hashes,
             "products": {"steps": sgs, "digis": d, "hits": sh, "combos": ph, "clusters": stages["clusters"],
                          "seeds": seeds, "table": tb}}

@@ -47,7 +47,9 @@ PT_CAP = 4        # panel boxes holding one point
 N_TAIL = 8        # single-scatter proposals per kink group and process (Poisson means are < 0.5)
 K_ALL = 128       # straight-line crossings per line (stage A)
 LANES = 4096      # muons per transport chunk
-SLICE_ROUNDS = 8  # slab slices per device call between compactions
+SLICE_ROUNDS = 8  # slab slices per device call between compactions (>= transport.N_SLICES_MAX: one call, no sync)
+SLAB_UNROLL = 1   # slab slices per device loop iteration (> 1: fewer loop iterations, same slices per lane)
+SAMPLER_UNROLL = False   # unroll the loss sampler's fixed-trip loops inside the slab loop (no inner device loops)
 KEY_TRANSPORT, KEY_EXIT, KEY_EION, KEY_SLAB, KEY_CORE, KEY_TAIL = 1, 2, 3, 2, 0, 1
 # column sums in int64 fixed point (exact and order-free, so independent of batching and of the device): length in
 # 1e-9 mm, first moment in 1e-6 mm^2, second in 1e-3 mm^3
@@ -548,8 +550,9 @@ def _bisect_len(seg, hi):
 
 # --------------------------------------------------------------------------- sliced support loss
 
-def _slab_one(key, c, p, L, rounds, carry):
-    """transport.slab_loss for one (material, |p|, length), `rounds` slices from `carry` = (i, left, lost)."""
+def _slab_one(key, c, p, L, rounds, carry, inner=False):
+    """transport.slab_loss for one (material, |p|, length), `rounds` slices from `carry` = (i, left, lost); inner:
+    unroll the loss sampler's fixed-trip loops (eloss_jax._sample unroll)."""
     tk0 = jnp.sqrt(p * p + MMU * MMU) - MMU
 
     def body(_, s):
@@ -564,15 +567,18 @@ def _slab_one(key, c, p, L, rounds, carry):
         step = jnp.where(coarse, left / tr.MAX_SLICES_PER_SLAB, tr.SLICE_FRAC * tk / dedx_s)
         step = jnp.minimum(left, jnp.maximum(step, tr.SLICE_FRAC * tk / dedx_s))
         step = jnp.where(left <= step * 1.0001, left, step)
-        dl = eloss_jax._sample(jax.random.fold_in(key, i), c, pg, jnp.where(go, step, 0.0), 1e9, MMU)
+        dl = eloss_jax._sample(jax.random.fold_in(key, i), c, pg, jnp.where(go, step, 0.0), 1e9, MMU,
+                               **({"unroll": True} if inner else {}))
         dl = jnp.where(dl >= tk, dedx * step, dl)
         return (i + go, jnp.where(go, left - step, left), jnp.where(go, lost + dl, lost))
 
-    return lax.fori_loop(0, rounds, body, carry)
+    return lax.fori_loop(0, rounds, body, carry, **({"unroll": True} if rounds > 1 else {}))
 
 
-@partial(jax.jit, static_argnames=("rounds",))
-def _slab_rounds(MC, mat, p, L, keys, carry, rounds, valid=None):
+@partial(jax.jit, static_argnames=("rounds", "unroll", "inner"))
+def _slab_rounds(MC, mat, p, L, keys, carry, rounds, valid=None, unroll=1, inner=False):
+    """Up to `rounds` slices per lane (while any lane is pending), `unroll` slices per loop iteration: each lane takes
+    the same slices with the same keys for any unroll, the loop (and its per-iteration predicate copy) runs fewer times."""
     c = eloss_jax.MatConsts(*(f[mat] for f in MC))
     tk0 = jnp.sqrt(p * p + MMU * MMU) - MMU
     valid = jnp.ones(p.shape, bool) if valid is None else valid
@@ -582,9 +588,9 @@ def _slab_rounds(MC, mat, p, L, keys, carry, rounds, valid=None):
 
     def body(state):
         r, s, _ = state
-        out = jax.vmap(lambda k, cc, pp, ll, i, lf, lo: _slab_one(k, cc, pp, ll, 1, (i, lf, lo)))(
+        out = jax.vmap(lambda k, cc, pp, ll, i, lf, lo: _slab_one(k, cc, pp, ll, unroll, (i, lf, lo), inner))(
             keys, c, p, L, *s)
-        return r + 1, out, pending(out)
+        return r + unroll, out, pending(out)
 
     _, out, todo = lax.while_loop(lambda s: (s[0] < rounds) & jnp.any(s[2]), body,
                                    (jnp.int32(0), carry, pending(carry)))
@@ -623,11 +629,11 @@ def _slab_pairs(col, keys, p, C):
     return row, mat, L, k, v, jnp.maximum(p[row], 1.0), (jnp.zeros(C, jnp.int32), L, jnp.zeros(C)), jnp.arange(C)
 
 
-@partial(jax.jit, static_argnames=("rounds",))
-def _slab_iter(MC, mat, pp, L, k, carry, idx, rounds):
+@partial(jax.jit, static_argnames=("rounds", "unroll", "inner"))
+def _slab_iter(MC, mat, pp, L, k, carry, idx, rounds, unroll=1, inner=False):
     """`rounds` slices of the work list idx (out-of-bounds padding: gathers clamp, writes dropped); pending count."""
     out, todo = _slab_rounds(MC, mat[idx], pp[idx], L[idx], k[idx], tuple(x[idx] for x in carry), rounds,
-                             valid=(idx >= 0) & (idx < pp.shape[0]))
+                             valid=(idx >= 0) & (idx < pp.shape[0]), unroll=unroll, inner=inner)
     return _carry_set(carry, idx, out), todo, jnp.sum(todo)
 
 
@@ -1115,7 +1121,10 @@ class DeviceInterior:
         C = _bucket(npairs, 64)
         row, mat, L, k, v, pp, carry, idx = _slab_pairs(col, keys, p, C)
         while True:
-            carry, todo, nt = _slab_iter(self.MC, mat, pp, L, k, carry, idx, SLICE_ROUNDS)
+            carry, todo, nt = _slab_iter(self.MC, mat, pp, L, k, carry, idx, SLICE_ROUNDS, unroll=SLAB_UNROLL,
+                                         inner=SAMPLER_UNROLL)
+            if SLICE_ROUNDS >= tr.N_SLICES_MAX:     # one call takes every pair to its slice cap or its end
+                break
             nt = int(nt)
             if not nt:
                 break

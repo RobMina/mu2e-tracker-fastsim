@@ -99,15 +99,18 @@ def trace_transfers(trace_dir):
     out = {}
     for e in ev:
         name = str(e.get("name", ""))
-        if "memcpy" not in name.lower() and "MemcpyH2D" not in name and "MemcpyD2H" not in name:
+        if not name.startswith("Memcpy"):
             continue
         kind = ("H2D" if "h2d" in name.lower() or "htod" in name.lower() else
                 "D2H" if "d2h" in name.lower() or "dtoh" in name.lower() else
                 "D2D" if "d2d" in name.lower() or "dtod" in name.lower() else name[:40])
         a = e.get("args", {}) or {}
         nbytes = next((int(v) for k, v in a.items() if "bytes" in k.lower() and str(v).isdigit()), 0)
-        o = out.setdefault(kind, {"events": 0, "bytes": 0, "dur_us": 0.0})
+        m = re.search(r"size:(\d+)", str(a.get("memcpy_details", "")))
+        nbytes = int(m.group(1)) if m else nbytes
+        o = out.setdefault(kind, {"events": 0, "bytes": 0, "dur_us": 0.0, "events_le_64B": 0})
         o["events"] += 1
+        o["events_le_64B"] += nbytes <= 64
         o["bytes"] += nbytes
         o["dur_us"] += float(e.get("dur", 0.0))
     return out
@@ -175,12 +178,20 @@ def main(argv=None):
     p.add_argument("--digi-compact", choices=("auto", "on", "off"), default="auto",
                    help="digitise in chunks of events with steps (auto: on for the JAX digitiser)")
     p.add_argument("--shape-growth", type=int, help="JAX step-kernel shape growth (default devchain.DEVICE_SHAPE_GROWTH)")
+    p.add_argument("--step-settings", help="JAX step settings, module.NAME=value[,...]; 'default' for the steps "
+                   "--backend jax defaults (default: devchain.DEVICE_STEP_SETTINGS)")
     p.add_argument("--log-compiles", action="store_true", help="count JAX compilations per pass and function")
     p.add_argument("--save-steps", action="store_true", help="write each table's first-pass steps and digis (.npz)")
     p.add_argument("--outdir", type=Path, required=True)
     a = p.parse_args(argv)
     b = parse_backends(a.backends)
     compact = {"auto": None, "on": True, "off": False}[a.digi_compact]
+    step_settings = None
+    if a.step_settings == "default":
+        step_settings = {}
+    elif a.step_settings:
+        step_settings = {k: (v.lower() == "true" if v.lower() in ("true", "false") else int(v))
+                         for k, v in (x.split("=") for x in a.step_settings.split(","))}
     a.outdir.mkdir(parents=True, exist_ok=False)
     counter = CompileCounter() if a.log_compiles else None
     t0 = time.perf_counter()
@@ -217,7 +228,8 @@ def main(argv=None):
             t = time.perf_counter()
             if counter:
                 counter.reset()
-            r = devchain.run(gen, ctx, a.seed, b, digi_compact=compact, shape_growth=a.shape_growth)
+            r = devchain.run(gen, ctx, a.seed, b, digi_compact=compact, shape_growth=a.shape_growth,
+                             step_settings=step_settings)
             wall = time.perf_counter() - t
             if prof:
                 prof.disable()
@@ -226,7 +238,7 @@ def main(argv=None):
             rec = {"pass": gi, "repeat": rep, "wall_s": wall, "timing": r["timing"], "counts": r["counts"],
                    "hashes": r["hashes"], "maxrss_kib": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
                    "device_memory": device_memory(), "profiled": bool(prof), "traced": tracing,
-                   "digi_compact": r["digi_compact"], "shape_growth": r["shape_growth"]}
+                   "digi_compact": r["digi_compact"], "step_settings": r["step_settings"]}
             if counter:
                 rec["compiles"] = counter.summary()
             if prof:

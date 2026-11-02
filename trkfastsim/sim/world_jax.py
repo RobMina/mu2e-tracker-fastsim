@@ -100,20 +100,31 @@ def _band_finish(MC, coeff, col, seg, p, before, lost):
     return lost, xx0, bp, chi, thn
 
 
+SYNC_FREE_PAIRS = False   # True: every lane of the chunk is a (muon, material) pair slot, no host count per material
+
+
 def _compact_band_loss(MC, coeff, col, seg, p, lost, keys):
-    """Sequential materials with active slice compaction and unchanged per-muon/material/slice keys."""
+    """Sequential materials with active slice compaction and unchanged per-muon/material/slice keys. With
+    SYNC_FREE_PAIRS and steps_jax.SLICE_ROUNDS >= N_SLICES_MAX the band runs without a device-to-host sync."""
     before = lost
+    one_call = sj.SLICE_ROUNDS >= tr.N_SLICES_MAX
     for m in range(col.shape[1]):
-        count = int(_count_material(col, m))
-        if not count:
-            continue
-        C = sj._bucket(count)
+        if SYNC_FREE_PAIRS:
+            C = col.shape[0]
+        else:
+            count = int(_count_material(col, m))
+            if not count:
+                continue
+            C = sj._bucket(count)
         idx, valid, length, pp, mk = _material_pairs(col, m, p, lost, keys, C)
         mat = jnp.full(C, m, jnp.int32)
         carry = (jnp.zeros(C, jnp.int32), length, jnp.zeros(C))
         work = jnp.arange(C)
         while True:
-            carry, todo, nt = sj._slab_iter(MC, mat, pp, length, mk, carry, work, sj.SLICE_ROUNDS)
+            carry, todo, nt = sj._slab_iter(MC, mat, pp, length, mk, carry, work, sj.SLICE_ROUNDS, unroll=sj.SLAB_UNROLL,
+                                            inner=sj.SAMPLER_UNROLL)
+            if one_call:          # every pair has reached its slice cap or finished
+                break
             nt = int(nt)
             if not nt:
                 break

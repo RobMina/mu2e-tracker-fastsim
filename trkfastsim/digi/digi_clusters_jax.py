@@ -6,7 +6,8 @@ Random streams are folded by the original step index and cluster ordinal; resour
 batch changes preserve those keys. Arithmetic need not be bitwise across devices.
 Minion residual energy is exhausted by an uncapped, masked JAX while loop.
 
-JAX is optional until a public function is called; this backend enables float64.
+JAX is optional until a public function is called; this backend enables float64 (x64); the sampling kernels follow
+the tracker device float (trkfastsim.devfloat), the standalone gain and wire helpers stay float64.
 An allocation exceeding MAX_CLUSTER_BUCKET raises OverflowError, never truncates a
 physics tail. Callers may raise that resource limit explicitly before retrying.
 """
@@ -22,6 +23,7 @@ except ImportError:
     jax = None
 else:
     jax.config.update("jax_enable_x64", True)
+    from trkfastsim import devfloat as df
 
 __all__ = ["make_clusters", "cluster_gain", "wire_coordinates"]
 BATCH_SIZE = 4096 if jax is not None and jax.default_backend() == "gpu" else 128
@@ -38,7 +40,11 @@ def _require_jax():
 def _jit(fun=None, **kwargs):
     if fun is None:
         return partial(_jit, **kwargs)
-    return jax.jit(fun, **kwargs) if jax is not None else fun
+    return df.jit(fun, **kwargs) if jax is not None else fun
+
+
+def _jit64(fun):
+    return jax.jit(fun) if jax is not None else fun
 
 
 def _fold(keys, tag):
@@ -53,10 +59,12 @@ def _step_keys(key, idx):
 
 
 def _uniform(keys):
-    return jax.vmap(lambda k: random.uniform(k, (), dtype=jnp.float64))(keys)
+    return jax.vmap(lambda k: df.draw(random.uniform, k, ()))(keys)
 
 
 def _poisson(keys, mean):
+    if df.DRAW64:
+        mean = mean.astype(np.float64)
     return jax.vmap(lambda k, m: random.poisson(k, m, dtype=jnp.int64))(keys, mean)
 
 
@@ -142,11 +150,12 @@ def _sample(key, idx, eion, nc, minion, p0, p1, sdir, width, eaverage, energies,
     n2 = jnp.linalg.norm(q2, axis=1)
     q2 /= jnp.where(n2 > 0, n2, 1.0)[:, None]
     radial_keys = jax.vmap(lambda ks: _fold(ks, 0))(slot_keys)
-    normals = jax.vmap(jax.vmap(lambda k: random.normal(k, (2,), dtype=jnp.float64)))(radial_keys)
+    normals = jax.vmap(jax.vmap(lambda k: df.draw(random.normal, k, (2,))))(radial_keys)
     pos = p0[:, None, :] + u[:, :, None] * path[:, None, :]
     pos += width[:, None, None] * (q1[:, None, :] * normals[:, :, :1] + q2[:, None, :] * normals[:, :, 1:])
     electron_keys = jax.vmap(lambda ks: _fold(ks, 1))(slot_keys)
-    means = jnp.broadcast_to(jnp.where(minion, 0.0, eion / (jnp.maximum(nc, 1) * eaverage))[:, None], nc.shape + (capacity,))
+    means = jnp.broadcast_to(jnp.where(minion, 0.0, eion / (jnp.maximum(nc, 1).astype(eion.dtype) * eaverage))[:, None],
+                             nc.shape + (capacity,))
     ne = jnp.maximum(jax.vmap(_poisson)(electron_keys, means), 1)
     mine, _ = _minion_clusters(keys, energies, probabilities, eion, jnp.where(minion, nc, 0), capacity)
     ne = jnp.where(minion[:, None], mine, ne)
@@ -223,12 +232,15 @@ def make_clusters(key, c, st, idx):
                 m = group[start:start + batch]
                 sdir = np.asarray(c.straw_dir[st["_us"][idx[m]]], np.float64) if c.randrad else np.zeros((len(m), 3))
                 width = np.asarray(st["width"][idx[m]], np.float64) if c.randrad else np.zeros(len(m))
+                # float32: positions relative to the step's straw middle on the device, absolute again on the host
+                ref = np.asarray(c.straw_mid, np.float64)[st["_us"][idx[m]]] if df.SINGLE else 0.0
                 pos, ne = _sample(key, _pad(idx[m], batch), _pad(eion[m], batch), _pad(nc[m], batch), _pad(minion[m], batch),
-                                  _pad(p0[m], batch), _pad(p1[m], batch), _pad(sdir, batch), _pad(width, batch),
+                                  _pad(p0[m] - ref, batch), _pad(p1[m] - ref, batch), _pad(sdir, batch), _pad(width, batch),
                                   c.EAverage, energies, probabilities, int(capacity))
                 keep = np.arange(capacity)[None, :] < nc[m, None]
                 pieces_s.append(np.broadcast_to(m[:, None], keep.shape)[keep])
-                pieces_p.append(np.asarray(pos)[:len(m)][keep])
+                pos = df.host(pos)[:len(m)]
+                pieces_p.append((pos + ref[:, None, :] if df.SINGLE else pos)[keep])
                 pieces_n.append(np.asarray(ne)[:len(m)][keep])
         local = np.concatenate(pieces_s)
         order = np.argsort(local, kind="stable")
@@ -243,7 +255,7 @@ def make_clusters(key, c, st, idx):
     return np.concatenate(out_s), np.concatenate(out_p), np.concatenate(out_n)
 
 
-@_jit
+@_jit64
 def _gain(key, ne, a, ngauss, slope, gas_gain):
     kg, kn = random.split(key)
     shape = jnp.where(ne == 1, a, ne * (a + 1) - 1).astype(jnp.float64)
@@ -265,7 +277,7 @@ def cluster_gain(key, c, ne):
     return np.asarray(_gain(key, ne, c.polyaA, c.nGainGauss, c.gainRMSSlope, c.gasGain))
 
 
-@_jit
+@_jit64
 def _wire(pos, smid, sdir, wmid, wdir, radius):
     d = pos - smid
     cp = d - jnp.sum(d * sdir, axis=1)[:, None] * sdir

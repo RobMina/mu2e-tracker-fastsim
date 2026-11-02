@@ -13,6 +13,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax, random
 
+from trkfastsim import devfloat as df
 from trkfastsim.digi import digitize as reference
 
 jax.config.update("jax_enable_x64", True)
@@ -27,9 +28,9 @@ CHARGE_BLOCK = 4096
 CHARGE_BLOCKS = 16 if GPU else 1
 
 
-@jax.jit
+@df.jit
 def _jitter_block(key):
-    return random.normal(key, (JITTER_BATCH, reference.NUPANELS), dtype=jnp.float64)
+    return df.draw(random.normal, key, (JITTER_BATCH, reference.NUPANELS))
 
 
 def _panel_jitter(key, events, panels, scale):
@@ -53,17 +54,34 @@ def _empty(c):
             "step": np.zeros((0, 2), np.int64), "t_analog": np.zeros((0, 2))}
 
 
+def _gamma(key, a):
+    if df.DRAW64:
+        return random.gamma(key, a.astype(np.float64), dtype=np.float64).astype(df.FLOAT)
+    return random.gamma(key, a)
+
+
+def _relative_geometry(c):
+    """float32 mode: cluster positions are relative to their straw's middle, so the wire middles are too."""
+    a = dict(c.a)
+    if df.SINGLE:
+        a["wire_mid"] = np.asarray(c.a["wire_mid"]) - np.asarray(c.a["straw_mid"])
+        a["straw_mid"] = np.zeros_like(c.a["straw_mid"])
+    return df.dev({k: jnp.asarray(v) for k, v in a.items()})
+
+
 @lru_cache(maxsize=8)
 def _charge_kernel(c):
-    a = {k: jnp.asarray(v) for k, v in c.a.items()}
+    a = _relative_geometry(c)
+    dtv0, dtv1 = (float(x) for x in np.asarray(c.dtvar)[:2])
 
-    @jax.jit
+    @df.jit
     def run(key, us, pos, ne, time):
         k1, k2, k3 = random.split(key, 3)
-        aval = jnp.where(ne == 1, c.polyaA, ne * (c.polyaA + 1) - 1).astype(jnp.float64)
-        gain = jnp.where(ne < c.nGainGauss, random.gamma(k1, aval) / aval,
-                         1 + c.gainRMSSlope / jnp.sqrt(ne) * random.normal(k2, ne.shape))
-        charge = (c.Qe * ne * c.gasGain * gain).astype(jnp.float32)
+        nef = ne.astype(df.FLOAT)
+        aval = jnp.where(ne == 1, c.polyaA, nef * (c.polyaA + 1) - 1).astype(df.FLOAT)
+        gain = jnp.where(ne < c.nGainGauss, _gamma(k1, aval) / aval,
+                         1 + c.gainRMSSlope / jnp.sqrt(nef) * df.draw(random.normal, k2, ne.shape))
+        charge = (c.Qe * nef * c.gasGain * gain).astype(jnp.float32)
         d = pos - a["straw_mid"][us]
         dw = jnp.sum(d * a["straw_dir"][us], 1)
         cp = d - dw[:, None] * a["straw_dir"][us]
@@ -75,11 +93,11 @@ def _charge_kernel(c):
         di = jnp.clip(jnp.floor(rho / c.drift_dD).astype(jnp.int32), 0, len(c.drift_dist) - 2)
         fr = (rho - a["drift_dist"][di]) / c.drift_dD
         td = a["drift_times"][di, 0] + fr * (a["drift_times"][di + 1, 0] - a["drift_times"][di, 0])
-        td = (td + (c.dtvar[0] + c.dtvar[1] * rho) * random.normal(k3, ne.shape)).astype(jnp.float32)
+        td = (td + (dtv0 + dtv1 * rho) * df.draw(random.normal, k3, ne.shape)).astype(jnp.float32)
         hl = a["wire_halflen"][us]
         wd = jnp.stack([hl - zw, hl + zw], 1).astype(jnp.float32)
         prop = (wd / c.vprop).astype(jnp.float32)
-        gt = (time[:, None] + td[:, None].astype(jnp.float64) + prop.astype(jnp.float64)).astype(jnp.float32)
+        gt = (time[:, None] + td[:, None].astype(df.FLOAT) + prop.astype(df.FLOAT)).astype(jnp.float32)
         return gt, (jnp.float32(0.5) * charge), wd
     return run
 
@@ -88,7 +106,7 @@ def _charge_kernel(c):
 def _charge_blocks_kernel(c):
     charge = _charge_kernel(c)
 
-    @jax.jit
+    @df.jit
     def run(key, first, us, pos, ne, time):
         offsets = first + jnp.arange(CHARGE_BLOCKS, dtype=jnp.int64) * CHARGE_BLOCK
         keys = jax.vmap(lambda offset: random.fold_in(random.fold_in(key, 1), offset))(offsets)
@@ -105,16 +123,21 @@ def _electronics_kernel(c, cap, pair_cap, batch):
     R = batch * 2
     rows = jnp.arange(R)
     ci = jnp.arange(cap)[None, :]
-    cond = {k: jnp.asarray(v) for k, v in c.a.items()}
+    cond = df.dev({k: jnp.asarray(v) for k, v in c.a.items()})
+    rel = df.SINGLE   # float32: times relative to a per-straw reference tref = n_ref * COMMON_PERIOD
+    if rel:
+        df.check_common_period(c)
+        per_adc, per_tdc = int(round(df.COMMON_PERIOD / c.ADCPeriod)), int(round(df.COMMON_PERIOD / c.TDCLSB))
     tables = {k: cond["resp_" + k].astype(jnp.float32) for k in ("thresh", "adc", "sat")}
     dts = c.saturationSampleFactor / sr
     sat_steps = int(np.ceil((c.ttrunc + c.nADCSamples * c.ADCPeriod + 2 * LB) / dts)) + 2
     ticks = jnp.arange(1, c.maxTOT)
     adc_k = jnp.arange(c.nADCSamples)
 
-    @jax.jit
-    def run(key, t, q, wd, step, n, straw_us, straw_ra, straw_key, live_straw, jitter):
+    @df.jit
+    def run(key, t, q, wd, step, n, straw_us, straw_ra, straw_key, live_straw, jitter, n_ref=None):
         n = n.astype(jnp.int32)
+        tref = n_ref.astype(df.FLOAT) * df.COMMON_PERIOD if rel else 0.0     # [batch], exact multiples
         us = jnp.repeat(straw_us, 2)
         live = jnp.repeat(live_straw, 2)
         valid = (ci < n[:, None]) & live[:, None]
@@ -136,7 +159,7 @@ def _electronics_kernel(c, cap, pair_cap, batch):
 
         def normal(stage, iteration, shape):
             kk = jax.vmap(lambda k: random.fold_in(random.fold_in(k, stage), iteration))(keys)
-            return jax.vmap(lambda k: random.normal(k, shape, dtype=jnp.float64))(kk)
+            return jax.vmap(lambda k: df.draw(random.normal, k, shape))(kk)
 
         def at(x, i):
             return x[rows, jnp.clip(i, 0, cap - 1)]
@@ -163,7 +186,7 @@ def _electronics_kernel(c, cap, pair_cap, batch):
             ok = valid[:, :, None] & (t[:, :, None] - LB < tq[:, None, :])
             if cmin is not None:
                 ok &= (ci >= cmin[:, None])[:, :, None]
-            v = jnp.sum(jnp.where(ok, v, 0).astype(jnp.float64), axis=1)
+            v = jnp.sum(jnp.where(ok, v, 0).astype(df.FLOAT), axis=1)
             v *= (dv_a if path == "adc" else dv_t)[:, None]
             return v
 
@@ -235,13 +258,16 @@ def _electronics_kernel(c, cap, pair_cap, batch):
 
         noise = normal(0, 0, ()) * c.strawNoise
         threshold = (cond["vthresh"][straw_us] + noise[:, None] + c.thresholdAnalogNoise * normal(1, 0, (2,))).reshape(R)
-        ts = jnp.where(straw_ra, -c.deadTimeAnalog, c.digitizationStart - c.timeFromProtonsToDRMarker - c.flashBuffer)
+        ts = jnp.where(straw_ra, df.FLOAT.type(-c.deadTimeAnalog),
+                       df.FLOAT.type(c.digitizationStart - c.timeFromProtonsToDRMarker - c.flashBuffer))
+        if rel:
+            ts = ts - tref
         ic, tt, th, vv, cr, failed = crosses(jnp.zeros(R, jnp.int32), jnp.repeat(ts, 2), threshold, jnp.zeros(R), live)
         end = max(c.eventWindowLength, c.mbtime) - c.electronicsTimeDelay + c.tdcbuf
 
         def active(cr, tt):
             t0, t1 = tt[::2], tt[1::2]
-            return live_straw & cr[::2] & cr[1::2] & (jnp.where(t0 < t1, t1, t0) < end)
+            return live_straw & cr[::2] & cr[1::2] & (jnp.where(t0 < t1, t1, t0) < (end - tref if rel else end))
 
         output_t = jnp.zeros((batch, pair_cap, 2))
         output_v = jnp.zeros_like(output_t)
@@ -254,7 +280,7 @@ def _electronics_kernel(c, cap, pair_cap, batch):
             t0, t1 = tt[::2], tt[1::2]
             finite = jnp.isfinite(t0) & jnp.isfinite(t1)
             comb = act & finite & (jnp.abs(jnp.floor(t0 / c.ADCPeriod) - jnp.floor(t1 / c.ADCPeriod)) < c.maxThreshTimeSeparation)
-            rec = comb & (jnp.minimum(t0, t1) > 0.)
+            rec = comb & (jnp.minimum(t0, t1) > (-tref if rel else 0.))
             loc = jnp.minimum(number, pair_cap - 1)
             bi = jnp.arange(batch)
             ot = ot.at[bi, loc].set(jnp.where(rec[:, None], tt.reshape(batch, 2), ot[bi, loc]))
@@ -288,12 +314,16 @@ def _electronics_kernel(c, cap, pair_cap, batch):
             T, V = pt[:, k], pv[:, k]
             xt = T + jitter[:, None] + c.TDCResolution * normal(3, k, (2,))
             tot_thr = V + c.thresholdAnalogNoise * normal(4, k, (2,))
-            tq = (T + jitter[:, None]).reshape(R, 1) + ticks[None, :] * c.TOTLSB
+            tq = (T + jitter[:, None]).reshape(R, 1) + ticks[None, :].astype(df.FLOAT) * c.TOTLSB
             volts_tot = volt(tq, lattice=int(round(c.TOTLSB * sr)))
             below = volts_tot < (tot_thr.reshape(R, 1) - c.triggerHysteresis)
             tot = jnp.where(jnp.any(below, 1), jnp.argmax(below, 1) + 1, c.maxTOT).reshape(batch, 2)
-            phase = jnp.maximum(0, jnp.ceil(T[:, 0] / c.ADCPeriod).astype(jnp.int64) - c.nADCPresamples)
-            times = jnp.repeat((phase[:, None] + adc_k) * c.ADCPeriod + c.ADCOffset, 2, axis=0)
+            if rel:
+                phase = jnp.maximum(0, jnp.ceil(T[:, 0] / c.ADCPeriod).astype(jnp.int64) + n_ref * per_adc
+                                    - c.nADCPresamples) - n_ref * per_adc
+            else:
+                phase = jnp.maximum(0, jnp.ceil(T[:, 0] / c.ADCPeriod).astype(jnp.int64) - c.nADCPresamples)
+            times = jnp.repeat((phase[:, None] + adc_k).astype(df.FLOAT) * c.ADCPeriod + c.ADCOffset, 2, axis=0)
             volts = volt(times, "adc", lattice=int(round(c.ADCPeriod * sr)))
             sat = (maxposs > c.saturationVoltage) & jnp.repeat(present, 2)
 
@@ -304,7 +334,7 @@ def _electronics_kernel(c, cap, pair_cap, batch):
                 def tile(k, response):
                     offset = k * SATURATION_TILE
                     tick = offset + jnp.arange(SATURATION_TILE)
-                    tq = t0[:, None] + dts * tick[None, :]
+                    tq = t0[:, None] + dts * tick[None, :].astype(df.FLOAT)
                     values = volt(tq, "sat", cmin=i0, lattice=c.saturationSampleFactor,
                                   lattice_origin=t0, lattice_offset=offset)
                     values = jnp.where(tick[None, :] < nstep[:, None], values, 0)
@@ -312,7 +342,7 @@ def _electronics_kernel(c, cap, pair_cap, batch):
                 padded_steps = ((sat_steps + SATURATION_TILE - 1) // SATURATION_TILE) * SATURATION_TILE
                 resp = lax.fori_loop(0, padded_steps // SATURATION_TILE, tile, jnp.zeros((R, padded_steps)))
                 resp = jnp.minimum(resp[:, :sat_steps], c.saturationVoltage)
-                tq = t0[:, None] + dts * jnp.arange(sat_steps)[None, :]
+                tq = t0[:, None] + dts * jnp.arange(sat_steps)[None, :].astype(df.FLOAT)
                 scale = c.saturationSampleFactor * dv_a / dv_t
                 def sample(tm):
                     ii = jnp.clip(jnp.trunc((tm[:, None] - tq) * sr + rb / 2.), 0, rb - 1).astype(jnp.int32)
@@ -326,9 +356,13 @@ def _electronics_kernel(c, cap, pair_cap, batch):
             if not c.overrideDbTimeOffsets:
                 xt -= cond["time_offsets"][straw_us]
             wsum = volts + c.adcAnalogNoise * normal(5, k, (c.nADCSamples,))
-            tdc = jnp.clip(jnp.floor((xt + c.electronicsTimeDelay) / c.TDCLSB), 0, c.maxTDC).astype(jnp.int64)
+            if rel:
+                tdc = jnp.clip(jnp.floor((xt + c.electronicsTimeDelay) / c.TDCLSB).astype(jnp.int64)
+                               + (n_ref * per_tdc)[:, None], 0, c.maxTDC)
+            else:
+                tdc = jnp.clip(jnp.floor((xt + c.electronicsTimeDelay) / c.TDCLSB), 0, c.maxTDC).astype(jnp.int64)
             ewend = int(c.tdc_response(c.eventWindowLength - c.electronicsTimeDelay))
-            ok_all = jnp.all((xt + c.electronicsTimeDelay > 0) & (tdc < ewend), 1)
+            ok_all = jnp.all((xt + c.electronicsTimeDelay > (-tref[:, None] if rel else 0)) & (tdc < ewend), 1)
             upper = c.digitizationEndTDC if c.onspill else ewend
             ok_norm = jnp.all((tdc > c.digitizationStartTDC) & (tdc < upper), 1)
             keep = present & jnp.where(straw_ra, ok_all, ok_norm) & (dtime >= ready)
@@ -379,6 +413,11 @@ def digitize(st, nev, c, key, stats=None):
     cs, pos, ne = make_clusters(random.fold_in(key, 0), c, st, idx)
     if not len(cs):
         return _empty(c)
+    ctime = time[cs]
+    if df.SINGLE:   # float32: positions relative to the straw middle, times to whole COMMON_PERIODs (host float64)
+        pos = pos - np.asarray(c.straw_mid)[us[cs]]
+        cref = df.COMMON_PERIOD * np.floor(ctime / df.COMMON_PERIOD)
+        ctime = ctime - cref
     charge_blocks = []
     group_size = CHARGE_BLOCK * CHARGE_BLOCKS
     for first in range(0, len(cs), group_size):
@@ -386,10 +425,12 @@ def digitize(st, nev, c, key, stats=None):
         size = last - first
         pad = group_size - size
         args = (np.pad(us[cs[first:last]], (0, pad)), np.pad(pos[first:last], ((0, pad), (0, 0))),
-                np.pad(ne[first:last], (0, pad), constant_values=1), np.pad(time[cs[first:last]], (0, pad)))
+                np.pad(ne[first:last], (0, pad), constant_values=1), np.pad(ctime[first:last], (0, pad)))
         result = _charge_blocks_kernel(c)(key, jnp.int64(first), *map(jnp.asarray, args))
         charge_blocks.append(tuple(np.asarray(x)[:size] for x in result))
     gt, charge, wd = (np.concatenate([b[i] for b in charge_blocks]) for i in range(3))
+    if df.SINGLE:
+        gt = (cref[:, None] + gt.astype(np.float64)).astype(np.float32)
     if not all(np.isfinite(x).all() for x in (gt, charge, wd)):
         raise ValueError("nonfinite drift/charge cluster before waveform packing")
     ukey, inst = np.unique(ev[cs] * 65536 + sid[cs], return_inverse=True)
@@ -429,11 +470,18 @@ def digitize(st, nev, c, key, stats=None):
             su = np.zeros(batch, np.int64); sr = np.zeros(batch, bool); sk = np.zeros(batch, np.int64)
             live = np.arange(batch) < nb; ji = np.zeros(batch)
             su[:nb], sr[:nb], sk[:nb], ji[:nb] = straw_us[which], straw_ra[which], ukey[which], jitter[which]
+            extra = ()
+            if df.SINGLE:   # float32: times relative to the straw's first cluster, floored to a COMMON_PERIOD
+                first_t = np.where(mask[:, None, :], t[:nb], np.inf).min(axis=(1, 2))
+                nref = np.zeros(batch, np.int64)
+                nref[:nb] = np.floor(first_t / df.COMMON_PERIOD).astype(np.int64)
+                t = t - (nref * df.COMMON_PERIOD)[:, None, None]
+                extra = (jnp.asarray(nref),)
             pair_cap = 4
             while True:
                 result = _electronics_kernel(c, int(cap), pair_cap, batch)(random.fold_in(key, 3),
                     *[jnp.asarray(x.reshape(2 * batch, cap)) for x in (t, q, w, steps)], jnp.asarray(n.ravel()),
-                    jnp.asarray(su), jnp.asarray(sr), jnp.asarray(sk), jnp.asarray(live), jnp.asarray(ji))
+                    jnp.asarray(su), jnp.asarray(sr), jnp.asarray(sk), jnp.asarray(live), jnp.asarray(ji), *extra)
                 result = {k: np.asarray(v) for k, v in result.items()}
                 if result["sat_overflow"]:
                     raise RuntimeError("JAX ADC saturation time bucket overflow; no output returned")
@@ -444,6 +492,8 @@ def digitize(st, nev, c, key, stats=None):
                 pair_cap *= 2
             bi, pi = np.nonzero(result["keep"])
             out = {k: result[k][bi, pi] for k in ("adc", "tdc", "tot", "pmp", "step", "t_analog")}
+            if df.SINGLE:
+                out["t_analog"] = out["t_analog"].astype(np.float64) + (nref[bi] * df.COMMON_PERIOD)[:, None]
             out.update(ev=straw_ev[which[bi]], sid=straw_sid[which[bi]])
             outs.append(out)
             if stats is not None:

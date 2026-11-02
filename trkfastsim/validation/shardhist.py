@@ -96,7 +96,7 @@ def _sid(subrun, event, batches):
 
 def _sidx(shards, sid):
     i = np.searchsorted(shards, sid)
-    if np.any(i >= len(shards)) or np.any(shards[np.minimum(i, len(shards) - 1)] != subrun):
+    if np.any(i >= len(shards)) or np.any(shards[np.minimum(i, len(shards) - 1)] != sid):
         raise ValueError("entries outside the shard list")
     return i
 

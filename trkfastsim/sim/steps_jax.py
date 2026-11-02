@@ -195,10 +195,10 @@ def _group_tail(T, key, L, p, a, tail_k):
     return tt, jnp.sum(ovn | ove)
 
 
-def _envelope_exit(o, d):
-    """steps._envelope_exit."""
+def _envelope_exit(o, d, frame=None):
+    """steps._envelope_exit (o in the kernel frame of origin `frame`)."""
     from trkfastsim.sim import surfaces as S
-    x = o - jnp.asarray(geometry.DETECTOR_ORIGIN_EXTRACTED - df.FRAME if df.SINGLE else geometry.DETECTOR_ORIGIN_EXTRACTED)
+    x = o - jnp.asarray(geometry.DETECTOR_ORIGIN_EXTRACTED - frame if df.SINGLE else geometry.DETECTOR_ORIGIN_EXTRACTED)
     A = d[:, 0] ** 2 + d[:, 1] ** 2
     B = 2 * (x[:, 0] * d[:, 0] + x[:, 1] * d[:, 1])
     C = x[:, 0] ** 2 + x[:, 1] ** 2 - S.R_OUT ** 2
@@ -241,13 +241,22 @@ def _line_straws(T, cfg, o, d, P):
     A = jnp.sum(u * u, -1)
     Bq = 2 * jnp.sum(u * v, -1)
     C = jnp.sum(v * v, -1) - cfg.r_in ** 2
-    disc = Bq * Bq - 4 * A * C
     par = A <= 1e-15
-    ok = jnp.where(par, C <= 0, disc > 0)
-    sq = jnp.sqrt(jnp.where(ok & ~par, disc, 0.0))
     A_ = jnp.where(par, 1.0, A)
-    s0 = jnp.where(par, -jnp.inf, (-Bq - sq) / (2 * A_))
-    s1 = jnp.where(par, jnp.inf, (-Bq + sq) / (2 * A_))
+    if df.SINGLE:   # float32: roots about the closest approach (Bq^2 - 4AC cancels for origins far from the straw)
+        sc = -0.5 * Bq / A_
+        vc = v + sc[..., None] * u
+        Cc = jnp.sum(vc * vc, -1) - cfg.r_in ** 2
+        ok = jnp.where(par, C <= 0, Cc < 0)
+        hw = jnp.sqrt(jnp.where(ok & ~par, -Cc / A_, 0.0))
+        s0 = jnp.where(par, -jnp.inf, sc - hw)
+        s1 = jnp.where(par, jnp.inf, sc + hw)
+    else:
+        disc = Bq * Bq - 4 * A * C
+        ok = jnp.where(par, C <= 0, disc > 0)
+        sq = jnp.sqrt(jnp.where(ok & ~par, disc, 0.0))
+        s0 = jnp.where(par, -jnp.inf, (-Bq - sq) / (2 * A_))
+        s1 = jnp.where(par, jnp.inf, (-Bq + sq) / (2 * A_))
     h = T["shalf"][js]
     nz = jnp.abs(da) > 1e-12
     das = jnp.where(nz, da, 1.0)
@@ -285,7 +294,11 @@ def _point_straw(T, cfg, x):
     js = T["straws_of"][pan].reshape(x.shape[0], -1)
     w = x[:, None] - T["smid"][js]
     wa = jnp.sum(w * T["sdir"][js], -1)
-    r2 = jnp.sum(w * w, -1) - wa * wa
+    if df.SINGLE:   # float32: radius from the perpendicular vector (|w|^2 - wa^2 cancels along a long straw)
+        wp = w - wa[..., None] * T["sdir"][js]
+        r2 = jnp.sum(wp * wp, -1)
+    else:
+        r2 = jnp.sum(w * w, -1) - wa * wa
     ok = (r2 <= cfg.r_in ** 2) & (jnp.abs(wa) <= T["shalf"][js]) & (js < cfg.ns)
     last = jnp.argmax(jnp.where(ok, jnp.arange(js.shape[1])[None], -1), 1)
     return jnp.where(ok.any(1), js[jnp.arange(x.shape[0]), last], -1), jnp.sum(inbox.sum(1) > PT_CAP)
@@ -1032,9 +1045,10 @@ class DeviceInterior:
             for sign, ps in calo.sets:
                 gm = np.array([mi[str(ps.mats[q])] for q in ps.mat], np.int32)
                 self.calo_sets.append(tuple(jnp.asarray(x) for x in (ps.lo, ps.hi, ps.P, gm)) + (float(sign),))
-        if df.SINGLE:   # float32: straws, panels, shells and calorimeter in the frame centred on df.FRAME
-            T = _shift_tables(T, df.FRAME)
-            self.calo_sets = [(lo_ - df.FRAME, hi_ - df.FRAME, _shift_planes(P_, df.FRAME), gm_, sg)
+        self.frame = df.frame_of(geom.mid)
+        if df.SINGLE:   # float32: straws, panels, shells and calorimeter in the frame centred on the straws
+            T = _shift_tables(T, self.frame)
+            self.calo_sets = [(lo_ - self.frame, hi_ - self.frame, _shift_planes(P_, self.frame), gm_, sg)
                               for lo_, hi_, P_, gm_, sg in self.calo_sets]
         self.calo_boxes = tuple((lo_, hi_) for lo_, hi_, _, _, _ in self.calo_sets)
         self.calo_arrays = tuple((lo_, hi_, P_, gm_) for lo_, hi_, P_, gm_, _ in self.calo_sets)
@@ -1112,7 +1126,7 @@ class DeviceInterior:
         n = len(p)
         lanes = lanes or LANES
         self._stats = {}
-        o = o - df.FRAME if df.SINGLE else o
+        o = o - self.frame if df.SINGLE else o
         parts = [self._transport_chunk(key, o[s:s + lanes], d[s:s + lanes], p[s:s + lanes], s, tail, tail_k, kink_xx0,
                                        kink_sup_xx0, max_iter) for s in range(0, max(n, 1), lanes)] if n else []
         st_ = {"kinks": 0, "tail_scatters": 0, "stopped": 0, "iterations": 0, "capped": 0, "wire_hits": 0,
@@ -1130,9 +1144,9 @@ class DeviceInterior:
             kinks = {"it": np.zeros(0, np.int64), "end": z3, "pos": z3, "dir": z3, "path": np.zeros(0), "p": np.zeros(0)}
             final = {"o": z3, "d": z3, "p": np.zeros(0), "path": np.zeros(0), "xcum": np.zeros(0)}
             return rows, st_, kinks, final
-        rows = _to_host({k_: cat(k_, 0) for k_ in parts[0][0]}, ("pos0", "pos1"))
-        kinks = _to_host({k_: cat(k_, 2) for k_ in parts[0][2]}, ("end", "pos"))
-        final = _to_host({k_: cat(k_, 3) for k_ in parts[0][3]}, ("o",))
+        rows = _to_host({k_: cat(k_, 0) for k_ in parts[0][0]}, ("pos0", "pos1"), self.frame)
+        kinks = _to_host({k_: cat(k_, 2) for k_ in parts[0][2]}, ("end", "pos"), self.frame)
+        final = _to_host({k_: cat(k_, 3) for k_ in parts[0][3]}, ("o",), self.frame)
         order = np.lexsort((rows["path"], rows["it"]))
         return {k_: v[order] for k_, v in rows.items()}, st_, kinks, final
 
@@ -1233,21 +1247,21 @@ class DeviceInterior:
         n = len(p)
         lanes = lanes or LANES
         self._stats = {}
-        o = o - df.FRAME if df.SINGLE else o
+        o = o - self.frame if df.SINGLE else o
         parts = [self._exit_chunk(key, o[s:s + lanes], d[s:s + lanes], p[s:s + lanes], xcum[s:s + lanes], s, length,
                                   tail, tail_k) for s in range(0, n, lanes)]
         self.last_exit_stats = {name: int(sum(int(x) for x in jax.device_get(xs))) for name, xs in self._stats.items()}
         z3 = np.zeros((0, 3))
         if not parts:
             return {"it": np.zeros(0, np.int64), "end": z3, "pos": z3, "dir": z3, "path": np.zeros(0), "p": np.zeros(0)}
-        return _to_host({k_: np.concatenate([q[k_] for q in parts]) for k_ in parts[0]}, ("end", "pos"))
+        return _to_host({k_: np.concatenate([q[k_] for q in parts]) for k_ in parts[0]}, ("end", "pos"), self.frame)
 
     def _exit_chunk(self, key, o, d, p, xcum, base, length, tail, tail_k):
         cfg, T = self.cfg, self.T
         N = len(p)
         pad = lambda x, v=0.0: jnp.asarray(np.concatenate([x, np.full((1,) + x.shape[1:], v, x.dtype)]))
         oj, dj = pad(o), jnp.asarray(np.r_[d, [[0.0, -1.0, 0.0]]])
-        L = jnp.minimum(jnp.full(N + 1, float(length)), _envelope_exit(oj, dj) + st.ENVELOPE_PAD_MM)
+        L = jnp.minimum(jnp.full(N + 1, float(length)), _envelope_exit(oj, dj, self.frame) + st.ENVELOPE_PAD_MM)
         kt = jax.random.fold_in(key, KEY_EXIT)
         S = {"o": oj, "d": dj, "p": pad(p), "xc": pad(xcum), "trav": jnp.zeros(N + 1), "length": L,
              "nk": jnp.zeros(N + 1, jnp.int32),
@@ -1320,13 +1334,13 @@ def _shift_tables(T, origin):
     return T
 
 
-def _to_host(out, positions):
+def _to_host(out, positions, frame):
     """Host float64 (float32 mode: widened, positions back in the Mu2e frame); unchanged in float64 mode."""
     if not df.SINGLE:
         return out
     out = {k: df.host(v) for k, v in out.items()}
     for k in positions:
-        out[k] = out[k] + df.FRAME
+        out[k] = out[k] + frame
     return out
 
 
@@ -1349,7 +1363,7 @@ def straw_crossings(geom, o, d, chunk=None):
     chunk = chunk or max(LANES // 8, 64)   # every panel box per line: [chunk, all straws] candidates
     out = []
     for s in range(0, len(o), chunk):
-        oc, dc = (o[s:s + chunk] - df.FRAME if df.SINGLE else o[s:s + chunk]), d[s:s + chunk]
+        oc, dc = (o[s:s + chunk] - dev.frame if df.SINGLE else o[s:s + chunk]), d[s:s + chunk]
         B = _bucket(len(oc), 64)
         op = np.r_[oc, np.zeros((B - len(oc), 3))]
         dp_ = np.r_[dc, np.tile([[0.0, -1.0, 0.0]], (B - len(oc), 1))]

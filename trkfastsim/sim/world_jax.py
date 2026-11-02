@@ -232,18 +232,19 @@ def _scatter(o, d, p0, lost, xx0, bh, bp, chi, thn, blen, keys, plane, sliced, s
 class DeviceWorld:
     """Immutable packed BandedWorld with bounded dense box tests and exact convex clipping."""
 
-    def __init__(self, world, edges):
+    def __init__(self, world, edges, frame=None):
         self.edges = np.asarray(edges, float)
+        self.frame = np.zeros(3) if frame is None else np.asarray(frame, np.float64)   # kernel frame (float32 mode)
         if not isinstance(world, tr.BandedWorld):
             raise NotImplementedError("jax world transport requires a packed BandedWorld to preserve material order")
         if not np.array_equal(world.edges, self.edges):
             raise ValueError("world band edges do not match tracker plane")
-        self.kedges = self.edges - df.FRAME[1] if df.SINGLE else self.edges   # band edges in the kernel frame
+        self.kedges = self.edges - self.frame[1] if df.SINGLE else self.edges   # band edges in the kernel frame
         self.bands = []
         self.tiles = []
         for k, (top, bot) in enumerate(zip(self.edges[:-1], self.edges[1:])):
             ps = world.band(k)
-            plo, phi, pP = ((ps.lo - df.FRAME, ps.hi - df.FRAME, sj._shift_planes(ps.P, df.FRAME)) if df.SINGLE
+            plo, phi, pP = ((ps.lo - self.frame, ps.hi - self.frame, sj._shift_planes(ps.P, self.frame)) if df.SINGLE
                             else (ps.lo, ps.hi, ps.P))
             mats = [materials.BY_NAME.get(m, materials.CONCRETE_MARS) for m in ps.mats] + [materials.AIR]
             cs = [eloss_jax.consts(m) for m in mats]
@@ -276,7 +277,7 @@ class DeviceWorld:
             raise ValueError("one world key index is required per muon")
         if not len(p):
             return o.copy(), d.copy(), p.copy(), np.zeros(0), np.zeros(0, bool)
-        o = o - df.FRAME if df.SINGLE else o
+        o = o - self.frame if df.SINGLE else o
         outputs = []
         for start in range(0, len(p), lanes):
             n = min(lanes, len(p) - start)
@@ -301,7 +302,7 @@ class DeviceWorld:
                               sliced, spread, tail, tail_k)
             outputs.append(tuple(df.host(v)[:n] for v in result))
         out = tuple(np.concatenate([v[i] for v in outputs]) for i in range(5))
-        return (out[0] + df.FRAME,) + out[1:] if df.SINGLE else out
+        return (out[0] + self.frame,) + out[1:] if df.SINGLE else out
 
 
 def to_plane(gen, geom, key, world, sliced_msc=False, near_margin=st.FOOTPRINT_MARGIN, msc_tail=True,
@@ -319,7 +320,7 @@ def to_plane(gen, geom, key, world, sliced_msc=False, near_margin=st.FOOTPRINT_M
     if near.any():
         dev = getattr(world, "_tracker_jax_world", None)
         if dev is None:
-            dev = DeviceWorld(world, edges)
+            dev = DeviceWorld(world, edges, df.frame_of(geom.mid))
             if hasattr(world, "__dict__"):
                 world._tracker_jax_world = dev
         if not np.array_equal(dev.edges, edges):

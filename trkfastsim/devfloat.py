@@ -7,8 +7,8 @@ step kernels (world column and loss, interior transport, exit scatter, gas eIon)
 charge, electronics) in float32 through the core mechanism (dprec.jit, so it needs MU2EFS_DEVICE_FLOAT=float32, the
 core default), with float32 cancellations removed by precision-aware forms that apply in float32 mode only:
 
-- positions: the step kernels work in a frame centred on the tracker (FRAME, the extracted detector origin), the
-  digitiser in coordinates relative to each straw's middle;
+- positions: the step kernels work in a frame centred on the straws (frame_of, whole mm), the digitiser in
+  coordinates relative to each straw's middle;
 - times: the digitiser electronics work relative to a per-straw reference time that is a multiple of COMMON_PERIOD
   (whole ADC periods, TDC and TOT counts), so integer TDC, ADC phase and TOT are exact offsets.
 
@@ -34,7 +34,6 @@ if SINGLE and not dprec.SINGLE:
 FLOAT = np.dtype(NAME)
 TINY = dprec.tiny_of(FLOAT)          # divide guard / smallest positive: 1e-300 in float64, as shipped
 DRAW64 = SINGLE and os.environ.get("TRKFASTSIM_DRAW64", "") == "1"
-FRAME = np.array([-3904.0, 0.0, 24171.0]) if SINGLE else np.zeros(3)   # step-kernel frame origin (mm, Mu2e frame)
 COMMON_PERIOD = 20.0                 # ns: ADCPeriod; a multiple of TDCLSB and TOTLSB in the supported conditions
 
 
@@ -62,6 +61,11 @@ def draw(sampler, key, shape=(), **kw):
     if DRAW64:
         return sampler(key, shape, dtype=np.float64, **kw).astype(FLOAT)
     return sampler(key, shape, dtype=FLOAT, **kw)
+
+
+def frame_of(points):
+    """Origin of the step kernels' frame: the straw centroid rounded to whole mm (float32 mode), else zero."""
+    return np.round(np.mean(np.asarray(points, np.float64), 0)) if SINGLE else np.zeros(3)
 
 
 def check_common_period(c):

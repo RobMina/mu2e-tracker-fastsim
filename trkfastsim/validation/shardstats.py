@@ -193,9 +193,12 @@ def compare(sh, ref, cand, keys=None, nflip=20000, alpha=0.01, nboot=500, shape=
         null[key] = t
         rec["null_mean"], rec["null_sd"] = float(t.mean()), float(t.std())
         if nboot:
-            xb = x[boot]
-            ok = (xb ** 2).sum(1) > 0
-            tb = (xb.sum(1) ** 2 / np.maximum(batch_var_rows(xb), 1e-12) * ok).sum(1) / np.maximum(ok.sum(1), 1)
+            tb = np.empty(nboot)
+            step = max(1, int(2e7 // x.size))              # bounded memory: replicates per block
+            for i in range(0, nboot, step):
+                xb = x[boot[i:i + step]]
+                ok = (xb ** 2).sum(1) > 0
+                tb[i:i + step] = (xb.sum(1) ** 2 / np.maximum(batch_var_rows(xb), 1e-12) * ok).sum(1) / np.maximum(ok.sum(1), 1)
             rec["chi2ndf_err"] = float(fac * tb.std())
     lim, meta = family_limits(obs, null, alpha) if obs else ({}, {})
     for k, v in lim.items():

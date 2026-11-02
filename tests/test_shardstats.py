@@ -125,3 +125,15 @@ def test_bin_table(tmp_path):
     assert t["ratio"][1] == pytest.approx(1.009)
     assert t["ratio"][0] == 1.0 and t["pull"][1] > 0
     assert "k" in SS.bin_text(t, "k")
+
+
+def test_value_sum_is_the_multiplicity():
+    e = np.arange(0, 6) - 0.5                      # values 0..4
+    r = np.zeros((4, 7))
+    c = np.zeros((4, 7))
+    r[:, 1 + 2] = 10                               # 10 events with value 2 per shard
+    c[:, 1 + 2] = 9
+    c[:, 1 + 4] = 1                                # one event moves from 2 to 4
+    v = SS.value_sum(e, r, c)
+    assert v["mean_ref"] == pytest.approx(2.0) and v["mean_cand"] == pytest.approx(2.2)
+    assert v["value_rel"] == pytest.approx(0.1) and v["value_rel_err"] == pytest.approx(0.0)

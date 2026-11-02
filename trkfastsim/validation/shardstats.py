@@ -147,6 +147,22 @@ def _status(r, c, x):
     return "ok"
 
 
+def value_sum(edges, r, c):
+    """Mean of the histogrammed value (bin centres, flows left out) per arm and the relative difference of its sum
+    over entries with the paired batch error: for a per-event multiplicity histogram, the multiplicity itself."""
+    if edges is None or len(edges) < 2 or not np.all(np.isfinite(edges)):
+        return {}
+    cen = 0.5 * (edges[1:] + edges[:-1])
+    vr, vc = r[:, 1:-1] @ cen, c[:, 1:-1] @ cen
+    nr, nc = r[:, 1:-1].sum(1), c[:, 1:-1].sum(1)
+    if vr.sum() == 0 or nr.sum() == 0 or nc.sum() == 0:
+        return {}
+    v = batch_var((vc - vr)[:, None])[0] if len(vr) > 1 else 0.0
+    return {"mean_ref": float(vr.sum() / nr.sum()), "mean_cand": float(vc.sum() / nc.sum()),
+            "value_rel": float((vc.sum() - vr.sum()) / vr.sum()), "value_rel_err": float(np.sqrt(v) / abs(vr.sum())),
+            "flow_share_ref": float(1.0 - nr.sum() / max(r.sum(), 1.0))}
+
+
 def compare(sh, ref, cand, keys=None, nflip=20000, alpha=0.01, nboot=500, shape=False, chunk=500, shards=None):
     """One comparison: paired chi2/ndf (bias factor applied), sign-flip null, family-wise limits, sizes."""
     s = common_shards(sh, ref, cand) if shards is None else np.asarray(shards)
@@ -169,6 +185,7 @@ def compare(sh, ref, cand, keys=None, nflip=20000, alpha=0.01, nboot=500, shape=
         x = c - r
         st = _status(r, c, x) if not (shape and np.allclose(x, 0.0)) else "identical"
         rec = {"status": st, "n_ref": float(r.sum()), "n_cand": float(c.sum()), "bins": int(r.shape[1])}
+        rec.update(value_sum(sh.edges(key), r, c))
         per[key] = rec
         if st != "ok":
             continue
@@ -309,11 +326,18 @@ def pull_summary(t):
             "gauss_width": float(0.5 * (q[1] - q[0])), "mean": float(t.mean())}
 
 
+def _value_text(r):
+    if "value_rel" not in r:
+        return ""
+    return f" {r['mean_ref']:9.4g} {100 * r['value_rel']:+7.3f} +- {100 * r['value_rel_err']:.3f}"
+
+
 def table(per, meta):
     """Text table of one comparison, flagged first."""
     rows = [f"# {meta['cand']} vs {meta['ref']}: N={meta['N']} shards, {meta['nflags']} flags of {meta['n_ok']} "
             f"({'shape' if meta['shape'] else 'counts'}; family alpha {meta['alpha_family']})",
             f"{'histogram':34s} {'chi2/ndf':>15s} {'limit':>7s} {'ndf':>6s} {'rms%':>6s} {'total%':>14s} flag"]
+    rows[1] += f" {'mean ref':>9s} {'value diff %':>14s}"
     order = sorted(per, key=lambda k: (not per[k]["flag"], k))
     for k in order:
         r = per[k]
@@ -323,7 +347,7 @@ def table(per, meta):
         lim = f"{r['threshold']:7.2f}" if r.get("threshold") is not None else "      -"
         rows.append(f"{k:34s} {r['chi2ndf']:7.2f} +- {r.get('chi2ndf_err', 0):5.2f} {lim} {r['ndf']:6d} "
                     f"{100 * r['rms_rel_excess']:6.2f} {100 * r['total_rel']:+6.2f} +- {100 * r['total_rel_err']:4.2f} "
-                    f"{'F' if r['flag'] else ''}")
+                    f"{'F' if r['flag'] else ' '}" + _value_text(r))
     return "\n".join(rows)
 
 

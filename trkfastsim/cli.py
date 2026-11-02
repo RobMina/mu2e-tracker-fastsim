@@ -173,6 +173,8 @@ def build_parser():
         if name == "seccensus":
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
             sp.add_argument("--paired", action="store_true", help="same CRY primaries: match files by subrun, events selected in both arms")
+            sp.add_argument("--trees", action="store_true",
+                            help="step-tree diagnostic: covariance of secondary eIon along each muon and its same-tree share (opt-in)")
         if name == "tv2compare":
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4-arm EventNtuples")
             sp.add_argument("--steps", nargs="+", required=True, metavar="ROOT", help="fast step tables of the fast arm")

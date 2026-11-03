@@ -240,6 +240,7 @@ def build_parser():
             sp.add_argument("--events", default=None, help="injector table (dump/sgsteps) whose events restrict the denominator")
             sp.add_argument("--file-tables", default=None, help="directory of the per-file dumper tables sgsteps.<stem>.root")
             sp.add_argument("--ref", default="g4", help="reference arm name")
+            sp.add_argument("--hits", action="store_true", help="also hit-level comparison (trkhits, same straw on both first tracks)")
             sp.add_argument("--self-pass", action="store_true",
                             help="denominator: only events whose primary passes the Signal/Calib windows on its own (--events steps)")
         if name == "field-compare":

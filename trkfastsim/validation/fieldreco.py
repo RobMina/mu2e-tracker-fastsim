@@ -92,6 +92,46 @@ def read_arm(paths):
     return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=KEY + ["ntrk"])
 
 
+HIT_FIELDS = ["plane", "panel", "straw", "state", "edep", "wdist", "tottdrift", "rdrift", "udoca", "rdresid", "utresid"]
+
+
+def read_hits(paths):
+    """trkhits of the first good track per event, flattened: KEY + HIT_FIELDS + etime0, tot0."""
+    parts = []
+    for path in paths:
+        t = uproot.open(path)[TREE]
+        a = t.arrays(["evtinfo/run", "evtinfo/subrun", "evtinfo/event", "trk/trk.status"], library="ak")
+        good = a["trk/trk.status"] > 0
+        has = ak.to_numpy(ak.any(good, axis=1))
+        first = ak.argmax(good, axis=1, keepdims=True)
+        h = ak.firsts(t["trkhits"].array()[first], axis=1)[has]
+        n = ak.to_numpy(ak.num(h))
+        cols = {k: ak.to_numpy(ak.flatten(h[k])) for k in HIT_FIELDS}
+        cols["etime0"] = ak.to_numpy(ak.flatten(h.etime[:, :, 0]))
+        cols["tot0"] = ak.to_numpy(ak.flatten(h.tot[:, :, 0]))
+        df = pd.DataFrame(cols)
+        for k in KEY:
+            df[k] = np.repeat(ak.to_numpy(a[f"evtinfo/{k}"])[has], n)
+        parts.append(df)
+    return pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=KEY + HIT_FIELDS)
+
+
+def hit_compare(ha, hr, arm, ref, events):
+    """Hits of the same straw on the first tracks of both arms (events with a track in both)."""
+    k = KEY + ["plane", "panel", "straw"]
+    ha = ha.merge(events, on=KEY).drop_duplicates(k)
+    hr = hr.merge(events, on=KEY).drop_duplicates(k)
+    m = ha.merge(hr, on=k, suffixes=("_a", "_r"))
+    out = {"hits": {arm: int(len(ha)), ref: int(len(hr)), "matched": int(len(m))}}
+    act_a, act_r = ha.state > 0, hr.state > 0
+    out["active_fraction"] = {arm: _me(act_a), ref: _me(act_r)}
+    for c in ("edep", "tot0", "etime0", "wdist", "tottdrift", "rdrift"):
+        out[c] = {"diff": _robust(m[f"{c}_a"] - m[f"{c}_r"]), arm: _me(m[f"{c}_a"]), ref: _me(m[f"{c}_r"])}
+    for c in ("rdresid", "utresid", "udoca"):
+        out[c] = {arm: _robust(ha[c][act_a]), ref: _robust(hr[c][act_r])}
+    return out
+
+
 def _me(x):
     x = np.asarray(x, float)
     x = x[np.isfinite(x)]
@@ -208,6 +248,14 @@ def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=Fa
            "ntuple_events_outside_denominator": {n: int(len(f.merge(den, on=KEY, how="left", indicator=True)
                                                            .query("_merge == 'left_only'"))) for n, f in frames.items()},
            "compare": {n: compare(d, ref, n) for n in arms if n != ref}}
+    if kw.get("hits"):
+        hits = {n: read_hits([files[n][s] for s in common]) for n in arms}
+        res["hits"] = {}
+        for n in arms:
+            if n == ref:
+                continue
+            ev = d[(d[f"{n}_ntrk"].fillna(0) > 0) & (d[f"{ref}_ntrk"].fillna(0) > 0)][KEY]
+            res["hits"][n] = hit_compare(hits[n], hits[ref], n, ref, ev)
     with open(os.path.join(outdir, "fieldreco.json"), "w") as fo:
         json.dump(res, fo, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o))
     return res

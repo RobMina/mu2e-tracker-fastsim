@@ -39,7 +39,7 @@ TRACKER_CUT_MM = 0.001                    # ExtractedCRY minRangeRegionCuts Trac
 # StrawGas from the v04 GDML export (Ar/CO2 80/20 by volume: mass fractions Ar 0.784, O 0.157, C 0.0589)
 STRAW_GAS = materials.Material("StrawGas", 0.001696, 158.62097145526,
                                {"Ar": 0.784057035890315, "O": 0.15700963928136, "C": 0.0589333248283256},
-                               cuts_e_MeV={"tracker": 990e-6})
+                               cuts_e_MeV={"tracker": 990e-6}, state="gas")
 
 
 def delta_cut_mev(mat=STRAW_GAS):

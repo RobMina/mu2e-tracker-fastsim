@@ -13,7 +13,7 @@ from trkfastsim.validation import jaxcheck
 from trkfastsim.validation import digicmp
 from trkfastsim.digi import fastdigi
 from trkfastsim.validation import seccensus
-from trkfastsim.validation import shardhist, shardstats
+from trkfastsim.validation import selfpaste, shardhist, shardstats
 from trkfastsim.validation import fieldcompare, fieldreco
 
 ANALYSES = {
@@ -39,6 +39,7 @@ ANALYSES = {
     "field-compare": (fieldcompare.run, "field-on primary StrawGasSteps: fast chord transport (sim.fieldsteps) vs G4, restarted from the G4 tracker-VD entry state"),
     "digicmp": (digicmp.run, "fast vs stock digis on the same steps: digis/event, occupancy, TDC/TOT/PMP, dt, hit reco and combo hits, with a reseeded stock floor"),
     "shardhist": (shardhist.run, "per-shard (subrun) histograms of one arm: steps, digis, hit reco, fits; input of shardstats"),
+    "selfpaste": (selfpaste.run, "closure of the off-axis paster: each Geant4 event's own off-axis secondaries pasted back onto its own muon"),
     "shardstats": (shardstats.run, "paired per-shard statistic: batch variance, sign-flip null, family-wise limits, sizes; split-shard null"),
 }
 BATCHABLE = {"refcheck"}
@@ -60,7 +61,7 @@ def build_parser():
                             formatter_class=argparse.RawDescriptionHelpFormatter)
         sp.add_argument("inputs", nargs="+", help="input files (globs allowed, quote them)")
         sp.add_argument("--outdir", default=None, help="output dir (default plots/<cmd>)")
-        if name in ("v0check", "steps", "buildlib", "worldcheck", "msccheck", "stepcheck", "fatecheck", "seccensus"):
+        if name in ("v0check", "steps", "buildlib", "worldcheck", "msccheck", "stepcheck", "fatecheck", "seccensus", "selfpaste"):
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
@@ -76,6 +77,18 @@ def build_parser():
             sp.add_argument("--library-drop-muons", action="store_true",
                             help="with --library: leave out drawn muon steps (other primary muons of the donor event, which the "
                                  "fast transport already carries; opt-in)")
+            sp.add_argument("--offaxis-width-match", action="store_true",
+                            help="off-axis draw keyed on the width of the muon's plane extent (last - first plane) instead "
+                                 "of its position in --offaxis-plane-bin bins (opt-in)")
+            sp.add_argument("--offaxis-plane-sign", action="store_true",
+                            help="off-axis paste: mirror a drawn set's plane offsets when the library muon and the fast muon "
+                                 "travel opposite ways along the planes (sign of u_z; opt-in)")
+            sp.add_argument("--instraw-fine-length", action="store_true",
+                            help="in-straw draw: path-length key split beyond 8 mm (10, 12, 15, 20, 30 mm), so long chords "
+                                 "along the wire draw from crossings of their own length (opt-in)")
+            sp.add_argument("--offaxis-shift-from-muon", action="store_true",
+                            help="off-axis paste: a step that lands in a fast muon straw moves up to 3 straws along its straw "
+                                 "offset instead of being dropped (opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
             sp.add_argument("--first-muon-only", action="store_true",
@@ -227,6 +240,8 @@ def build_parser():
             sp.add_argument("--drift-source", default=None, metavar="ROOT", help="digis --f2: drift conditions (default inputs[0])")
             sp.add_argument("--kkline", nargs="+", default=None, metavar="ROOT", help="digis: stock EventNtuples of these events (arm@kkline)")
             sp.add_argument("--batches", type=int, default=1, help="shards per subrun, by event number modulo this (default 1)")
+        if name == "selfpaste":
+            sp.add_argument("--anchor", default="default", choices=["default", "edge", "topology"])
         if name == "shardstats":
             sp.add_argument("--pairs", nargs="+", default=None, metavar="REF:CAND", help="paired comparisons (arm names)")
             sp.add_argument("--splits", nargs="+", default=None, metavar="ARM", help="unpaired split-shard null of these arms")
@@ -236,6 +251,8 @@ def build_parser():
             sp.add_argument("--alpha", type=float, default=0.01, help="family-wise rate per comparison")
             sp.add_argument("--detail", nargs="+", default=None, metavar="KEY", help="per-bin ratio and pull of these keys")
             sp.add_argument("--detail-min-pull", type=float, default=0.0, help="print only bins with |pull| >= this")
+            sp.add_argument("--shard-range", type=int, nargs=2, default=None, metavar=("LO", "HI"),
+                            help="use only shards with LO <= id <= HI (e.g. a development or confirmation subset)")
         if name == "field-reco":
             sp.add_argument("--events", default=None, help="injector table (dump/sgsteps) whose events restrict the denominator")
             sp.add_argument("--file-tables", default=None, help="directory of the per-file dumper tables sgsteps.<stem>.root")

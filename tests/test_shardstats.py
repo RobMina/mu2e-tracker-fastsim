@@ -137,3 +137,38 @@ def test_value_sum_is_the_multiplicity():
     v = SS.value_sum(e, r, c)
     assert v["mean_ref"] == pytest.approx(2.0) and v["mean_cand"] == pytest.approx(2.2)
     assert v["value_rel"] == pytest.approx(0.1) and v["value_rel_err"] == pytest.approx(0.0)
+
+
+def test_steps_arm_place_by_width(tmp_path):
+    key = {"run": np.full(4, 1400), "subrun": np.full(4, 21), "event": np.array([1, 1, 1, 2])}
+    sg = {**key, "sid": np.array([1, 2, 3, 4]), "plane": np.array([3, 5, 9, 1]), "panel": np.zeros(4, int),
+          "straw": np.array([1, 2, 3, 4]), "upanel": np.array([18, 30, 54, 6]), "sp": np.array([1, 1, 7, 1]),
+          "eion": np.full(4, 1e-3), "len": np.full(4, 5.0), "t": np.zeros(4), "px": np.zeros(4), "py": np.full(4, -1e3),
+          "pz": np.zeros(4), "x0": np.zeros(4), "y0": np.zeros(4), "z0": np.zeros(4), "x1": np.zeros(4),
+          "y1": np.zeros(4), "z1": np.zeros(4)}
+    pa = {"run": np.full(3, 1400), "subrun": np.full(3, 21), "event": np.array([1, 1, 2]), "key": np.array([1, 7, 1]),
+          "pdg": np.array([13, 11, -13]), "isprim": np.array([1, 0, 1])}
+    from mu2efastsim import tables as core_tables
+    f = tmp_path / "t.root"
+    core_tables.write(str(f), {"sgsteps": pd.DataFrame(sg), "particles": pd.DataFrame(pa),
+                               "subruns": pd.DataFrame({"run": [1400], "subrun": [21]})}, as_ttree=True)
+    old = SH.T.FILTER_MIN_TRK_STEPS
+    SH.T.FILTER_MIN_TRK_STEPS = 1
+    try:
+        SH.steps_arm([str(f)], "a", tmp_path)
+    finally:
+        SH.T.FILTER_MIN_TRK_STEPS = old
+    z = np.load(tmp_path / "a.npz")
+    w = z["h|a|ev/mu_plane_width"][0]
+    assert w[1 + 2] == 1 and w[1 + 0] == 1                    # event 1 spans planes 3-5, event 2 one plane
+    pw = z["h|a|sec/place_by_width"][0]
+    assert pw[1 + 3 * SH.NWIDTH + 2] == 1                     # the e- at plane 9: >= 3 planes from 3-5, width 2
+
+
+def test_run_shard_range(tmp_path):
+    rng = np.random.default_rng(2)
+    x = rng.poisson(30, size=(40, 5))
+    p = _write(tmp_path, {"r": {"k": x}, "c": {"k": x + rng.poisson(1, size=x.shape)}}, nshard=40)
+    res = SS.run([str(p)], str(tmp_path / "o"), pairs=["r:c"], shard_range=[21, 40], nflip=200)
+    m = res["comparisons"]["c_vs_r"]["meta"]
+    assert m["N"] == 20 and m["shard_range"] == [21, 40]

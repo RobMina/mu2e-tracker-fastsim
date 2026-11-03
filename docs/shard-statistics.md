@@ -37,10 +37,10 @@ noise.
 | prefix | content |
 |---|---|
 | `sel/events` | events passing the PrimaryFilter tracker term for any primary muon (the rate) |
-| `ev/` | per selected event: primary-muon steps, other steps, eIon, occupied straws |
+| `ev/` | per selected event: primary-muon steps, other steps, eIon, occupied straws, plane extent (last - first plane) of the primary-muon steps |
 | `mu/` | per primary-muon step: eIon, path, \|p\|, time, plane, panel, straw |
-| `sec/` | per other step: eIon, path, species (e-, e+, non-primary muon, other), place (in a muon straw, same plane, 1-2 planes, farther, no muon), plane distance |
-| `straw/` | per occupied straw: summed eIon (all straws, straws with a muon step, secondary-only, muon-only), steps per straw, straw occupancy |
+| `sec/` | per other step: eIon, path, species (e-, e+, non-primary muon, other), place (in a muon straw, same plane, 1-2 planes, farther, no muon), plane distance, place by the event's muon plane extent |
+| `straw/` | per occupied straw: summed eIon (all straws, straws with a muon step, secondary-only, muon-only), steps per straw, straw occupancy; in muon-only straws the muon path length and eIon per mm |
 | `digi/` | the `digicmp` histograms: panel and straw occupancy, TDC (absolute and relative), TOT, PMP, ADC samples, dt, digis per event |
 | `hit/` | fast hit reco on these digis: wire distance, energy, straw hits and combo hits per event; `ARM@stockreco` holds the stored stock hits under the same keys |
 | `fit/` | F2 per shard (`--f2`): fits per event, active hits, chi2/ndf; `ARM@kkline` holds the stock KKLine fits (status > 0) of the same events |

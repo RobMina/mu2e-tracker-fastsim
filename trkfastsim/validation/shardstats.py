@@ -352,7 +352,7 @@ def table(per, meta):
 
 
 def run(inputs, outdir, pairs=None, splits=None, shape=False, nflip=20000, alpha=0.01, keys=None, detail=None,
-        detail_min_pull=0.0, **kw):
+        detail_min_pull=0.0, shard_range=None, **kw):
     """pairs: 'ref:cand' strings; splits: arm names for the unpaired split null."""
     os.makedirs(outdir, exist_ok=True)
     sh = Shards(inputs)
@@ -366,14 +366,18 @@ def run(inputs, outdir, pairs=None, splits=None, shape=False, nflip=20000, alpha
         ref, cand = p.split(":")
         ks = [k for k in sh.keys(ref) if sh.has(cand, k)]
         ks = sel(ks) if sel else ks
+        sub = common_shards(sh, ref, cand)
+        if shard_range:
+            sub = sub[(sub >= shard_range[0]) & (sub <= shard_range[1])]
         for mode in ((False, True) if shape else (False,)):
-            per, meta = compare(sh, ref, cand, ks, nflip=nflip, alpha=alpha, shape=mode)
-            meta["pulls"] = pull_summary(pulls(sh, ref, cand, ks))
+            per, meta = compare(sh, ref, cand, ks, nflip=nflip, alpha=alpha, shape=mode, shards=sub)
+            meta["pulls"] = pull_summary(pulls(sh, ref, cand, ks, shards=sub))
+            meta["shard_range"] = [int(sub.min()), int(sub.max())]
             res["comparisons"][f"{cand}_vs_{ref}{'_shape' if mode else ''}"] = {"meta": meta, "hists": per}
             text.append(table(per, meta))
             for key in detail or []:
                 if sh.has(ref, key) and sh.has(cand, key):
-                    b = bin_table(sh, ref, cand, key, shape=mode)
+                    b = bin_table(sh, ref, cand, key, shards=sub, shape=mode)
                     res["comparisons"][f"{cand}_vs_{ref}{'_shape' if mode else ''}"].setdefault("bins", {})[key] = b
                     text.append(bin_text(b, f"{cand} vs {ref}{' shape' if mode else ''} {key}", detail_min_pull))
     for arm in splits or []:

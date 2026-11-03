@@ -176,3 +176,109 @@ def test_drop_muons_keeps_the_draws_and_removes_only_muon_rows():
     ea, ta = oa.draw(np.full(100, 3000.0), np.full(100, -0.99))
     eb, tb = ob.draw(np.full(100, 3000.0), np.full(100, -0.99))
     assert np.array_equal(ea, eb) and set(tb.pdg) == {11} and len(tb) == (ta.pdg == 11).sum()
+
+
+def test_width_match_draws_donors_of_the_same_plane_extent_width():
+    ev = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1, 2, 3], "p": 3000.0, "ux": 0.0, "uy": -1.0, "uz": 0.0,
+                       "plane_min": [4, 20, 10], "plane_max": [4, 23, 10]})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1, 2, 3], "eion": 1e-3, "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": 11, "sp": 5, "k": 0, "dpl": 0, "dpa": 0, "dst": 1, "dt": 0.1})
+    s = L.OffAxisSampler({"events": ev, "offaxis": off}, np.random.default_rng(3), width_match=True)
+    e, st = s.draw(np.full(200, 3000.0), np.full(200, -0.99), np.full(200, 5), np.full(200, 8))   # width 3 at planes 5-8
+    assert set(s.ev.event.to_numpy()[e]) == {2} and (s.last_level == 0).all()
+    e1, _ = s.draw(np.full(200, 3000.0), np.full(200, -0.99), np.full(200, 30), np.full(200, 30))  # width 0
+    assert set(s.ev.event.to_numpy()[e1]) == {1, 3}
+    d = L.OffAxisSampler({"events": ev, "offaxis": off}, np.random.default_rng(3))
+    ed, _ = d.draw(np.full(200, 3000.0), np.full(200, -0.99), np.full(200, 5), np.full(200, 8))
+    assert 2 not in set(d.ev.event.to_numpy()[ed])             # default: position bins, a width-0 donor near planes 5-8
+
+
+def test_plane_sign_mirrors_plane_offsets_for_opposite_directions():
+    """Donor muon travels +z (u_z > 0), the fast muon -z: a step one plane behind the donor's first crossing goes one
+    plane behind the fast muon's first crossing (mirrored offset); the default keeps the raw offset."""
+    from trkfastsim import geometry as G
+    from trkfastsim.sim import steps as S
+    n = 36 * 6 * 96
+    up = np.repeat(np.arange(36 * 6), 96)
+    g = G.StrawGeometry(plane=up // 6, panel=up % 6, straw=np.tile(np.arange(96), 216), mid=np.zeros((n, 3)),
+                        dir=np.tile([1.0, 0, 0], (n, 1)), halflen=np.full(n, 500.0), radius=2.5085,
+                        panel_R=np.tile(np.eye(3), (216, 1, 1)), panel_t=np.zeros((216, 3)),
+                        plane_R=np.tile(np.eye(3), (36, 1, 1)), plane_t=np.zeros((36, 3)))
+    def row(pl, s_, t):
+        return {"run": 1400, "subrun": 1, "event": 1, "nsgs": 2, "sid": int(G.straw_id(pl, 2, s_)), "plane": pl,
+                "panel": 2, "straw": s_, "upanel": pl * 6 + 2, "shape": 0, "ion": 0, "sp": 1, "eion": 1e-3,
+                "len": 4.0, "width": 0.0, "t": t, "x0": 0.0, "y0": 0.0, "z0": 0.0, "x1": 0.0, "y1": 0.0, "z1": 0.0,
+                "px": 0.0, "py": -3000.0, "pz": -300.0}
+    steps = pd.DataFrame([row(5, 50, 10.0), row(4, 51, 10.2)])     # fast muon: plane 5 first, then plane 4 (-z)
+    parts = pd.DataFrame({"run": [1400], "subrun": [1], "event": [1], "key": [1], "parent": [-1], "pdg": [13],
+                          "isprim": [1], "ismcprim": [1]})
+    ev = pd.DataFrame({"run": [1400], "subrun": [1], "event": [7], "p": [3000.0], "ux": [0.0], "uy": [-0.995], "uz": [0.1],
+                       "plane_min": [4], "plane_max": [5], "nstraw_mu": [2]})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": [1400], "subrun": [1], "event": [7], "eion": [2e-3], "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": 11, "sp": [9], "k": [0], "dpl": [-1], "dpa": 0, "dst": [3], "dt": [0.5]})
+    out_d, _, _ = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler({"events": ev, "offaxis": off},
+                                                                           np.random.default_rng(1)), g)
+    out_s, _, _ = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler({"events": ev, "offaxis": off},
+                                                                           np.random.default_rng(1), plane_sign=True), g)
+    assert out_d[out_d.sp != 1].plane.tolist() == [4]               # raw offset: inside the fast muon's planes
+    assert out_s[out_s.sp != 1].plane.tolist() == [6]               # mirrored: behind its first crossing
+
+
+def test_own_event_sampler_returns_each_recipients_own_set():
+    from trkfastsim.validation.selfpaste import OwnEventSampler
+    ev = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1, 2, 3], "p": 3000.0, "ux": 0.0, "uy": -1.0, "uz": 0.0})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": 1400, "subrun": 1, "event": [2, 3, 3], "eion": 1e-3, "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": 11, "sp": [5, 6, 7], "k": 0, "dpl": 0, "dpa": 0, "dst": [1, 2, 3], "dt": 0.1})
+    keys = pd.DataFrame({"run": 1400, "subrun": 1, "event": [3, 1, 2]})
+    s = OwnEventSampler({"events": ev, "offaxis": off}, keys)
+    e, st = s.draw(np.full(3, 3000.0), np.full(3, -0.99))
+    assert s.ev.event.to_numpy()[e].tolist() == [3, 1, 2]
+    assert st.groupby("i").dst.apply(list).to_dict() == {0: [2, 3], 2: [1]}
+
+
+def test_shift_from_muon_moves_a_colliding_step_to_the_next_free_straw():
+    from trkfastsim import geometry as G
+    from trkfastsim.sim import steps as S
+    n = 36 * 6 * 96
+    up = np.repeat(np.arange(36 * 6), 96)
+    g = G.StrawGeometry(plane=up // 6, panel=up % 6, straw=np.tile(np.arange(96), 216), mid=np.zeros((n, 3)),
+                        dir=np.tile([1.0, 0, 0], (n, 1)), halflen=np.full(n, 500.0), radius=2.5085,
+                        panel_R=np.tile(np.eye(3), (216, 1, 1)), panel_t=np.zeros((216, 3)),
+                        plane_R=np.tile(np.eye(3), (36, 1, 1)), plane_t=np.zeros((36, 3)))
+    def row(s_, t):
+        return {"run": 1400, "subrun": 1, "event": 1, "nsgs": 3, "sid": int(G.straw_id(4, 2, s_)), "plane": 4,
+                "panel": 2, "straw": s_, "upanel": 26, "shape": 0, "ion": 0, "sp": 1, "eion": 1e-3, "len": 4.0,
+                "width": 0.0, "t": t, "x0": 0.0, "y0": 0.0, "z0": 0.0, "x1": 0.0, "y1": 0.0, "z1": 0.0,
+                "px": 0.0, "py": -3000.0, "pz": 0.0}
+    steps = pd.DataFrame([row(50, 10.0), row(51, 10.1), row(52, 10.2)])
+    parts = pd.DataFrame({"run": [1400], "subrun": [1], "event": [1], "key": [1], "parent": [-1], "pdg": [13],
+                          "isprim": [1], "ismcprim": [1]})
+    ev = pd.DataFrame({"run": [1400], "subrun": [1], "event": [7], "p": [3000.0], "ux": [0.0], "uy": [-1.0], "uz": [0.0],
+                       "plane_min": [4], "plane_max": [4], "nstraw_mu": [3]})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": [1400], "subrun": [1], "event": [7], "eion": [2e-3], "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": 11, "sp": [9], "k": [0], "dpl": [0], "dpa": 0, "dst": [1], "dt": [0.5]})
+    lib = {"events": ev, "offaxis": off}
+    out_d, _, st_d = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler(lib, np.random.default_rng(1)), g)
+    out_s, _, st_s = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler(lib, np.random.default_rng(1),
+                                                                              shift_from_muon=True), g)
+    assert st_d["in_muon_straw"] == 1 and (out_d.sp != 1).sum() == 0 and "shifted_from_muon_straw" not in st_d
+    assert st_s["shifted_from_muon_straw"] == 1 and out_s[out_s.sp != 1].straw.tolist() == [53]
+
+
+def test_instraw_fine_length_keys_long_chords_apart():
+    ins = pd.DataFrame({"xing": [0, 1], "p": 3000.0, "mu_len": [9.0, 25.0], "nsec": [0, 3]})
+    ins["pbin"] = np.digitize(ins.p, L.P_BINS) - 1
+    ins["lbin"] = np.digitize(ins.mu_len, L.LEN_BINS) - 1
+    st = pd.DataFrame({"xing": [1, 1, 1], "eion": 1e-3, "len": 1.0, "ion": 1, "shape": 0, "pdg": 11})
+    lib = {"instraw": ins, "instraw_steps": st}
+    n = 2000
+    x0, _ = L.InStrawSampler(lib, np.random.default_rng(2)).draw(np.full(n, 3000.0), np.full(n, 25.0))
+    x1, s1 = L.InStrawSampler(lib, np.random.default_rng(2), fine_length=True).draw(np.full(n, 3000.0), np.full(n, 25.0))
+    assert set(np.unique(x0)) == {0, 1}                    # default: one key above 8 mm
+    assert set(np.unique(x1)) == {1} and len(s1) == 3 * n
+    x2, _ = L.InStrawSampler(lib, np.random.default_rng(2), fine_length=True).draw(np.array([3000.0]), np.array([9.5]))
+    assert x2[0] == 0

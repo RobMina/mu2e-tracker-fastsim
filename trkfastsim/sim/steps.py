@@ -1131,6 +1131,7 @@ def _mirror(x, n):
     x = np.asarray(x)
     y = np.where(x < 0, -x, np.where(x >= n, 2 * (n - 1) - x, x))
     return np.where((y >= 0) & (y < n), y, x)
+MUON_SHIFT_MAX = 3      # opt-in shift_from_muon: straws an off-axis step may move to leave a fast muon straw
 OFFAXIS_KEY0 = 100000   # SimParticle keys of pasted off-axis secondaries: 100000 + (G4 particle rank within the set)
 
 
@@ -1198,7 +1199,13 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     acols = ["x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"] if v2 else []
     anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in MK}, "k": k}).merge(
         mu[MK + ["k", "plane", "panel", "straw", "t"] + acols], on=MK + ["k"], how="left")
-    plane0 = anc.plane.to_numpy() + st.dpl.to_numpy()
+    dpl = st.dpl.to_numpy()
+    if getattr(sampler, "plane_sign", False):
+        # donor and recipient travelling opposite ways along the planes: mirror the plane offset, so a step behind
+        # (ahead of) the donor's muon stays behind (ahead of) the recipient's
+        uz_d = sampler.ev.uz.to_numpy()[st.ei.to_numpy()]
+        dpl = np.where(np.sign(uz_d) * np.sign((f.pz.to_numpy() / p)[i]) < 0, -dpl, dpl)
+    plane0 = anc.plane.to_numpy() + dpl
     panel = (anc.panel.to_numpy() + st.dpa.to_numpy()) % NPANELS_
     straw0 = anc.straw.to_numpy() + st.dst.to_numpy()
     plane, straw = _mirror(plane0, NPLANES_), _mirror(straw0, NSTRAWS_)
@@ -1208,12 +1215,30 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     ev = anc[KEY]
     mu_st = mu[KEY + ["sid"]].drop_duplicates().assign(_m=1)
     in_mu = ev.assign(sid=geom.sid[js]).merge(mu_st, on=KEY + ["sid"], how="left")._m.notna().to_numpy() & ok
+    shifted = 0
+    if getattr(sampler, "shift_from_muon", False):
+        # a donor's off-axis step never shares a straw with its muon: move a step that lands in a fast muon straw to
+        # the next straw in the direction of its straw offset (at most MUON_SHIFT_MAX straws) instead of dropping it
+        step_dir = np.where(st.dst.to_numpy() < 0, -1, 1)
+        for n in range(1, MUON_SHIFT_MAX + 1):
+            if not in_mu.any():
+                break
+            s2 = straw + n * step_dir
+            okn = in_mu & (s2 >= 0) & (s2 < NSTRAWS_)
+            j2 = np.where(okn, (plane * NPANELS_ + panel) * NSTRAWS_ + np.clip(s2, 0, NSTRAWS_ - 1), 0).astype(np.int64)
+            hit = ev.assign(sid=geom.sid[j2]).merge(mu_st, on=KEY + ["sid"], how="left")._m.notna().to_numpy()
+            free = okn & ~hit
+            js = np.where(free, j2, js)
+            in_mu = in_mu & ~free
+            shifted += int(free.sum())
     keep = ok & ~in_mu
     stats.update({"reflected": int((reflected & ok).sum()), "off_lattice": int((~ok).sum()),
                   "in_muon_straw": int(in_mu.sum()), "placed": int(keep.sum()),
                   "draw_level_counts": np.bincount(np.maximum(sampler.last_level, 0), minlength=4).tolist()
                   if getattr(sampler, "last_level", None) is not None else [],
                   **getattr(sampler, "last_concentration", {})})
+    if getattr(sampler, "shift_from_muon", False):
+        stats["shifted_from_muon_straw"] = shifted
     if not keep.any():
         return steps, parts, stats
     st, i, js, t_anc, anc = st[keep].reset_index(drop=True), i[keep], js[keep], anc.t.to_numpy()[keep], anc[keep]

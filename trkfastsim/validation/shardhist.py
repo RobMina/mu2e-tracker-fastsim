@@ -9,8 +9,8 @@ shards|<arm>; a small <arm>.json with counts and settings.
 Kinds:
 - steps: StrawGasStep tables (fast or Geant4). Events pass the PrimaryFilter tracker term for any primary muon
   (isprim == 1, |pdg| == 13, >= 12 good steps); every step of a selected event enters. Keys: sel/events; ev/* per event
-  (primary-muon steps, other steps, eIon, occupied straws); mu/* per primary-muon step (eIon, path, |p|, time, plane,
-  panel, straw); sec/* per other step (eIon, path, species, place relative to the muon, plane distance); straw/* per
+  (primary-muon steps, other steps, eIon, occupied straws, plane extent of the primary-muon steps); mu/* per primary-muon step (eIon, path, |p|, time, plane,
+  panel, straw); sec/* per other step (eIon, path, species, place relative to the muon, plane distance, place by the event's muon plane extent: place * 12 + min(extent, 11)); straw/* per
   occupied straw (summed eIon of all, muon and secondary-only straws, steps per straw, straw occupancy).
 - digis: StrawHitTableDumper or fast digi tables, restricted to the events selected on --select-steps (events absent
   from the digi tables count as events with no digi). Keys: the digicmp histograms (digi/*; hit/* from the fast hit
@@ -27,6 +27,7 @@ import pandas as pd
 
 from trkfastsim import tables as T
 
+NWIDTH = 12                               # plane-extent widths 0..10, 11 = 11 or more
 KEV_STEP = np.linspace(0.0, 10.0, 101)
 KEV_STRAW = np.linspace(0.0, 10.0, 101)
 LEN = np.linspace(0.0, 20.0, 81)
@@ -40,9 +41,11 @@ EDGES = {
     "mu/plane": np.arange(37) - 0.5, "mu/upanel": np.arange(217) - 0.5, "mu/straw": np.arange(97) - 0.5,
     "sec/eion_keV": KEV_STEP, "sec/len_mm": LEN, "sec/species": np.arange(5) - 0.5,
     "sec/place": np.arange(6) - 0.5, "sec/dplane": np.arange(37) - 0.5,
+    "ev/mu_plane_width": np.arange(37) - 0.5, "sec/place_by_width": np.arange(5 * NWIDTH + 1) - 0.5,
     "straw/eion_keV": KEV_STRAW, "straw/eion_mu_keV": KEV_STRAW, "straw/eion_seconly_keV": KEV_STRAW,
     "straw/eion_muonly_keV": KEV_STRAW, "straw/nsteps": np.arange(1, 22) - 0.5,
     "straw/occupancy": np.arange(216 * 96 + 1) - 0.5,
+    "straw/len_muonly_mm": LEN, "straw/eion_per_mm_muonly": np.linspace(0.0, 2.0, 101),
     "fit/fits_per_event": np.arange(0, 7) - 0.5, "fit/nactive": np.arange(0, 81) - 0.5,
     "fit/chi2ndf": np.linspace(0.0, 10.0, 101),
 }
@@ -175,9 +178,15 @@ def steps_arm(paths, arm, outdir, batches=1):
         H.fill("sec/species", sec.si, pd.Series(sec.pdg.to_numpy()).map(SPECIES).fillna(3).to_numpy())
         H.fill("sec/place", sec.si, place)
         H.fill("sec/dplane", sec.si, np.where(dmin >= 0, np.minimum(dmin, 35), np.nan))
-        st = s.groupby(T.KEY + ["sid"], sort=False).agg(si=("si", "first"), e=("eion", "sum"), n=("mu", "size"),
-                                                        nmu=("mu", "sum"), upanel=("upanel", "first"),
-                                                        straw=("straw", "first"))
+        # plane extent (last - first plane) of the event's primary-muon steps
+        w = (mu.groupby(T.KEY, sort=False).plane.agg(["min", "max"]).pipe(lambda b: b["max"] - b["min"]))
+        H.fill("ev/mu_plane_width", mu.groupby(T.KEY, sort=False).si.first(), w.to_numpy())
+        ws = sec[T.KEY].merge(w.rename("w").reset_index(), on=T.KEY, how="left").w.to_numpy()
+        ws = np.where(np.isnan(ws), NWIDTH - 1, np.minimum(ws, NWIDTH - 1))
+        H.fill("sec/place_by_width", sec.si, place * NWIDTH + ws)
+        st = s.assign(mulen=np.where(m, s.len.to_numpy(), 0.0)).groupby(T.KEY + ["sid"], sort=False).agg(
+            si=("si", "first"), e=("eion", "sum"), n=("mu", "size"), nmu=("mu", "sum"), upanel=("upanel", "first"),
+            straw=("straw", "first"), mulen=("mulen", "sum"))
         ek = 1e3 * st.e.to_numpy()
         hasmu = st.nmu.to_numpy() > 0
         H.fill("straw/eion_keV", st.si, ek)
@@ -185,6 +194,10 @@ def steps_arm(paths, arm, outdir, batches=1):
         H.fill("straw/eion_seconly_keV", st.si[~hasmu], ek[~hasmu])
         only = hasmu & (st.n.to_numpy() == st.nmu.to_numpy())
         H.fill("straw/eion_muonly_keV", st.si[only], ek[only])
+        # muon-only straws: muon path length in the straw and eIon per mm (chord vs energy-loss draw)
+        ln = st.mulen.to_numpy()
+        H.fill("straw/len_muonly_mm", st.si[only], ln[only])
+        H.fill("straw/eion_per_mm_muonly", st.si[only], ek[only] / np.maximum(ln[only], 1e-6))
         H.fill("straw/nsteps", st.si, st.n)
         H.fill("straw/occupancy", st.si, st.upanel.to_numpy() * 96 + st.straw.to_numpy())
     return H.save(outdir, arm, {"kind": "steps", "inputs": [os.path.basename(p) for p in paths], "selected_events": nsel,

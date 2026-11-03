@@ -23,7 +23,7 @@ Unfilled fields. Every field of the schema is written. Fields the fast reco does
 UNSET_F = -9999.0 (floating point), UNSET_I = -9999 (integers), False (booleans; no sentinel is possible). The
 realised per-field coverage (filled / approx / constant / sentinel) is in the provenance record.
 
-Provenance: `EventNtuple/fastreco_provenance` (TObjString, JSON): fit type (stock / F1 / F2), stock conditioning,
+Provenance: `EventNtuple/fastreco_provenance` (TObjString, JSON): fit type (stock / F2), stock conditioning,
 package commit, track-table metadata, schema source, sentinel values, coverage, counts and a content hash over every
 written buffer (the replay check: the same input gives the same hash; the ROOT file bytes carry a random UUID).
 """
@@ -580,7 +580,7 @@ def read_provenance(path):
     return json.loads(str(uproot.open(path)[PROV]))
 
 
-def main(dump, out, fit, conditions, settings="mc", f1_tracks=None, niter=4, all_fits=False, schema=DEFAULT_SCHEMA,
+def main(dump, out, fit, conditions, settings="mc", niter=4, all_fits=False, schema=DEFAULT_SCHEMA,
          table_out=None, split_alias=True):
     from . import hitreco
     cond = hitreco.load_conditions(conditions)
@@ -588,10 +588,6 @@ def main(dump, out, fit, conditions, settings="mc", f1_tracks=None, niter=4, all
         tb = tracktable.from_stock(dump, cond, settings)
     elif fit == "f2":
         tb = tracktable.from_f2(dump, cond, settings, niter=niter, all_fits=all_fits)
-    elif fit == "f1":
-        if not f1_tracks:
-            raise SystemExit("--fit f1 needs --f1-tracks (reco-vr2f1 --save-tracks output)")
-        tb = tracktable.from_f1(dump, cond, f1_tracks, settings)
     else:
         raise SystemExit(f"unknown fit {fit}")
     if table_out:

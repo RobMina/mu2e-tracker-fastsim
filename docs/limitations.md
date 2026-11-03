@@ -38,18 +38,19 @@
 
 ## Frozen
 
-**F1 native closure** (frozen 2026-11-01). The F1 fit (KinKal port, stock-conditioned) stays opt-in and does not meet
-its targets; no closure work is planned. Nothing depends on it: `tracker_point` uses F2 and T-V3 uses stock reco.
+**F1 native closure** (frozen 2026-11-01). The F1 fit (KinKal port, stock-conditioned) does not meet its targets; no
+closure work is planned. Nothing depends on it: `tracker_point` uses F2 and T-V3 uses stock reco. Its code is on branch
+`park/f1-native-closure-20261103` (see Parked on branches); the numbers below were measured with it.
 
 - **Acceptance** against stock KKLine on 2,315 eligible single-seed fits of 3,000 `kkts_extrap_v04` events (2,151 stock
   good), target 99.5 % agreement, that is at most 11 disagreements:
-  - `--time-model legacy` (the default): 94.2 %, 113 gains and 21 losses, net yield +4.28 +- 0.54 %.
+  - `--time-model legacy` (its default): 94.2 %, 113 gains and 21 losses, net yield +4.28 +- 0.54 %.
   - `--time-model stock` (used by `reco.autonomous`): 95.59 +- 0.43 %, 59 gains and 43 losses, net yield
     +0.74 +- 0.47 %. Most losses are extension ParamsDiverged.
 - **Fixed stock hit states**, within 0.1 stock sigma on both-good tracks, target 99 %: d0 97.7, phi0 97.0, z0 96.5,
   theta 96.5, t0 99.9, momentum 42.6 % (89.8 % with the captured native seed, an opt-in diagnostic).
 - **Yield** agrees better than single tracks do: the detector-only chain on the same MC digis gives +0.35 +- 0.44 %;
-  500 uncalibrated KPP events give -16.0 +- 8.4 % ([autonomous-f1.md](autonomous-f1.md)).
+  500 uncalibrated KPP events give -16.0 +- 8.4 %.
 - **Ruled out as the cause:** each of these changed no acceptance decision in a full-sample arm: piece-boundary and
   reference search, construction-fixed crossing offsets, the native constraint time, native seed momentum, covariance
   and range, and the per-material gas scattering fraction.
@@ -78,14 +79,11 @@ restart first regenerates the stock dump and the baseline arms from those 3,000 
 - The EventNtuple writer does not write the MC branches (`trkmcsim`, `trksegsmc`, `trkhitsmc`, `evtinfomc`), CRV and
   DS surfaces in `trksegs`, or `trk.nseg`; ROOT C++ reading of its RNTuple is not checked ([eventntuple.md](eventntuple.md)).
 - F2 has a fixed momentum (2000 MeV/c) and no material: for statistical use only.
-- The detector-only F1 path (`reco.autonomous`) is a prototype ([autonomous-f1.md](autonomous-f1.md)).
 - `tracker_point` is a fixed extracted-v04, primary-only integration task (registered for EAF and Slurm, not a live
   rollout).
 
 ## Not validated
 
-- Ordered stored-material navigation (`steps --navigation ordered-*`) passes its contract tests; the full-geometry
-  gate refuses at cross-material overlaps ([ordered-stored-path.md](ordered-stored-path.md)).
 - `steps --backend jax`: validate each geometry and configuration with `jaxcheck` ([device-world.md](device-world.md)).
 - **NumPy output across host CPU types.** The NumPy chain repeats byte for byte per seed on one host CPU type, not
   across types: for the same seed and shards the steps (and everything after them) from an AMD EPYC 7742 host differ
@@ -106,6 +104,25 @@ restart first regenerates the stock dump and the baseline arms from those 3,000 
   whether it counts as inside is decided by rounding. One of them is moved by 2.26e-3 mm: a host whose XLA CPU code
   rounds it the other way gives the 2.2e-3 mm path difference seen on one GitHub runner, while the entry positions
   agree to 1e-9. The test tolerance on `path` is 1e-2 mm.
+
+## Parked on branches
+
+Options that were tried and not made the default are kept on branches, not on main:
+
+- `park/offaxis-width-match`: the width-matched off-axis donor key (`steps --offaxis-width-match`), rejected because
+  every placement histogram got worse.
+- `park/ordered-navigation-20261103`: ordered stored-material navigation (`steps --navigation ordered-*`, the
+  raised-plane forward handoff). It passed its contract tests, but the full-geometry gate refused at cross-material
+  overlaps, so it never became the default.
+- `park/f1-native-closure-20261103`: the F1 fit (`reco-vr2f1`, `--time-model legacy|stock`, `reco-ntuple --fit f1`),
+  the detector-only `reco.autonomous` chain, the F1 validity and fit-trace diagnostics and `kit.kitf1`. Frozen
+  below its targets (above). `reco-ntuple --fit stock|f2` and the EventNtuple writer stay on main.
+- `park/rate-ledger-20261103`: the transport-ledger arms (writer debit from the kinetic energy or none, thin-material
+  loss, integrated step time), the entry-ledger and transport-capture diagnostics, the physical-segment contract and
+  the T3 limit tests. No arm changed the rate on 11 M events ([rate-ledger.md](rate-ledger.md)); T3 (one energy,
+  deposition and time ledger) stays open. `ratearms` and `make_steps(history=True)` stay on main.
+- `park/tv3-rescoring-20261103`: the rescoring of saved T-V3 products after a site relocation and its shared Parquet
+  environment. It rescored historical products, not current transport; the bank replicas are on `park/tv3-rescoring`.
 
 ## Inputs
 

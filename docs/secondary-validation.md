@@ -198,7 +198,7 @@ tables are identical to the default, table for table. None has a fitted value.
 | `--offaxis-plane-sign` | mirrors a drawn set's plane offsets when donor and recipient muons travel opposite ways along the planes (sign of u_z) | same-plane excess, 1-2 and >= 3 plane deficits; the self-paste closure (each Geant4 event's own set pasted back) reproduces every place class |
 | `--offaxis-shift-from-muon` | an off-axis step landing in a fast muon straw moves up to 3 straws along its straw offset instead of being dropped | about 2.7 % of drawn off-axis steps were dropped; a donor's off-axis step never shares a straw with its muon |
 | `--instraw-fine-length` | the in-straw draw key splits the muon path in the straw beyond 8 mm (10, 12, 15, 20, 30 mm) | muon-only straws: path-length population flagged (chords longer than 20 mm +25 %, 8-11 mm -5 to -8 %) while eIon per mm agrees; the 8 mm-and-above key gave long chords along the wire the secondary rate of 8-10 mm crossings |
-| `--offaxis-width-match` | keys off-axis donors on the width of the muon's plane extent | tested and rejected: every placement histogram is worse |
+| `--offaxis-width-match` (branch `park/offaxis-width-match`) | keys off-axis donors on the width of the muon's plane extent | tested and rejected: every placement histogram is worse |
 
 Method: arms are fast steps (seed 1) of the `g4ref_v2` generation (10 M generated, 200 subruns); the statistic is the
 paired per-shard one in shape mode ([shard-statistics.md](shard-statistics.md)), against Geant4 steps of the same

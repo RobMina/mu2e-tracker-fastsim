@@ -3,12 +3,11 @@
   conditions  StrawHitTableDumper conditions tree -> text (JSON) conditions file for the hit reco
   vr3         T-VR3 (statistical): full fast chain from digis (hit reco, combo-free SimpleTimeCluster + LineFinder,
               F2 JAX fit with its own hit states) vs stock KKLine on the same events: yield, hits, chi2, parameters
-  vr2f1       T-VR2 (F1): kalman_jax full stock schedule on the stock seed, hit states and straw crossings vs KKLine
   vr2         T-VR2 (F2): batched Gauss-Newton line fit on the stock seed, hit list and drift states vs stock KKLine
   vr1b        T-VR1b: SimpleTimeCluster + LineFinder ports vs the stock clusters and seeds (dump_tracks_* tables)
   vr1         T-VR1: dumped StrawDigis -> numpy makeSH + makePH vs the stock hits in the same tables
               (--jax: also the JAX straw hits vs numpy, with warm throughput)
-  ntuple      EventNtuple-compatible evtinfo/trk/trksegs/trkhits/trksegpars_kl[/trkmats] of a fit (stock, F1, F2)
+  ntuple      EventNtuple-compatible evtinfo/trk/trksegs/trkhits/trksegpars_kl[/trkmats] of a fit (stock, F2)
   ntschema    stock EventNtuple schema inventory (field names, types, nesting) of one file, as JSON
   ntcompare   trk/trksegs/trkhits summary of one EventNtuple, or a track-matched comparison with --compare
 """
@@ -434,38 +433,6 @@ def main(argv=None):
     f2.add_argument("--no-long", action="store_true", help="drop the longitudinal (time-division) residual")
     f2.add_argument("--drift-dt", action="store_true", help="let drift radii constrain t0 (KKSHFlag DriftDt; stock: off)")
     f2.add_argument("--jax", action="store_true", help="fit with the JAX twin (exact Jacobian, vmapped); timing is warm")
-    g = sub.add_parser("vr2f1")
-    g.add_argument("input")
-    g.add_argument("--conditions", required=True)
-    g.add_argument("--settings", default="mc", choices=["mc", "data"])
-    g.add_argument("--max-tracks", type=int, default=None)
-    g.add_argument("--chunk", type=int, default=512)
-    g.add_argument("--no-material", action="store_true", help="switch the straw crossings off (F2-equivalent model)")
-    g.add_argument("--straw-axis", default=None, help="TrkAlignStraw table (dbTool print-run --content): crossings use the "
-                   "straw axis (KKStrawXing strawLine) rebuilt from the aligned wire ends, not the wire")
-    g.add_argument("--own-states", action="store_true", help="hit states from the stock updaters, every single-seed "
-                   "event (FitOK or not): yield confusion vs stock FitOK (T-VR3)")
-    g.add_argument("--time-model", default="legacy", choices=["legacy", "stock"], help="F1 effect time semantics: "
-                   "legacy (track-length order, constraint at a fixed position) or stock (KinKal time order, constraint "
-                   "at the immutable seed time, priors and setStatus references from the owned old trajectory)")
-    g.add_argument("--xing-activity", default="hit_or_doca", choices=["hit_or_doca", "doca"], help="crossing "
-                   "activity: hit_or_doca (p109 KKStrawXing::active) or doca (diagnostic: the DOCA test alone)")
-    g.add_argument("--time-legacy", default="", help="comma list of stock-time-model parts reverted to the legacy "
-                   "rule (leave-one-out arms): cons, prior, bounds, statusref, seedx, transit")
-    g.add_argument("--straw-geometry", choices=["approximate", "panel"], default="approximate",
-                   help="opt-in inferred shared panel frame; requires straw-axis table, not native-exact")
-    g.add_argument("--reference-model", choices=["previous", "boundary", "search"], default="previous",
-                   help="opt-in stock-time reference diagnostic: earlier boundary or analytic piece search")
-    g.add_argument("--crossing-time", choices=["current", "constructed"], default="current",
-                   help="opt-in fixed construction-offset diagnostic; extension reference remains reconstructed")
-    g.add_argument("--native-seed-check", help="native seed parameters/covariance/range; requires same native-time gate")
-    g.add_argument("--native-time-check", help="successful full stock_iteration_check.json: use only the certified "
-                   "native immutable constraint time, keeping other stock-time-model operands unchanged")
-    g.add_argument("--all-fits", action="store_true", help="fixed stock states on every single-seed fit, FitOK or "
-                   "not (diagnostic: yield with the stock hit states)")
-    g.add_argument("--save-yield-ids", action="store_true", help="also save per-track identities and outcomes (ids.npz)")
-    g.add_argument("--save-tracks", action="store_true", help="also write f1_tracks.npz (per-track results for reco-ntuple)")
-    g.add_argument("--outdir", default="plots/reco-vr2f1")
     v3 = sub.add_parser("vr3")
     v3.add_argument("inputs", nargs="+")
     v3.add_argument("--conditions", required=True)
@@ -485,11 +452,10 @@ def main(argv=None):
     nt = sub.add_parser("ntuple", help="EventNtuple-compatible trk/trksegs/trkhits output of a fit on one dump file")
     nt.add_argument("input", help="StrawHitTableDumper file (DumpTracks)")
     nt.add_argument("--out", required=True)
-    nt.add_argument("--fit", required=True, choices=["stock", "f1", "f2"],
-                    help="stock: the dump's KKLine fits (writer closure); f1: reco-vr2f1 --save-tracks output; f2: the vr3 chain")
+    nt.add_argument("--fit", required=True, choices=["stock", "f2"],
+                    help="stock: the dump's KKLine fits (writer closure); f2: the vr3 chain")
     nt.add_argument("--conditions", required=True)
     nt.add_argument("--settings", default="mc", choices=["mc", "data"])
-    nt.add_argument("--f1-tracks", default=None, help="f1_tracks.npz from reco-vr2f1 --save-tracks on the same input")
     nt.add_argument("--niter", type=int, default=4, help="F2 iterations per stage (as reco-vr3)")
     nt.add_argument("--all-fits", action="store_true", help="also write failed fits (goodfit 0); stock writes good fits only")
     nt.add_argument("--schema", default=None, help="stock schema JSON (reco-ntschema); default data/eventntuple_v06_13_02_ssmc.json")
@@ -499,7 +465,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     if a.cmd == "ntuple":
         from . import ntuple
-        return ntuple.main(a.input, a.out, a.fit, a.conditions, a.settings, a.f1_tracks, a.niter, a.all_fits,
+        return ntuple.main(a.input, a.out, a.fit, a.conditions, a.settings, a.niter, a.all_fits,
                            a.schema or ntuple.DEFAULT_SCHEMA, a.table_out, not a.no_split_alias)
     if a.cmd == "ntcompare":
         from . import ntcompare
@@ -521,13 +487,6 @@ def main(argv=None):
     if a.cmd == "ntschema":
         from . import ntschema
         return ntschema.main(a.input, a.out)
-    if a.cmd == "vr2f1":
-        from . import vr_f1
-        return vr_f1.run(a.input, a.outdir, a.conditions, a.settings, a.max_tracks, a.chunk, not a.no_material, a.straw_axis,
-                         a.own_states, save_tracks=a.save_tracks, time_model=a.time_model, save_ids=a.save_yield_ids,
-                         all_fits=a.all_fits, xing_activity=a.xing_activity, reference_model=a.reference_model,
-                         time_legacy=tuple(x for x in a.time_legacy.split(",") if x), native_time_check=a.native_time_check,
-                         crossing_time=a.crossing_time, native_seed_check=a.native_seed_check, straw_geometry=a.straw_geometry)
     if a.cmd == "vr3":
         return vr3(a.inputs, a.outdir, a.conditions, a.settings, a.niter)
     if a.cmd == "vr2":

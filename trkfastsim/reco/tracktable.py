@@ -1,4 +1,4 @@
-"""Fast track table: the per-track contract between a tracker fit (stock KKLine from the dump, F1, F2) and the
+"""Fast track table: the per-track contract between a tracker fit (stock KKLine from the dump, F2) and the
 EventNtuple writer (`ntuple.py`).
 
 One table per StrawHitTableDumper file. Arrays (numpy, saved with `save`/`load` as .npz):
@@ -17,8 +17,7 @@ One table per StrawHitTableDumper file. Arrays (numpy, saved with `save`/`load` 
   meta        JSON: fit type, stock conditioning, settings, counts, source files
 
 Producers: `from_stock` (the dump's own KKLine fits: the writer-closure reference), `from_f2` (the reco-vr3 chain
-from digis: hit reco, SimpleTimeCluster, LineFinder, F2 with its own hit states), `from_f1` (reco-vr2f1 outputs saved
-with --save-tracks: stock-conditioned seeds, hits and crossings, F1 states and parameters).
+from digis: hit reco, SimpleTimeCluster, LineFinder, F2 with its own hit states).
 """
 import json
 
@@ -227,59 +226,6 @@ def from_f2_digis(d, events, cond, settings="mc", niter=4, all_fits=False, drift
             "ndof": np.asarray(f["ndof"])[k].astype(np.int64) if T else np.zeros(0, np.int64),
             "status": np.where(g, 1, -1).astype(np.int32), "goodfit": g.astype(np.int32), "momfit": np.zeros(len(k), np.int32),
             **hits, "xings": None, "drift": drift, "meta": meta}
-
-
-F1_STATUS = {0: 1, 1: 2}            # kalman_jax CONVERGED -> 1, UNCONVERGED (MaxNIter reached) -> 2, else -1
-
-
-def from_f1(path, cond, f1_tracks, settings="mc"):
-    """reco-vr2f1 --save-tracks output on the same dump: rebuilds the stock-conditioned inputs exactly as the run did
-    (read_inputs with the saved max_tracks / straw-axis / FitOK selection) and attaches the F1 results."""
-    from . import vr_f1
-    from .cli import _ref
-    z = np.load(f1_tracks, allow_pickle=False)
-    run = json.loads(str(z["meta"]))
-    x0, H, X, ref, drift, T = vr_f1.read_inputs(path, cond, settings, run["max_tracks"], run["straw_axis"],
-                                                 fitok_only=not run["own_states"])
-    if not np.array_equal(ref["event_index"], z["event_index"]):
-        raise ValueError(f"{f1_tracks}: event list differs from the dump selection; not the same run")
-    d = hitreco.read_digis([path])
-    sh = hitreco.straw_hits(d, cond, settings)
-    rs = _ref([path], "s_")
-    for c in ("time", "et0", "et1", "edep", "flag"):
-        sh[c] = rs[c].astype(sh[c].dtype)
-    hv = H["sh"] >= 0
-    tr, pos = np.nonzero(hv)
-    fact, flr = z["fact"].astype(bool), z["flr"].astype(np.float64)
-    hits = _hits(tr, H["sh"][hv], np.where(fact, flr, 0.0)[hv], fact[hv], sh, cond, T)
-    a = uproot.open(path)["trkdump/events"].arrays(["kst_sid", "kst_wire"])[ref["event_index"]]
-    ns = ak.to_numpy(ak.num(a.kst_sid))
-    xt = np.repeat(np.arange(T), ns)
-    Xo = {"xvalid": X["valid"], "sid": _pad(xt, _flat(a, "kst_sid").astype(np.int64), T, 0)[:, :X["valid"].shape[1]],
-          "active": z["xact"].astype(bool) & X["valid"], "wall": z["xwall"], "gas": z["xgas"],
-          "wire": np.full(X["valid"].shape, np.nan), "doca": z["xdoca"], "docavar": z["xdvar"], "dirdot": z["xdirdot"]}
-    Xo["radlen"] = np.where(X["valid"], z["xwall"] / X0_WALL + z["xgas"] / X0_GAS, np.nan)
-    stat = z["stat"].astype(np.int64)
-    events = _events(path)
-    if run["max_tracks"]:
-        # a --max-tracks run covers the events up to its last selected one: later events are not written
-        ncover = int(ref["event_index"].max()) + 1 if T else 0
-        events = {k: v[:ncover] for k, v in events.items()}
-    meta = {"version": VERSION, "fit": "F1 (kalman_jax, six parameters, stock schedule)", "fit_type": "F1",
-            "stock_conditioned": True,
-            "conditioning": "stock LineFinder seed, stock KalSeed hit list (kh_*), stock straw-crossing list (kst_*); "
-                            "single-seed single-fit events only" + ("" if run["own_states"] else "; stock final hit states, FitOK only"),
-            "source": path, "f1_tracks": f1_tracks, "settings": settings, "f1_run": run, "n_events": int(len(d["evkey"])),
-            "n_tracks": int(T), "n_good": int(z["good"].sum()), "n_events_written": int(len(events["run"])),
-            "radlen": "wall/X0 + gas/X0 with nominal X0 (Mylar 285.4 mm, Ar/CO2 125 m): approximation"}
-    return {"events": events, "ev": ref["event_index"].astype(np.int64), "x": z["xf"].astype(np.float64),
-            "cov": z["Cf"].astype(np.float64), "chi2": z["chi2"].astype(np.float64), "ndof": z["ndof"].astype(np.int64),
-            "status": np.vectorize(lambda s: F1_STATUS.get(int(s), -1), otypes=[np.int32])(stat) if T else np.zeros(0, np.int32),
-            "goodfit": z["good"].astype(np.int32), "momfit": np.ones(T, np.int32), **hits, "xings": Xo, "drift": drift,
-            "meta": meta}
-
-
-X0_WALL, X0_GAS = 285.4, 125000.0     # mm, nominal (vr_f1._x0_ratio)
 
 
 def save(table, path):

@@ -1,5 +1,6 @@
 """Read saved seedcheck tables into a lost-muon inventory; no transport or geometric exit inference."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -7,7 +8,15 @@ import numpy as np
 import pandas as pd
 
 from trkfastsim import tables as T
-from trkfastsim.validation.ledgercheck import sha256
+
+
+def sha256(path):
+    """Hash a local file without loading it into memory."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def select(frames, variant="plane"):

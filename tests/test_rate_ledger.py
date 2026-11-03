@@ -1,5 +1,5 @@
-"""Transport-ledger arms (trkfastsim.sim.ledger): analytic flight-time limits, world band reconstruction, writer
-conventions, thin-material loss on synthetic straws, and default (legacy) equality."""
+"""Transport ledger (trkfastsim.sim.ledger): analytic flight-time limits, world band reconstruction, the segment
+history on synthetic straws (it draws no random numbers), step and vertex times, and the G4-to-fast muon identity."""
 
 import numpy as np
 import pandas as pd
@@ -68,9 +68,8 @@ def test_world_time_vacuum_limit():
     np.testing.assert_allclose(t, 4980.0 / (ledger.beta(700.0) * C), rtol=1e-14)
 
 
-def test_presets_and_core_convention():
-    assert ledger.preset("legacy") == ledger.Arms()
-    assert ledger.preset("AMT") == ledger.Arms(writer="none", thin=True, time="integrated")
+def test_arms_record_and_core_convention():
+    assert ledger.Arms().as_dict() == {"writer": "momentum", "thin": False, "time": "generated"}
     with pytest.raises(ValueError):
         ledger.Arms(writer="air")
     assert ledger.core_world_convention()["world_convention"] in ("energy", "momentum")
@@ -124,78 +123,23 @@ def _p(rows):
     return np.linalg.norm(rows[["px", "py", "pz"]].to_numpy(), axis=1)
 
 
-def test_integrated_time_uses_local_momentum(generated, empty_interior, plane_state):
-    generated = generated.assign(py=-300.0)
-    geom = _geometry((0.0, -1000.0))
-    plane_state(P_START, origin_y=steps.plane_y(geom))
-    rows = _run(generated, geom, stage="C", interior=empty_interior, arms=ledger.Arms(writer="none", time="integrated"))
-    np.testing.assert_allclose(_p(rows), P_START, rtol=1e-12)
-    sep = np.linalg.norm(np.diff(rows[["x0", "y0", "z0"]].to_numpy(), axis=0))
-    np.testing.assert_allclose(rows.t.iloc[1] - rows.t.iloc[0], sep / (ledger.beta(P_START) * C), rtol=1e-12)
-    legacy = _run(generated, geom, stage="C", interior=empty_interior, arms="A")
-    assert not np.isclose(legacy.t.iloc[1] - legacy.t.iloc[0], sep / (ledger.beta(P_START) * C), rtol=1e-6)
-
-
-def test_vacuum_writer_has_no_air_debit(generated, empty_interior, plane_state):
-    geom = _geometry()
-    plane_state(P_START, origin_y=steps.plane_y(geom))
-    rows = _run(generated, geom, stage="C", interior=empty_interior, arms="A")      # air_loss default True ignored
-    np.testing.assert_allclose(_p(rows), P_START, rtol=1e-12, atol=1e-10)
-    legacy = _run(generated, geom, stage="C", interior=empty_interior)
-    assert _p(legacy)[0] < P_START
-
-
-def test_energy_writer_debits_kinetic_energy(generated, empty_interior, plane_state):
-    geom = _geometry()
-    y_pl = steps.plane_y(geom)
-    plane_state(P_START, origin_y=y_pl)
-    rows = _run(generated, geom, stage="C", interior=empty_interior, arms="E")
-    s_in = y_pl - RADIUS
-    loss = float(eloss.dedx_restricted(materials.AIR, P_START, 1e9)) * s_in
-    np.testing.assert_allclose(ledger.kinetic(_p(rows)), ledger.kinetic(P_START) - loss, rtol=1e-12)
-
-
-def test_thin_loss_charges_straw_material_to_the_next_straw(generated, empty_interior, plane_state):
-    wall, metal = 0.015, 0.0002
-    geom = _geometry((0.0, -10.0), wall=wall, metal=metal)
-    plane_state(P_START, origin_y=steps.plane_y(geom))
-    rows = _run(generated, geom, stage="C", interior=empty_interior, arms="AM", history=True)
-    lens = [(materials.MYLAR, 2 * (wall - metal)), (materials.ALUMINIUM_6061, 2 * metal), (steps.STRAW_GAS, 2 * RADIUS)]
-    expect = sum(float(eloss.dedx_restricted(m, P_START, 1e9)) * L for m, L in lens)
-    ke = ledger.kinetic(_p(rows))
-    np.testing.assert_allclose(ke[0], ledger.kinetic(P_START), rtol=1e-12)
-    np.testing.assert_allclose(ke[0] - ke[1], expect, rtol=1e-9)
-    seg = steps.make_steps.segment_ledger
-    np.testing.assert_allclose(seg.lost_thin_MeV.to_numpy(), [0.0, expect], rtol=1e-9)
-    np.testing.assert_allclose(seg.writer_debit_MeV, 0.0, atol=1e-9)              # written = transport (vacuum writer)
-    np.testing.assert_allclose(seg.l_thin_mm.to_numpy(), [0.0, sum(L for _, L in lens)], rtol=1e-9)
-    off = _run(generated, geom, stage="C", interior=empty_interior, arms="A", history=True)
-    np.testing.assert_allclose(_p(off), P_START, rtol=1e-12)                       # legacy: walls take no energy
-    np.testing.assert_allclose(steps.make_steps.segment_ledger.l_thin_mm, seg.l_thin_mm, rtol=1e-12)
-
-
-def test_default_equals_legacy_preset_and_history_draws_nothing(generated, empty_interior, plane_state):
+def test_history_draws_nothing(generated, empty_interior, plane_state):
     geom = _geometry((0.0, -10.0, -20.0), wall=0.015, metal=0.0002)
     plane_state(P_START, origin_y=steps.plane_y(geom))
     a = _run(generated, geom, stage="C", interior=empty_interior)
-    b = _run(generated, geom, stage="C", interior=empty_interior, arms="legacy", history=True)
+    b = _run(generated, geom, stage="C", interior=empty_interior, history=True)
     pd.testing.assert_frame_equal(a, b)
+    seg = steps.make_steps.segment_ledger
+    np.testing.assert_allclose(seg.lost_thin_MeV, 0.0, atol=0)
+    assert (seg.attrs["writer"], seg.attrs["thin"], seg.attrs["time"]) == ("momentum", False, "generated")
 
 
-def test_thin_and_time_arms_need_the_interior(generated):
-    with pytest.raises(ValueError):
-        steps.make_steps(generated, _geometry(), np.random.default_rng(1), arms="M")
-
-
-@pytest.mark.parametrize("arm", ["A", pytest.param("AMT", marks=pytest.mark.xfail(
-    strict=True, reason="path vertices exist only at kinks: between them surface times use one speed, while the step "
-                        "times follow the thin-material loss at every straw (sub-ps here)"))])
-def test_step_and_path_vertex_times_agree_at_the_entries(generated, empty_interior, plane_state, arm):
+def test_step_and_path_vertex_times_agree_at_the_entries(generated, empty_interior, plane_state):
     """Surface crossings interpolate the path vertices: at each straw entry that time should equal the step time."""
     generated = generated.assign(py=-300.0)
     geom = _geometry((0.0, -400.0, -900.0))
     plane_state(P_START, origin_y=steps.plane_y(geom))
-    rows = _run(generated, geom, stage="C", interior=empty_interior, arms=arm)
+    rows = _run(generated, geom, stage="C", interior=empty_interior, air_loss=False)
     v = steps.make_steps.path_vertices
     start = v[np.isclose(v.path.to_numpy(), 0.0)].iloc[0]
     s = np.linalg.norm(rows[["x0", "y0", "z0"]].to_numpy() - start[["x", "y", "z"]].to_numpy(float), axis=1)

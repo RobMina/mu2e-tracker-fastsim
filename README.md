@@ -19,7 +19,7 @@ repository holds code only: no Mu2e-internal conditions, tables, data or results
 | secondary steps | opt-in Geant4 library (`--library`) | eIon per straw 12.4 % vs 5 % (open) |
 | digitisation | NumPy port of `StrawDigisFromStrawGasSteps`; JAX opt-in | agrees with stock within the reseed floor |
 | hits, combos, clusters, seeds | NumPy, JAX twins | identical to stock on the same digis (T-VR1, T-VR1b) |
-| line fit | F2 (fixed momentum, statistical); F1 KinKal port opt-in | F1 frozen below its target: acceptance 94.2 % (default), 95.6 % (opt-in time model) vs 99.5 % |
+| line fit | F2 (fixed momentum, statistical) | the F1 KinKal port is parked below its target: acceptance 94.2 % and 95.6 % (two time models) vs 99.5 % |
 | full chain vs Geant4 + stock | | occupancy pass; reco yield -1.42 +- 0.37 % (T-V3 fail), -0.85 +- 0.37 % with the opt-in `--scatter-in` |
 
 Numbers, samples, thresholds and commits: [`docs/validation.md`](docs/validation.md). What is missing or not
@@ -44,11 +44,11 @@ Mu2e-internal and not yet published as a collaborator release (umbrella `docs/ru
 | Path | Content |
 |---|---|
 | `trkfastsim/` | the package and its CLI (`python3 -m trkfastsim <subcommand> -h`); geometry, crossings and tables at the top |
-| `trkfastsim/sim/` | step generator (world and tracker-interior transport, NumPy and JAX), secondary library, ordered navigation, ledgers |
+| `trkfastsim/sim/` | step generator (world and tracker-interior transport, NumPy and JAX), secondary library, transport ledger, rate measurement (`ratearms`) |
 | `trkfastsim/digi/` | fast digitisation (`digitize`, its JAX twins), conditions, digi tables |
-| `trkfastsim/reco/` | fast reconstruction: hit reco, combos, line finding, F1/F2 fits, EventNtuple writer |
+| `trkfastsim/reco/` | fast reconstruction: hit reco, combos, line finding, F2 fit, EventNtuple writer |
 | `trkfastsim/validation/` | one module per comparison subcommand, and the report/audit libraries behind `scripts/` |
-| `trkfastsim/kit/` | endpoint-kit tasks (`kit_task`, `kit_uva`, `kitpoint`, `kitf1`); `trkfastsim.kit.kit_task`, `kit_uva` and `worldmods` are aliases for one release |
+| `trkfastsim/kit/` | endpoint-kit tasks (`kit_task`, `kit_uva`, `kitpoint`); `trkfastsim.kit.kit_task`, `kit_uva` and `worldmods` are aliases for one release |
 | `art/` | muse satellite area: StrawGasStep/digi/hit dumpers, table-to-art injectors, payload audit |
 | `grid/` | gen-only and T-V2 grid jobs |
 | `scripts/` | campaign drivers (stage C A/B, occupancy, digi and ntuple validation, UVA/EAF device runs) |
@@ -57,7 +57,7 @@ Mu2e-internal and not yet published as a collaborator release (umbrella `docs/ru
 Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md), [`validation.md`](docs/validation.md),
 [`limitations.md`](docs/limitations.md), [`fast-digi.md`](docs/fast-digi.md), [`eventntuple.md`](docs/eventntuple.md),
 [`secondary-validation.md`](docs/secondary-validation.md), [`shard-statistics.md`](docs/shard-statistics.md), [`kit-task.md`](docs/kit-task.md),
-[`device-world.md`](docs/device-world.md), [`device-precision.md`](docs/device-precision.md); opt-in features below. [`docs/plan.md`](docs/plan.md) is the original plan
+[`device-world.md`](docs/device-world.md), [`device-precision.md`](docs/device-precision.md), [`rate-ledger.md`](docs/rate-ledger.md); opt-in features below. [`docs/plan.md`](docs/plan.md) is the original plan
 (historical).
 
 ### Subcommands
@@ -84,7 +84,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | `reco-conditions` | the straw conditions a fast reco job needs, read from the conditions tree of a `StrawHitTableDumper` output |
 | `reco-vr1` | T-VR1: fast straw-hit and combo-hit reco against the stock hits dumped from the same digis (`--jax` for the JAX twins) |
 | `reco-vr1b` | T-VR1b: fast time clusters and line seeds against stock `SimpleTimeCluster` and `LineFinder` (`DumpTracks` in the dumper, `art/TrkFastSim/fcl/dump_tracks_mc.fcl`) |
-| `reco-ntuple` | EventNtuple-compatible `evtinfo`, `trk`, `trksegs`, `trkhits`, `trksegpars_kl` (and `trkmats` when the fit has straw crossings) from one `DumpTracks` file: `--fit stock` (the dump's own KKLine fits, the writer closure), `--fit f2` (the `reco-vr3` chain from digis), `--fit f1` (`reco-vr2f1 --save-tracks` output, stock-conditioned). See "EventNtuple output" below |
+| `reco-ntuple` | EventNtuple-compatible `evtinfo`, `trk`, `trksegs`, `trkhits`, `trksegpars_kl` (and `trkmats` when the fit has straw crossings) from one `DumpTracks` file: `--fit stock` (the dump's own KKLine fits, the writer closure), `--fit f2` (the `reco-vr3` chain from digis). See "EventNtuple output" below |
 | `reco-ntschema` | field names, types and nesting of a stock EventNtuple (JSON); the stored stock schemas are in `trkfastsim/reco/data/` |
 | `reco-ntcompare` | `trk`/`trksegs`/`trkhits` summary of an EventNtuple, or with `--compare STOCK.root` the event waterfall, shared-hit track matching and matched-track, matched-hit and reference-crossing differences; `--report` prints the digest of a saved `ntcompare.json` |
 
@@ -95,13 +95,8 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | JAX step generator (`steps --backend jax`) | [device-world.md](docs/device-world.md) |
 | JAX digitiser (`digi --backend jax`) | [fast-digi.md](docs/fast-digi.md#opt-in-jax-backend) |
 | float32 step and digitiser kernels (`TRKFASTSIM_DEVICE_FLOAT=core`: follow the core device float) | [device-precision.md](docs/device-precision.md) |
-| ordered stored-material navigation (`steps --navigation ordered-*`) | [ordered-stored-path.md](docs/ordered-stored-path.md) |
 | leave other primary muons out of the library draws (`steps --library-drop-muons`) | [limitations.md](docs/limitations.md) |
-| off-axis plane offsets follow the muon direction, colliding off-axis steps shifted, in-straw draw keyed on long paths (`steps --offaxis-plane-sign --offaxis-shift-from-muon --instraw-fine-length`); width-matched donors (`--offaxis-width-match`, rejected) | [secondary-validation.md](docs/secondary-validation.md#opt-in-placement-and-in-straw-options-paired-per-shard) |
-| detector-only F1 prototype (`reco.autonomous`) | [autonomous-f1.md](docs/autonomous-f1.md), [autonomous-reference-inputs.md](docs/autonomous-reference-inputs.md) |
-| F1 numerical-validity diagnostics | [f1-validity.md](docs/f1-validity.md) |
-| entry-ledger, transport-ledger and transport-capture diagnostics | [entry-ledger.md](docs/entry-ledger.md), [transport-ledger.md](docs/transport-ledger.md), [transport-capture.md](docs/transport-capture.md), [rate-ledger.md](docs/rate-ledger.md) |
-| relocated saved-product validation | [saved-validation.md](docs/saved-validation.md) |
+| off-axis plane offsets follow the muon direction, colliding off-axis steps shifted, in-straw draw keyed on long paths (`steps --offaxis-plane-sign --offaxis-shift-from-muon --instraw-fine-length`) | [secondary-validation.md](docs/secondary-validation.md#opt-in-placement-and-in-straw-options-paired-per-shard) |
 | kit task `tracker_point` | [kit-task.md](docs/kit-task.md) |
 | field-on transport from the tracker envelope in a field map (`sim.fieldsteps`, `field-compare`) | [field-on.md](docs/field-on.md) |
 
@@ -115,11 +110,16 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 
 | Branch | Contents |
 |---|---|
-| `park/f1-native-closure` | F1 native-closure tooling: crossing/operand capture modules, native arithmetic/CA/material/measurement/reference ports, `f1_*` audits and drivers, the per-step f1-* records |
-| `park/ordered-navigation` | ordered-navigation geometry probes and producers (guarded/native/mixed/inclusive envelopes, exact planar, wide torus/convex, segment transport) and the `ordered_*` audit scripts; the `--navigation ordered-*` options stay on main |
+| `park/f1-native-closure` | F1 native-closure tooling: crossing/operand capture modules, native arithmetic/CA/material/measurement/reference ports, `f1_*` audits and drivers, the per-step f1-* records (layout before the 2026-11-01 package split) |
+| `park/f1-native-closure-20261103` | the F1 fit as it was on main: `reco-vr2f1` (KinKal port, `--time-model legacy` and `stock`), `reco-ntuple --fit f1`, the detector-only `reco.autonomous` chain and its comparison, the native seed/time/geometry ports, the F1 validity and fit-trace diagnostics, `kit.kitf1`, the `KinematicLineFitTrace` art module, `docs/{autonomous-f1,autonomous-reference-inputs,f1-validity}.md` |
+| `park/ordered-navigation` | ordered-navigation geometry probes and producers (guarded/native/mixed/inclusive envelopes, exact planar, wide torus/convex, segment transport) and the `ordered_*` audit scripts (layout before the 2026-11-01 package split) |
+| `park/ordered-navigation-20261103` | ordered stored-material navigation as it was on main: `steps --navigation ordered-*`, the raised-plane forward handoff, the stored-material navigator and its path modules, `orderedinterior_probe`, `docs/ordered-stored-path.md` |
 | `park/rate-ledger` | rate-ledger history state/surfaces and the ledger job drivers |
+| `park/rate-ledger-20261103` | the transport-ledger arms (`steps --ledger-arms`, `make_steps(arms)`: energy or no writer debit, thin-material loss, integrated step time), the entry-ledger and transport-capture diagnostics, the physical-segment contract (`transportledger`, `flighttime`), `ledgercheck`, the capture audits, the T3 limit tests, the arm campaign drivers and the rate-residual summary; `ratearms` (default transport, `--scatter-in`) and the segment history stay on main |
 | `park/rate-diagnostics` | the earlier rate-deficit diagnostics `geomcheck`, `interiorcensus`, `tubecheck`, `arrivalcheck`, `slowcheck`, `survivalcheck`, `rangecheck`, `secdiag`, `libplacecheck` (untested CLIs, superseded by `ratearms`) |
 | `park/tv3-rescoring` | the saved T-V3 secondary-bank replicas, response and summaries |
+| `park/tv3-rescoring-20261103` | the relocated saved-product validation (`secondary_tv3_site_rescore`, the shared Parquet environment installer and its check, `docs/saved-validation.md`); the source-event bank replicas (`bankreplica`) it described are on `park/tv3-rescoring` |
+| `park/offaxis-width-match` | the rejected width-matched off-axis donor key (`steps --offaxis-width-match`) |
 
 About 90 unreferenced one-off scripts were removed; they are in the history and on every park branch.
 

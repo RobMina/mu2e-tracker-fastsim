@@ -1,18 +1,15 @@
-"""Transport-ledger arms and helpers for the tracker fast simulation (audit item T3).
+"""Transport-ledger conventions and helpers for the tracker fast simulation (audit item T3).
 
-The stage C transport keeps the muon energy, the straw deposition and the step time in several places. This module
-names the separately switchable conventions ("arms") and supplies the helpers that make them one ledger:
+The stage C transport keeps the muon energy, the straw deposition and the step time in several places. Arms records
+which convention a run used (the production transport is the legacy one of each; the alternatives were measured and
+are kept off main); the helpers give the kinetic energy, momentum, speed and flight time of the per-segment ledger
+(steps.make_steps history=True):
 
-  writer  momentum   legacy: frozen air dE/dx x path subtracted from |p| in the step writer (the interior is vacuum)
-          energy     the same air estimate debited from the kinetic energy (writer-only, entryledger "energy")
-          none       no writer debit (the GDML tracker envelopes are DSVacuum): written |p| = transport |p|
-  thin    False      legacy: straw walls, gas and sense wire scatter but take no energy
-          True       their unrestricted mean loss (core eloss.dedx_restricted, no random numbers) is charged to the
-                     transport kinetic energy, from the next straw on, before stopping and scattering decisions
-  time    generated  legacy: t = t_gen + path / (beta(p_gen) c)
-          integrated t = t_gen + sum over segments of the exact flight time for kinetic energy linear in path
-                     (world height bands, interior segments between straw entries; condensed-scattering
-                     displacement jumps take no time)
+  writer  momentum   frozen air dE/dx x path subtracted from |p| in the step writer (make_steps air_loss=True, default)
+          none       no writer debit (air_loss=False; the GDML tracker envelopes are DSVacuum)
+  thin    False      straw walls, gas and sense wire scatter but take no energy
+  time    generated  t = t_gen + path / (beta(p_gen) c); the segment ledger also carries the integrated flight time
+                     for kinetic energy linear in path (world_time_ns, segment_times_ns)
 
 The world energy-to-momentum convention is a core property (mu2efastsim.transport.world_loss); core_world_convention
 reports which one the imported core implements so every output records it.
@@ -46,23 +43,6 @@ class Arms:
 
     def as_dict(self):
         return dataclasses.asdict(self)
-
-
-PRESETS = {
-    "legacy": Arms(),
-    "E": Arms(writer="energy"),
-    "A": Arms(writer="none"),
-    "M": Arms(thin=True),
-    "T": Arms(time="integrated"),
-    "AM": Arms(writer="none", thin=True),
-    "AMT": Arms(writer="none", thin=True, time="integrated"),
-}
-
-
-def preset(name):
-    if name not in PRESETS:
-        raise ValueError(f"unknown ledger preset {name!r} (one of {sorted(PRESETS)})")
-    return PRESETS[name]
 
 
 def core_world_convention():

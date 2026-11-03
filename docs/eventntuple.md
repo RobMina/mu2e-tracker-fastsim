@@ -23,6 +23,5 @@ stock schema. Every event of the input is written (also those without tracks); b
 - `trksegs`: every intersection of the fitted line with TT_Front, TT_Back (r < 950 mm) and TT_Outer; no CRV surfaces.
   The momentum is the fit momentum at every crossing (no energy loss along the line): stock is lower by about
   0.1 MeV/c at the TT_Outer entry.
-- `--fit f1` is stock-conditioned: stock LineFinder seed, stock hit list and stock straw-crossing list, single-seed
-  single-fit events only. `--fit f2` runs from digis but has a fixed momentum (2000 MeV/c) and no material.
-- `scripts/ntuple_validate.sh` runs the three fits and `reco-ntcompare` against the stock EventNtuple of the same digis.
+- `--fit f2` runs from digis but has a fixed momentum (2000 MeV/c) and no material.
+- `scripts/ntuple_validate.sh` runs both fits and `reco-ntcompare` against the stock EventNtuple of the same digis.

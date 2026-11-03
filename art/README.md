@@ -155,21 +155,8 @@ ADC segments are rejected rather than narrowed. Output/report overwrite is refus
 event-row reorder only; the full unique event population and ordered digi/ADC content must match exactly.
 The persisted canonical file is re-read and checked during conversion; the receipt hashes inputs/outputs.
 
-Only after the two art round trips pass may stock reconstruction on injected **fast** digis be compared with
-`trkfastsim.reco.autonomous` on the **injected stock dump** (`trkdump/events` contains those same digis plus the
-PBT actually used by stock reco). The minimal canonical table intentionally has no PBT/conditions and is not a
-drop-in input to the existing fast-reco reader. Supply `--conditions`, `--drift-source` and data/MC settings from
-the same stock job. Use `reco-ntuple --fit stock` on that injected stock dump and
-`python3 -m trkfastsim.reco.autonomous_compare FAST_NTUPLE.root STOCK_NTUPLE.root --same-digis --out NEW.json`.
-The same-digis option is a caller assertion, not an automatic proof. Keep every event/multiple candidate and
-report paired yields and conditional residual uncertainties; do not intersect mismatched populations.
-
-On the validated 2,866-event fast-digi shard, injected stock accepts 2,584 tracks versus the unchanged autonomous
-prototype's 2,591: paired **+0.271 ± 0.457%**, with **73 gained / 66 lost** accepted-track events. All 2,591 accepted
-autonomous final states pass existing numerical checks. Identical input digis were verified field/sample by field/sample
-before shared-hit evaluation. Conditional matched-track widths are not true residuals or a native-closure certificate;
-the prototype's candidate/continuation and writer limitations remain. This is not the old independent-digitisation
-comparison or a generated-event efficiency. No reconstruction code, acceptance cut or default changes.
+The comparison of stock reconstruction on injected fast digis with the detector-only F1 chain (`reco.autonomous`)
+is on branch `park/f1-native-closure-20261103`.
 
 ### Slurm reproducibility helpers
 
@@ -198,12 +185,9 @@ pinned backing and inputs, with SHA256 manifests; a directory name is not proven
   reproducibility control on a saved original-reco FCL, not a replacement production baseline.
 - `uva_fastdigis_art.sh`: ROOT, TAG, INPUT_ROOT, CVMFSEXEC_DIST; reads `ROOT/fast_input/digis.root` and the original
   MC art event context, writes stock reco plus the lossless injected digi dump. No stale original MC association is used.
-- `uva_digitable_autonomous.sh`: ROOT, DUMP, CANONICAL, OUT (new), ANN, SIF; proves injected detector equality first,
-  then extracts the stock job's conditions, runs the unchanged autonomous path and evaluates all events with
-  `--same-digis`. ANN is the staged Offline root with matching `Offline/Mu2eKinKal/data` files, not a private environment.
 
 Submit each with an explicit account/partition and bounded resources, for example `sbatch -A ACCOUNT -p standard
 --cpus-per-task=1 --mem=8G --time=00:30:00 --export=ALL,... scripts/uva_digitable_art.sh`. Actual validation used one
-core and ~2.4 GiB aggregate Slurm RSS for the art sequence; the autonomous comparison used ~5.1 GiB. These are sample
+core and ~2.4 GiB aggregate Slurm RSS for the art sequence. These are sample
 measurements, not arbitrary-input memory bounds. Select tests with the shared `testselect` on the exact snapshot;
 the project Python image has no git, so pass the selected file list and run isolated pytest processes inside it.

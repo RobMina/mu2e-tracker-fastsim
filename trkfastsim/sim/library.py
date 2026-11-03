@@ -268,14 +268,6 @@ def read(path):
     return {t: core_tables.read(path, t) for t in ("instraw", "instraw_steps", "offaxis", "events")}
 
 
-WIDTH_EDGES = np.array([0, 1, 2, 3, 4, 5, 7, 10, 36])   # plane-extent (last - first plane) bins of the width match
-
-
-def width_bin(pmin, pmax):
-    """Bin of a muon's plane extent width (last - first plane crossed), for the opt-in width-matched off-axis draw."""
-    return np.clip(np.digitize(np.asarray(pmax) - np.asarray(pmin), WIDTH_EDGES) - 1, 0, len(WIDTH_EDGES) - 2)
-
-
 def plane_bin(pmin, pmax, width=PLANE_BIN):
     """Coarse bin of a muon's plane extent: (first plane bin, last plane bin) packed into one integer."""
     nb = 36 // width + 1
@@ -317,7 +309,7 @@ class OffAxisSampler:
     COS_BINS = np.array([0.0, 0.5, 0.7, 0.85, 0.95, 1.01])
 
     def __init__(self, lib, rng, plane_bin_width=PLANE_BIN, edge_anchor=False, topology_anchor=False, drop_muons=False,
-                 width_match=False, plane_sign=False, shift_from_muon=False):
+                 plane_sign=False, shift_from_muon=False):
         self.shift_from_muon = bool(shift_from_muon)   # opt-in: move steps landing in a fast muon straw, not drop them
         if plane_sign and (edge_anchor or topology_anchor):
             raise ValueError("plane_sign applies to the default anchor only")
@@ -325,7 +317,6 @@ class OffAxisSampler:
             raise ValueError("plane_sign needs the library events' direction (uz)")
         self.plane_sign = bool(plane_sign)     # opt-in: plane offsets follow the muon's direction along the planes
         self.drop_muons = bool(drop_muons)     # opt-in: leave out drawn muon steps (other primary muons of the donor)
-        self.width_match = bool(width_match)   # opt-in: plane key = the extent's width bin, not its position
         if edge_anchor and topology_anchor:
             raise ValueError("edge and topology anchors are mutually exclusive")
         if topology_anchor:
@@ -341,14 +332,7 @@ class OffAxisSampler:
         self.npb = (36 // self.pbw + 1) ** 2
         cb = np.clip(np.digitize(np.abs(ev.uy), self.COS_BINS) - 1, 0, self.nc - 2)
         pa = ev.pbin.to_numpy() * self.nc + cb
-        if self.width_match:
-            if "plane_min" not in ev:
-                raise ValueError("width match needs the library events' plane extent")
-            self.use_planes = True
-            self.npb = len(WIDTH_EDGES) - 1
-            pb = width_bin(ev.plane_min, ev.plane_max)
-        else:
-            pb = plane_bin(ev.plane_min, ev.plane_max, self.pbw) if self.use_planes else np.zeros(len(ev), np.int64)
+        pb = plane_bin(ev.plane_min, ev.plane_max, self.pbw) if self.use_planes else np.zeros(len(ev), np.int64)
         order = np.lexsort((pb, pa))
         self.pa_sorted, self.pb_sorted = pa[order], pb[order]
         self.full_sorted = self.pa_sorted * self.npb + self.pb_sorted
@@ -378,18 +362,7 @@ class OffAxisSampler:
         n = len(pa)
         level = np.full(n, -1)
         lo, hi = np.zeros(n, np.int64), np.zeros(n, np.int64)
-        if self.width_match and plane_min is not None:
-            wb = width_bin(plane_min, plane_max)
-            for lev, shifts in ((0, [0]), (1, [-1, 1])):
-                for dw in shifts:
-                    e = level < 0
-                    if not e.any():
-                        break
-                    l2, h2 = self._range(self.full_sorted, pa[e] * self.npb + np.clip(wb[e] + dw, 0, self.npb - 1))
-                    got = h2 > l2
-                    idx = np.flatnonzero(e)[got]
-                    lo[idx], hi[idx], level[idx] = l2[got], h2[got], lev
-        elif self.use_planes and plane_min is not None:
+        if self.use_planes and plane_min is not None:
             nb = 36 // self.pbw + 1
             b0, b1 = np.asarray(plane_min) // self.pbw, np.asarray(plane_max) // self.pbw
             for lev, shifts in ((0, [(0, 0)]), (1, [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1)])):

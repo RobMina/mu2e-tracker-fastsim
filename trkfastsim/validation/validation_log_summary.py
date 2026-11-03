@@ -1,10 +1,18 @@
 """Summarize an isolated pytest-file log without hiding a failed or unfinished file."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import re
 
-from trkfastsim.validation.transport_capture_audit import digest
+
+def digest(path):
+    h = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
 
 STATUS = re.compile(r"(\d+) (passed|failed|skipped|xfailed|xpassed|errors?|subtests passed)")
 

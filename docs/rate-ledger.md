@@ -1,44 +1,25 @@
-# Transport ledger arms and the PrimaryFilter tracker-term rate
+# PrimaryFilter tracker-term rate and the transport ledger
 
-The stage C transport keeps the muon's energy, its straw deposits and its step times in several places. Before this
-change the conventions were:
+The stage C transport keeps the muon's energy, its straw deposits and its step times in several places. Its
+conventions are:
 
-- the step writer subtracted `dedx_restricted(AIR) x path` from the **momentum** of every straw entry, although the
+- the step writer subtracts `dedx_restricted(AIR) x path` from the **momentum** of every straw entry, although the
   tracker envelopes are `DSVacuum` in the GDML and the interior transport has no gap material;
-- the support loss (sampled, `slab_loss`) was charged to the kinetic energy;
-- the straw walls, gas and sense wire scattered the muon but took **no energy**;
-- the step time used the **generated** speed for the whole path, `t = t_gen + path / (beta(p_gen) c)`;
-- the world column above the plane (core `transport.world_loss`) passed `p - loss` (momentum minus an energy) to the
-  next loss call before core `2bcefde`; current core main converts the remaining kinetic energy to momentum.
+- the support loss (sampled, `slab_loss`) is charged to the kinetic energy;
+- the straw walls, gas and sense wire scatter the muon but take **no energy**;
+- the step time uses the **generated** speed for the whole path, `t = t_gen + path / (beta(p_gen) c)`;
+- the world column above the plane (core `transport.world_loss`) converts the remaining kinetic energy to momentum
+  before each loss call (core `2bcefde` and later; earlier cores passed `p - loss`).
 
-`trkfastsim.sim.ledger` names each convention as a separately switchable diagnostic arm. Thin loss changes transport;
-writer loss and the time convention have their own switches. **These arms do not yet constitute a unified
-energy/deposition/time ledger. T3 remains open.** Terminal bookkeeping and step/surface clock consistency fail
-explicit tests below. Production defaults remain unchanged; no arm is recommended for promotion.
+`trkfastsim.sim.ledger` records these conventions (`ledger.Arms`) and holds the flight-time helpers of the
+per-segment ledger below. Alternative conventions (writer debit from the kinetic energy or none, thin-material loss,
+integrated step time: the arms `E`, `A`, `M`, `T`, `AM`, `AMT`) were measured on 11 M events in October 2026 and none
+changed the rate (tables below). They, the entry-ledger and transport-capture diagnostics, the physical-segment
+contract (`transportledger`, `flighttime`) and the open T3 limit tests are on branch `park/rate-ledger-20261103`.
+**T3 remains open:** the transport has no unified energy/deposition/time ledger.
 
-## Arms
-
-| Arm | Setting | Convention |
-|---|---|---|
-| writer | `momentum` (legacy) | air estimate subtracted from \|p\| (writer only) |
-| | `energy` | the same air estimate debited from the kinetic energy (writer only; `entry_ledger="energy"`, exit scattering off) |
-| | `none` | no writer debit: written \|p\| = transport \|p\| (vacuum convention of the GDML) |
-| thin | `False` (legacy) | walls, gas, wire scatter only |
-| | `True` | unrestricted mean loss (`eloss.dedx_restricted(mat, p, 1e9) x length`, no random numbers) of the previous straw's walls, gas and wire (and of a gap medium, none by default) charged to the kinetic energy from the next straw on, before the stopping, scattering and kink momenta |
-| time | `generated` (legacy) | `t_gen + path / (beta(p_gen) c)` |
-| | `integrated` | world: per height band; interior: per segment between straw entries; exact flight time for kinetic energy linear in path, `dt = L (E_in + E_out) / (c (p_in + p_out))`; displacement jumps of condensed scattering take no time; path vertices use a separate kink-node approximation, not a common clock |
-| world (core) | core before `2bcefde` | `slab_loss(p - loss)`, air at `p - loss` |
-| | core `2bcefde` and later | `slab_loss(p(T - loss))` |
-
-Presets (`ledger.PRESETS`): `legacy`, `E`, `A` (writer none), `M` (thin), `T` (integrated time), `AM`, `AMT`.
-`steps.LEDGER_ARMS_DEFAULT` is the preset used when `make_steps` gets `arms=None` in stage C with the interior
-transport (entry-ledger diagnostics always run on the legacy transport). The `steps` CLI takes `--ledger-arms`.
-The world arm is the imported core; `ledger.core_world_convention()` records which one and the hash of its
+`ledger.core_world_convention()` records which world convention the imported core implements and the hash of its
 `world_loss` source in every `ratearms` output.
-
-Defaults are bit-identical to the transport before this change when the preset is `legacy`: no arm draws random
-numbers, and the extra bookkeeping only adds zeros (checked on a full g4ref shard with `scripts/tables_identical.py`
-against the previous commit; `tests/test_rate_ledger.py` checks it on synthetic straws).
 
 ## Per-segment ledger
 
@@ -61,42 +42,16 @@ interior material deposits all its loss locally in this bookkeeping (delta-ray e
 
 Analytic limits (`tests/test_rate_ledger.py`): flight time at constant momentum exact; linear kinetic energy against
 quadrature (1e-8); additivity under subdivision; finite time to a stop; world-band entry/exit momenta reconstructed
-from the band means; vacuum world time; vacuum writer (no debit); energy writer debits kinetic energy; one straw's
-walls and gas charged exactly to the next straw (single material per piece); legacy preset equal to the default;
-step and path-vertex times equal at the straw entries at constant momentum; G4-to-fast muon identity.
-The strict xfails of `tests/test_step_energy_ledger.py` document the legacy defects (they test the default, which is
-unchanged); the arm tests above check the corresponding expectations under A and T.
-
-### Open T3 requirements (audited 2026-10-27)
-
-`tests/test_rate_ledger_limits.py` adds three strict expected failures and three passing controls:
-
-1. **Terminal accounting:** three 80 MeV/c synthetic straw entries reach 1020 mm and 0.036911 MeV thin loss,
-   but the muon ledger reports zero path/loss. These are restart fields, not a final accounting domain.
-2. **Absorbing stop:** a 12 MeV/c muon emits only the first straw, suppressing the entry at 1010 mm, but its path
-   vertices continue to 4000 mm. Downstream surfaces and exit transport must terminate at an explicit stop node.
-3. **Common clock:** a deterministic 5 MeV support loss produces about 203 ps disagreement between step and vertex
-   times. The defect occurs without thin loss; the earlier sub-ps thin-material test does not bound it.
-
-The thin-loss arm evaluates straw material at the momentum at the start of a kink group, not each evolving entry
-momentum. At 20 MeV/c in a three-straw fixture, the second straw is charged 0.138067 MeV using group-start momentum,
-versus 0.146894 MeV at its 19.2438 MeV/c entry momentum. Group subdivision and stopping convergence remain unvalidated.
-The last straw's loss is not charged if no later entry exists. Exit-scatter losses are outside the reported totals.
-
-`escaping_gas_MeV` is mean unrestricted loss minus a separately sampled deposit; it can be negative and is not a
-physical escaping-energy measurement. World/passive-material deposited and escaping terms are not explicitly closed.
-There are no complete material-identified segment/end/stop records. The entry-to-entry linear-KE timing helper is
-analytically correct, but its nodes differ from the kink-node surface clock. Completion requires a shared physical
-segment history, explicit terminal/stop nodes, energy/deposition accounting and a single timing interpolation;
-changing material widths or adopting an arm because its rate is unchanged would not resolve these requirements.
+from the band means; vacuum world time; the history draws no random numbers; step and path-vertex times equal at the
+straw entries at constant momentum; G4-to-fast muon identity. The strict xfails of `tests/test_step_energy_ledger.py`
+document the legacy defects of the default transport.
 
 ## Rate measurement
 
 `python3 -m trkfastsim.sim.ratearms` (module docstring): `g4` (per primary muon of the G4 reference), `fast`
-(one arm on gen tables; file i of the 220 g4ref_v1 + g4ref_v2 gen tables uses the generator seed `(1, i)` in every
-arm), `compare` (paired tables), and `check` (validated restart against exact input hashes and physics settings).
-`scripts/rate_ledger_arms.sh` defaults to one worker and enforces one worker/library thread on GPVMs; failures
-propagate. Existing chunks are skipped only after validation; partial files and logs are preserved and rejected.
+(the default transport, optionally with `--scatter-in`, on gen tables; file i of the 220 g4ref_v1 + g4ref_v2 gen
+tables uses the generator seed `(1, i)` in every arm), `compare` (paired tables of arms given as NAME=DIR), and `check`
+(validated restart against exact input hashes and physics settings). Partial files are rejected.
 `compare` checks chunk settings, input hashes/indices/counts, duplicate identities, retained-event/pass counts and
 G4 identity coverage. New runs also record platform/library versions. Generated event counts come from unique
 ROOT gen-table event identities per completed input, not job-log counters.
@@ -114,8 +69,7 @@ the muon's rank among the generated muons. `compare` maps every G4 muon to the f
 (`ratearms.g4_fast_keys`); first muon = fast key 1. `scripts/rate_conventions.py` gives the pass counts per
 convention, the offset of an earlier `fatecheck` run, and the seedcheck CRV subset recounted with the seeded muon.
 
-`scripts/rate_ledger_campaign.sh` runs the G4 table and the default arm set on a GPVM (site.env sourced). Arms compared
-with each other must run on one platform: the same code and seeds on Linux and macOS differ in about 1.3 % of the
+Arms compared with each other must run on one platform: the same code and seeds on Linux and macOS differ in about 1.3 % of the
 passing events (floating-point divergence of the stochastic transport), -0.02 % +- 0.05 % in the rate.
 
 ## Laptop results on the paired 11 M sample (2026-10-26)
@@ -196,29 +150,8 @@ confidence bound within 1%; the physical residual and full any-particle/OR accep
 A/M/T or claim T3 closed. Merge/rebase onto updated main requires separate integration, particularly its JAX
 backend; no JAX ledger equivalence was tested here.
 
-### Reproduction and test evidence
-
-Set `O` to the retained campaign output root (`trk_rate_ledger_20261026`), and use the saved core `4f57013` for the
-Linux campaign. From this worktree, with the analysis Python environment and one library thread:
-
-```bash
-python3 -m trkfastsim.sim.ratearms compare --g4 "$O/arms_v1/g4.parquet" \
-  --arm legacy="$O/arms_v1/legacy" --arm A="$O/arms_v1/A" --arm E="$O/arms_v1/E" \
-  --arm M="$O/arms_v1/M" --arm AM="$O/arms_v1/AM" --arm AMT="$O/arms_v1/AMT" \
-  --arm W0="$O/arms_v1/W0" --base legacy --out "$O/reports_takeover/linux_validated.json"
-```
-
-The command refuses an existing report; choose a new report name for a new invocation. Retained Linux evidence:
-`reports_takeover/{linux_validated,linux_conventions}.json`, `resume_check.log`, plus the original per-arm manifests
-and first replay `reports_takeover/replay/`. Laptop evidence: `reports_takeover/time_identity_{legacy,T,AMT}/`,
-`fatecheck_one/` (real one-shard smoke test), `tests_full.log`. The smoke test has 36,850 muon-containing events,
-259 fast passes and 267 G4 passes; `generated` historically counts muon-containing events, while new
-`generated_events` explicitly counts all generator ROOT-table events.
-
-Full local suite: **169 passed, 1 skipped, 9 strict xfailed** (five legacy energy/time defects, one thin-clock
-mismatch, three newly exposed T3 limits). New regression suites cover muon conventions, particle/straw timing
-identity, incomplete/mixed/duplicate campaign rejection, terminal accounting and stopping. Runner syntax and 23
-mock restart/failure/thread-limit assertions pass. No C++ build, new G4 production, commit or default change.
+The arm runs above, their campaign drivers (`rate_ledger_arms.sh`, `rate_ledger_campaign.sh`) and the T3 limit tests
+are on branch `park/rate-ledger-20261103`.
 
 ## Support scattering onto the straws (`--scatter-in`, 2026-11-01)
 
@@ -246,7 +179,7 @@ calibration) each moved the rate by at most +0.4 % and left the reach deficit as
 understood.
 
 ```bash
-python3 -m trkfastsim.sim.ratearms fast GEN... --gdml GDML --arm legacy --seed 1 --index0 0 --g4 G4.parquet \
+python3 -m trkfastsim.sim.ratearms fast GEN... --gdml GDML --seed 1 --index0 0 --g4 G4.parquet \
     --outdir DIR --scatter-in
 python3 -m trkfastsim.sim.ratearms compare --g4 G4.parquet --arm legacy=BASE --arm scatter_in=DIR --base legacy \
     --out REPORT.json

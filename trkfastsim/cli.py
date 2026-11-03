@@ -77,9 +77,6 @@ def build_parser():
             sp.add_argument("--library-drop-muons", action="store_true",
                             help="with --library: leave out drawn muon steps (other primary muons of the donor event, which the "
                                  "fast transport already carries; opt-in)")
-            sp.add_argument("--offaxis-width-match", action="store_true",
-                            help="off-axis draw keyed on the width of the muon's plane extent (last - first plane) instead "
-                                 "of its position in --offaxis-plane-bin bins (opt-in)")
             sp.add_argument("--offaxis-plane-sign", action="store_true",
                             help="off-axis paste: mirror a drawn set's plane offsets when the library muon and the fast muon "
                                  "travel opposite ways along the planes (sign of u_z; opt-in)")
@@ -129,15 +126,6 @@ def build_parser():
             sp.add_argument("--backend", default="numpy", choices=["numpy", "jax"],
                             help="numpy (default, the reference) or jax: world/interior transport, crossings and gas eIon on the "
                                  "JAX device (CPU or GPU; different random streams; validate with jaxcheck)")
-            sp.add_argument("--navigation", default="legacy", choices=["legacy", "ordered-stored-mean-v1", "ordered-stored-sampled-v1"],
-                            help="opt-in ordered stored-material mean or sample-coupled loss, slice clock and angular MSC; primary-only")
-            sp.add_argument("--ordered-signed-endpoint-budget-mm", type=float, default=None,
-                            help="ordered mode only: explicit bounded signed-source endpoint arm (strict by default)")
-            sp.add_argument("--ordered-stopping-evaluation", choices=["entry", "midpoint"], default="entry",
-                            help="ordered mode only: explicit midpoint predictor for loss evaluation (entry remains default)")
-            sp.add_argument("--ledger-arms", default=None, metavar="PRESET",
-                            help="stage C transport-ledger arms (trkfastsim.sim.ledger.PRESETS: legacy, A, E, M, T, AM, AMT; "
-                                 "default steps.LEDGER_ARMS_DEFAULT)")
         if name == "jaxcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i), as steps")

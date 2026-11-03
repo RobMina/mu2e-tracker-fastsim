@@ -4,9 +4,10 @@ Input: gen tables of the G4 reference (`gen` + `subruns` trees: crvfastsim's gen
 tracker dumper's gen_tables.*.root). Output: fasttrk.<input>.root with the sgsteps/particles/gen/subruns trees in the
 StrawGasStepTableDumper layout, same (run, subrun, event) keys, so `v1compare FAST --compare G4` matches events.
 
-    steps gen.001400_00000001.root [...] --gdml mu2e_extracted_v04.gdml --outdir DIR [--seed N] [--stage A|C]
+    steps gen.001400_00000001.root [...] --gdml mu2e_extracted_v04.gdml --outdir DIR [--seed N] [--stage C|A]
 
---stage A: straight from the generated vertex; C: GDML world material and multiple scattering down to the tracker.
+--stage C (default): GDML world material and multiple scattering down to the tracker, with per-band |p| in the
+Highland scattering (--no-sliced-msc: one |p| for the column); A: straight from the generated vertex.
 Stage C includes the tracker's support structure (TrackerInterior: loss and scattering per segment between straws)
 unless --no-interior; --no-interior-msc keeps the loss but no scattering in it. The single-scattering tail above
 the Gaussian core (world column and interior) is on by default (--no-msc-tail: Gaussian only); --tail-k K puts its
@@ -34,9 +35,9 @@ def default_gdml():
     return os.path.join(data, GDML_NAME)
 
 
-def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, offaxis_edge_anchor=False, offaxis_topology_anchor=False, library_drop_muons=False, offaxis_plane_sign=False, offaxis_shift_from_muon=False, instraw_fine_length=False, tag="",
-        sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True, kink_xx0=st.KINK_XX0,
-        tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, first_muon_only=False, backend="numpy", scatter_in=False, **kw):
+def run(inputs, outdir, seed=1, gdml=None, stage="C", library=None, no_offaxis=False, offaxis_plane_bin=6, library_drop_muons=False, offaxis_plane_sign=False, offaxis_shift_from_muon=False, instraw_fine_length=False, tag="",
+        sliced_msc=True, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True, kink_xx0=st.KINK_XX0,
+        tail_k=None, no_surfsteps=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, backend="numpy", scatter_in=False, **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom, mods=world_mods) if stage == "C" else None
@@ -44,11 +45,8 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
         print(f"# world modification: {world_mods}", flush=True)
     interior = st.TrackerInterior(gdml, geom, calo=not no_calo) if stage == "C" and not no_interior else None
     if interior is not None:
-        if interior_msc_cal and st.INTERIOR_MSC_CAL is None:
-            raise SystemExit("--interior-msc-cal: steps.INTERIOR_MSC_CAL is not set")
         print(f"# tracker interior: {len(interior.shells.coax)} support shells ({interior.shells.n_coaxial} coaxial), "
               f"{len(interior.shells.calo) if interior.shells.calo is not None else 0} calorimeter pieces"
-              + (" ; support msc calibrated (INTERIOR_MSC_CAL)" if interior_msc_cal else "")
               , flush=True)
     lib = lib_mod.read(library) if library else None
     for i, f in enumerate(tables.expand(inputs)):
@@ -59,17 +57,14 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
                                               fine_length=instraw_fine_length)
                    if lib else None)
         offaxis = (lib_mod.OffAxisSampler(lib, np.random.default_rng([int(seed), i, 2]), plane_bin_width=offaxis_plane_bin,
-                                            edge_anchor=offaxis_edge_anchor, topology_anchor=offaxis_topology_anchor,
                                             drop_muons=library_drop_muons,
                                             plane_sign=offaxis_plane_sign, shift_from_muon=offaxis_shift_from_muon)
                    if lib and not no_offaxis else None)
         sgs, parts = st.make_steps(gen, geom, rng, stage=stage, world=world, sampler=sampler, offaxis=offaxis,
                                    sliced_msc=sliced_msc, interior=interior, near_margin=near_margin,
                                    interior_msc=not no_interior_msc, msc_tail=msc_tail, tail_k=tail_k,
-                                   kink_xx0=kink_xx0, band_spread=band_spread,
-                                   interior_msc_cal=st.INTERIOR_MSC_CAL if interior_msc_cal else None,
-                                   lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0, exit_scatter=exit_scatter,
-                                   all_muons=not first_muon_only, backend=backend,
+                                   kink_xx0=kink_xx0, kink_sup_xx0=kink_sup_xx0, exit_scatter=exit_scatter,
+                                   backend=backend,
                                    **({"scatter_in": True} if scatter_in else {}))
         if interior is not None:
             print(f"#   interior: {getattr(st.make_steps, 'interior_stats', {})}", flush=True)

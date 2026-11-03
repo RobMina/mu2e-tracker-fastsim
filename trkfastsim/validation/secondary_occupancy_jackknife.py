@@ -7,12 +7,21 @@ Groups must be independent and comparably sized; few or highly unequal groups
 make the unweighted delete-group error unreliable even if numerical guards pass.
 """
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 import numpy as np
 from trkfastsim.validation import occupancy as O
-from trkfastsim.validation.secondary_replay import file_record
+
+
+def file_record(path):
+    path = Path(path).resolve()
+    h = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            h.update(block)
+    return {"path": str(path), "sha256": h.hexdigest()}
 
 
 def difference_error(candidate, base, candidate_reps, base_reps):

@@ -44,7 +44,7 @@ PY
     steps)
       O=$D/fast_$T; mkdir -p $O; rm -f $O/*.root
       /usr/bin/time -f "%e" -o $O/time.log python3 -m trkfastsim steps "$D/gen_as_v1/gen.*.root" --outdir $O --seed 1 \
-        --stage C --sliced-msc ${STEPS_FLAGS:-} > $O/steps.log 2>&1 || { echo "steps failed"; tail -20 $O/steps.log; exit 1; }
+        ${STEPS_FLAGS:-} > $O/steps.log 2>&1 || { echo "steps failed"; tail -20 $O/steps.log; exit 1; }
       echo "steps done wall $(cat $O/time.log) s, $(ls $O/fasttrkC.*.root | wc -l) files" ;;
     cmp)
       O=$D/fast_$T

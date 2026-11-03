@@ -24,8 +24,11 @@ tests skip). One job per GPVM; outputs in your data area, never in the app area.
 ```bash
 python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v2_tables/gen.001400_00000022.root" \
     --gdml "$CRVFS_DATA/geometry/mu2e_extracted_v04.gdml" \
-    --stage C --sliced-msc --seed 22 --outdir "$M2FS_DATA/tracker-smoke"
+    --seed 22 --outdir "$M2FS_DATA/tracker-smoke"
 ```
+
+The defaults are stage C with sliced MSC (since 2026-11-03; the output equals the earlier explicit
+`--stage C --sliced-msc`). `--stage A` gives the straight-line transport from the vertex, the earlier CLI default.
 
 `fasttrkC.*.root` holds the `sgsteps`, `particles`, `gen`, `subruns` and `surfsteps` trees with the same keys as the
 Geant4 tables; the log prints the support-structure census and the in-tracker transport counters. Pass `--gdml`
@@ -55,7 +58,7 @@ python3 tracker/scripts/stagec_msc_ab_summary.py $M2FS_DATA/trk_fastsim c1SIsD
 ```
 
 `steps` takes about 70 s for the 20 shards on an idle GPVM; the three comparisons add a few minutes.
-`stagec_msc_ab.sh ARM [ARM ...]` runs `steps` on the 20 gen shards (seed 1, `--stage C --sliced-msc` plus the arm's
+`stagec_msc_ab.sh ARM [ARM ...]` runs `steps` on the 20 gen shards (seed 1, the default stage C with sliced MSC, plus the arm's
 flags), then `v1compare`, `worldcheck` and `msccheck` against the G4 tables. Outputs, for arm tag `TAG`:
 
 | output | content |
@@ -110,7 +113,7 @@ GDML, `trkfastsim/sim/surfaces.py`), in the columns of `StrawGasStepTableDumper`
 muon's own StrawGasSteps (no random numbers: `sgsteps` is bit-identical with and without it). Check against G4:
 
 ```bash
-python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v1_tables/gen.001400_*.root" --outdir $D/fast_c1SIsDss --seed 1 --stage C --sliced-msc
+python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v1_tables/gen.001400_*.root" --outdir $D/fast_c1SIsDss --seed 1
 python3 -m trkfastsim surfcheck "$D/fast_c1SIsDss/fasttrkC.*.root" --compare "$D/g4ref_v1_tables/sgsteps.*.root" --outdir $D/plots/surfcheck_c1SIsDss
 ```
 
@@ -129,7 +132,7 @@ includes cross-arm event covariance, conditional on the fixed secondary library.
 checked event-ID bounds, matched paired width blocks and yield-factorization checks prevent
 incomplete outputs or unmatched groups from becoming apparent physics losses or zero errors.
 See [secondary validation](secondary-validation.md) for the full saved-default-L paired result,
-exact generator-content audit, event-clustered shape limitations and opt-in edge/topology diagnostics.
+exact generator-content audit and event-clustered shape limitations.
 The saved sample's yield is −2.038 ± 0.366%, mostly selection-only; no placement change is promoted.
 
 Paired campaign on the `g4ref_v2` primaries (10 M generated, 200 subruns; same CRY events in both arms), from the
@@ -151,39 +154,10 @@ python3 -m trkfastsim tv2compare "$TRKFS_PNFS/tv2p_fast/nts.*.root" --compare "$
 all their events). Expanding the pnfs globs above lists dCache: copy the outputs to the data area first, or pass the
 known file names.
 
-### Interior slab momentum diagnostic
+### Interior slab check
 
-`slabcheck --model interior --kink-p-mean` tests the arithmetic mean of group entry/exit momentum for the
-Highland core and single-scattering tail. Without the flag it retains exit momentum. The optional support
-calibration is evaluated at exit momentum in both modes, matching `TrackerInterior.transport`.
+`slabcheck --model interior` compares the tracker-interior kink of one support segment (`steps.slab_group`, exit
+momentum) with Geant4 slabs of a NIST material. It models one unsplit support group, not the production
+multi-kink traversal. The support-width calibration, the mean-momentum arm and the arm comparator `slabcompare` are on
+branch `park/interior-width-20261103`.
 
-Run the two arms against the **same existing G4 slab files**, seed and sample count, with different output
-directories. For example, from the umbrella environment:
-
-```bash
-python3 -m trkfastsim slabcheck "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
-    --model interior --seed 1 --nmu 100000 --outdir "$M2FS_DATA/trk_fastsim/slab/check_exit_TAG"
-python3 -m trkfastsim slabcheck "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
-    --model interior --kink-p-mean --seed 1 --nmu 100000 --outdir "$M2FS_DATA/trk_fastsim/slab/check_mean_TAG"
-```
-
-These are diagnostic entry points, not evidence that either comparison has run. Repeat for the Cu/Pb inputs.
-`slabcheck_interior.json` includes the effective momentum conventions, calibration, seed and sample count.
-The flag is rejected for `--model world` and is not exposed by production `steps`. This helper models **one
-unsplit support group**; it does not validate the production multi-kink traversal, straw losses, timing or rate.
-Do not promote a production default or refit the calibration solely from a synthetic unit-test pass.
-
-Summarize a candidate against a saved baseline without regenerating it:
-
-```bash
-python3 -m trkfastsim.validation.slabcompare BEFORE/slabcheck_interior.json AFTER/slabcheck_interior.json \
-    --references "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
-    "$M2FS_DATA/trk_fastsim/slab/G4_Cu/slab.*.root" "$M2FS_DATA/trk_fastsim/slab/G4_Pb/slab.*.root" \
-    --tracker-ref TRACKER_SHA --core-ref CORE_SHA --out AFTER/comparison.json
-```
-
-The comparator requires matching saved G4 observables, audits actual primary-muon events from the highest-cycle
-particle trees, records input JSON hashes, and refuses to overwrite its output. Per-material summaries use the
-common fit domain (median exit momentum at least 60% of entrance momentum). They are unweighted point summaries,
-not significance tests. Historical outputs without settings remain explicitly unidentified in that field; matching
-G4 observables does not establish matched random seeds or code for the historical fast arm.

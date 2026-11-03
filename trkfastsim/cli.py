@@ -65,15 +65,12 @@ def build_parser():
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
-            sp.add_argument("--stage", default="A", choices=["A", "C"],
-                            help="A: straight from the vertex; C: GDML world material + MSC down to the tracker")
+            sp.add_argument("--stage", default="C", choices=["A", "C"],
+                            help="C (default): GDML world material + MSC down to the tracker; A: straight from the vertex")
             sp.add_argument("--library", default=None, metavar="ROOT", help="G4 secondary library (buildlib) to paste secondaries")
             sp.add_argument("--no-offaxis", action="store_true", help="with --library: in-straw secondaries only")
             sp.add_argument("--offaxis-plane-bin", type=int, default=6,
                             help="off-axis draw: planes per plane-extent bin of the matching key (0 = no plane matching)")
-            sp.add_argument("--offaxis-topology-anchor", action="store_true", help="opt-in donor topology anchor; requires buildlib --topology")
-            sp.add_argument("--offaxis-edge-anchor", action="store_true",
-                            help="off-axis paste: steps outside the library muon's planes anchor on the fast muon's first/last plane (opt-in)")
             sp.add_argument("--library-drop-muons", action="store_true",
                             help="with --library: leave out drawn muon steps (other primary muons of the donor event, which the "
                                  "fast transport already carries; opt-in)")
@@ -87,9 +84,8 @@ def build_parser():
                             help="off-axis paste: a step that lands in a fast muon straw moves up to 3 straws along its straw "
                                  "offset instead of being dropped (opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
-            sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
-            sp.add_argument("--first-muon-only", action="store_true",
-                            help="transport only the first generated muon of each event (before 2026-10-24; default: all)")
+            sp.add_argument("--sliced-msc", action=argparse.BooleanOptionalAction, default=True,
+                            help="stage C: per-band |p| in the Highland scattering (default on; --no-sliced-msc: one |p| for the column)")
             sp.add_argument("--near-margin", type=float, default=1500.0,
                             help="stage C: transport through the world only muons whose straight line passes within this "
                                  "many mm of the straws' footprint at the plane (1e9 = every downward muon)")
@@ -106,10 +102,6 @@ def build_parser():
                             help="stage C: x/X0 of straw material between in-tracker kinks (default 1e-3)")
             sp.add_argument("--no-surfsteps", action="store_true",
                             help="do not write the surfsteps tree (tracker VD crossings of the primary muon)")
-            sp.add_argument("--interior-msc-cal", action=argparse.BooleanOptionalAction, default=False,
-                            help="stage C: G4-slab width calibration of the support-structure scattering (steps.INTERIOR_MSC_CAL)")
-            sp.add_argument("--lever-moments", action="store_true",
-                            help="stage C: interior kink lever arms from the support material's own moments (default: segment midpoint)")
             sp.add_argument("--no-calo", action="store_true",
                             help="stage C: leave the calorimeter disk out of the interior (diagnostic)")
             sp.add_argument("--exit-scatter", action=argparse.BooleanOptionalAction, default=True,
@@ -121,8 +113,6 @@ def build_parser():
             sp.add_argument("--scatter-in", action="store_true",
                             help="stage C, NumPy: support kinks also on lines that cross no further straw, so support scattering "
                                  "can move muons onto the straws (TrackerInterior.transport scatter_in; opt-in)")
-            sp.add_argument("--band-spread", action="store_true",
-                            help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
             sp.add_argument("--backend", default="numpy", choices=["numpy", "jax"],
                             help="numpy (default, the reference) or jax: world/interior transport, crossings and gas eIon on the "
                                  "JAX device (CPU or GPU; different random streams; validate with jaxcheck)")
@@ -145,12 +135,8 @@ def build_parser():
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--crv", nargs="+", required=True, metavar="ROOT", help="G4 reference CrvStep tables (crvsteps.*.root)")
             sp.add_argument("--seed", type=int, default=1)
-            sp.add_argument("--lever-moments", action="store_true",
-                            help="interior kinks with the material's own lever-arm moments (TrackerInterior.transport lever_moments)")
             sp.add_argument("--kink-sup-xx0", type=float, default=0.25,
                             help="split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
-            sp.add_argument("--kink-p-mean", action="store_true",
-                            help="interior kinks scatter at the mean of the group's entry and exit |p| (default exit |p|)")
         if name == "fatecheck":
             sp.add_argument("--seed", type=int, default=1, help="base seed, as steps (file i uses (seed, i))")
         if name == "elosscheck":
@@ -158,7 +144,6 @@ def build_parser():
             sp.add_argument("--seed", type=int, default=1)
             sp.add_argument("--splits", default="1,2,4", help="sub-step counts to test, comma-separated")
         if name == "buildlib":
-            sp.add_argument("--topology", action="store_true", help="retain donor plane topology for placement diagnostics (opt-in)")
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
             sp.add_argument("--format", type=int, default=2, choices=[1, 2], help="library format (2: straw-local placement)")
         if name in ("v1compare", "worldcheck", "msccheck", "stepcheck", "fatecheck", "surfcheck"):
@@ -170,10 +155,6 @@ def build_parser():
             sp.add_argument("--model", default="world", choices=["world", "interior"],
                             help="fast arm: stage C world transport (default) or the tracker-interior kink (TrackerInterior)")
             sp.add_argument("--material", default=None, help="interior: NIST slab material (default: input's directory name)")
-            sp.add_argument("--cal", default=None, metavar="JSON", help="interior: calibration to test (default: built-in)")
-            sp.add_argument("--fit", action="store_true", help="interior: fit the per-material width correction")
-            sp.add_argument("--kink-p-mean", action="store_true",
-                            help="interior only: scatter at mean entry/exit |p| (default exit |p|); diagnostic, not production validation")
         if name == "seccensus":
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
             sp.add_argument("--paired", action="store_true", help="same CRY primaries: match files by subrun, events selected in both arms")
@@ -228,8 +209,6 @@ def build_parser():
             sp.add_argument("--drift-source", default=None, metavar="ROOT", help="digis --f2: drift conditions (default inputs[0])")
             sp.add_argument("--kkline", nargs="+", default=None, metavar="ROOT", help="digis: stock EventNtuples of these events (arm@kkline)")
             sp.add_argument("--batches", type=int, default=1, help="shards per subrun, by event number modulo this (default 1)")
-        if name == "selfpaste":
-            sp.add_argument("--anchor", default="default", choices=["default", "edge", "topology"])
         if name == "shardstats":
             sp.add_argument("--pairs", nargs="+", default=None, metavar="REF:CAND", help="paired comparisons (arm names)")
             sp.add_argument("--splits", nargs="+", default=None, metavar="ARM", help="unpaired split-shard null of these arms")

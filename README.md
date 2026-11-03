@@ -33,7 +33,7 @@ cp site.env.example site.env        # fill M2FS_INPUTS (verified input release),
 source site.env
 python3 -m pytest -q -p no:cacheprovider tracker/tests      # JAX tests skip without JAX
 python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v2_tables/gen.001400_00000022.root" \
-    --gdml "$CRVFS_DATA/geometry/mu2e_extracted_v04.gdml" --stage C --sliced-msc --seed 22 --outdir "$M2FS_DATA/tracker-smoke"
+    --gdml "$CRVFS_DATA/geometry/mu2e_extracted_v04.gdml" --seed 22 --outdir "$M2FS_DATA/tracker-smoke"
 ```
 
 Digitisation, reconstruction and the validation campaigns: [`docs/running.md`](docs/running.md). The inputs are
@@ -119,6 +119,8 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | `park/rate-diagnostics` | the earlier rate-deficit diagnostics `geomcheck`, `interiorcensus`, `tubecheck`, `arrivalcheck`, `slowcheck`, `survivalcheck`, `rangecheck`, `secdiag`, `libplacecheck` (untested CLIs, superseded by `ratearms`) |
 | `park/tv3-rescoring` | the saved T-V3 secondary-bank replicas, response and summaries |
 | `park/tv3-rescoring-20261103` | the relocated saved-product validation (`secondary_tv3_site_rescore`, the shared Parquet environment installer and its check, `docs/saved-validation.md`); the source-event bank replicas (`bankreplica`) it described are on `park/tv3-rescoring` |
+| `park/offaxis-anchors-20261103` | the off-axis edge and donor-topology anchors (`steps --offaxis-edge-anchor`, `--offaxis-topology-anchor`, `buildlib --topology`, `selfpaste --anchor`), `sim.placement` and the anchor migration, replay and audit tools |
+| `park/interior-width-20261103` | the interior-width arms: `steps --interior-msc-cal` (`steps.INTERIOR_MSC_CAL`, `slabcheck --cal --fit`), `--lever-moments`, `--band-spread`, `kink_p_mean` (`seedcheck`, `slabcheck --kink-p-mean`, `slabcompare`) |
 | `park/offaxis-width-match` | the rejected width-matched off-axis donor key (`steps --offaxis-width-match`) |
 
 About 90 unreferenced one-off scripts were removed; they are in the history and on every park branch.

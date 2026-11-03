@@ -36,7 +36,7 @@ for arm in "$@"; do
   case $arm in base|rescore_*) regen=0 ;; *) regen=1 ;; esac
   if [ $regen = 1 ]; then
     rm -f $O/*.root
-    /usr/bin/time -f "%e" -o $O/time.log python3 -m trkfastsim steps $G20 --outdir $O --seed 1 --stage C --sliced-msc \
+    /usr/bin/time -f "%e" -o $O/time.log python3 -m trkfastsim steps $G20 --outdir $O --seed 1 \
       $flags > $O/steps.log 2>&1 || { echo "$arm steps failed rc=$?"; tail -20 $O/steps.log; exit 1; }
   fi
   python3 -m trkfastsim v1compare "$O/fasttrkC.*.root" --compare "$REF" --outdir $D/plots/v1compare_$tag > $O/v1.log 2>&1 \

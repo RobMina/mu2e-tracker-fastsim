@@ -306,7 +306,7 @@ def test_jax_rejects_unsupported_options(setup):
     geom, interior, _ = setup
     gen = _gen(10, np.random.default_rng(15))
     with pytest.raises(NotImplementedError):
-        st.make_steps(gen, geom, np.random.default_rng(1), stage="A", interior=interior, lever_moments=True, backend="jax")
+        st.make_steps(gen, geom, np.random.default_rng(1), stage="A", interior=interior, interior_msc=False, backend="jax")
     with pytest.raises(ValueError):
         st.make_steps(gen, geom, np.random.default_rng(1), backend="cuda")
 

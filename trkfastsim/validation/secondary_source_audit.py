@@ -12,6 +12,16 @@ import numpy as np
 from trkfastsim import tables as T
 
 
+def donor_paths(metadata, source_dir):
+    """Donor reference tables of a library, from its metadata basenames."""
+    names = metadata['inputs'].split(';')
+    if not names or len(names) != metadata['nfiles'] or len(names) != len(set(names)):
+        raise ValueError('invalid or duplicated donor manifest')
+    if any(Path(n).name != n or not n.endswith('.root') for n in names):
+        raise ValueError('donor manifest must contain ROOT basenames only')
+    return [Path(source_dir) / name for name in names]
+
+
 def audit(steps, particles):
     p = particles.rename(columns={"key": "sp"})
     if p.duplicated(T.KEY + ["sp"]).any():
@@ -55,7 +65,6 @@ def main():
     if args.library_meta:
         if args.inputs or not args.source_dir:
             p.error("--library-meta requires --source-dir and no positional inputs")
-        from trkfastsim.validation.secondary_library_topology import donor_paths
         paths = [str(x) for x in donor_paths(json.loads(Path(args.library_meta).read_text()), args.source_dir)]
     else:
         if not args.inputs or args.source_dir:

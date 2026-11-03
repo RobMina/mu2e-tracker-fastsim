@@ -3,7 +3,7 @@
 # usage (GPVM): tracker/scripts/straw_occ_steps.sh OUTDIR [REF=g4ref_v2] [LIB] [TAG] [GROUP=10]; code from TRK (tracker) and
 # CORE dirs. The REF gen tables are first merged GROUP subruns per file (gen.grp.<first subrun>.root): one steps output per
 # group, which is also the table of one grouped path A grid job (grid_tv2.sh), and one library-sampler set-up per group.
-# STEPS_FLAGS: extra steps options (e.g. --offaxis-edge-anchor); SKIP_STEPS=1: census only, on existing fast tables;
+# STEPS_FLAGS: extra steps options (e.g. --library-drop-muons); SKIP_STEPS=1: census only, on existing fast tables;
 # CENSUS_TAG: census output tag (default TAG).
 O=$1; REF=${2:-g4ref_v2}
 source /cvmfs/mu2e.opensciencegrid.org/setupmu2e-art.sh >/dev/null 2>&1 || true

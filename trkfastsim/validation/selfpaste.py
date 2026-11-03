@@ -5,8 +5,6 @@ muon steps become the recipient, and the sampler returns that same event's off-a
 perfect paster reproduces every step's straw. Reported per class of place relative to the muon (same plane, one to
 two planes, farther) and per muon plane-extent width: the steps of the reference, the pasted steps, those that land on
 their own straw, and the paste's rejections (off the lattice, in a muon straw, merged).
---anchor selects the anchor rule: default (relative crossing rank), edge, or topology (needs buildlib --topology
-columns, built here with topology=True).
 Output: <outdir>/selfpaste.json.
 """
 import json
@@ -59,14 +57,14 @@ def _recipients(path):
     return mu, other
 
 
-def run(inputs, outdir, gdml=None, anchor="default", **kw):
+def run(inputs, outdir, gdml=None, **kw):
     from trkfastsim.sim.run import default_gdml
     os.makedirs(outdir, exist_ok=True)
     geom = geometry.from_gdml(gdml or default_gdml())
     paths = T.expand(inputs)
     tot = {}
     for path in paths:
-        lib = L.build([path], geom, topology=(anchor == "topology"))
+        lib = L.build([path], geom)
         mu, other = _recipients(path)
         mu = mu.merge(lib["events"][T.KEY], on=T.KEY, how="inner")
         if not len(mu):
@@ -78,7 +76,7 @@ def run(inputs, outdir, gdml=None, anchor="default", **kw):
         parts = pd.DataFrame({**{c: steps.drop_duplicates(T.KEY)[c].to_numpy() for c in T.KEY}})
         parts["key"], parts["parent"], parts["pdg"], parts["isprim"], parts["ismcprim"] = 1, 0, 13, 1, 1
         f = steps.sort_values(T.KEY + ["sp", "t"]).groupby(T.KEY + ["sp"], sort=False).first().reset_index()
-        sampler = OwnEventSampler(lib, f[T.KEY], edge_anchor=(anchor == "edge"), topology_anchor=(anchor == "topology"))
+        sampler = OwnEventSampler(lib, f[T.KEY])
         out, _, stats = S.add_offaxis_secondaries(steps, parts, sampler, geom)
         pasted = out[out.sp >= S.OFFAXIS_KEY0]
         # reference: the event's off-axis steps (not in a straw of its muon)
@@ -101,7 +99,7 @@ def run(inputs, outdir, gdml=None, anchor="default", **kw):
         for k in ("drawn", "placed", "in_muon_straw", "off_lattice", "reflected", "merged_same_particle"):
             tot[k] = tot.get(k, 0) + int(stats.get(k, 0))
         tot["events"] = tot.get("events", 0) + int(len(f))
-    res = {"anchor": anchor, "inputs": [os.path.basename(p) for p in paths], "width_bins": "0..5, 6 = 6 or more",
+    res = {"anchor": "default", "inputs": [os.path.basename(p) for p in paths], "width_bins": "0..5, 6 = 6 or more",
            "classes": list(CLASSES)}
     for name in ("reference", "pasted"):
         c = np.asarray(tot.get(name, np.zeros(21))).reshape(3, 7)

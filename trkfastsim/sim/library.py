@@ -145,7 +145,7 @@ def _local_cols(out, x0, x1, m, a, s, e1, e2, uref, q):
         out[f"du{end}"], out[f"r{end}"], out[f"phi{end}"] = du, r, ph
 
 
-def anchor_offsets(off, mu, geom=None, topology=False):
+def anchor_offsets(off, mu, geom=None):
     """Lattice offsets of steps `off` from their anchor muon step (`mu` sorted by event and time, with rank k); with
     geom also the v2 straw-local placement about the anchor line's closest approach to the step's straw axis."""
     acols = ["x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"] if geom is not None else []
@@ -159,20 +159,6 @@ def anchor_offsets(off, mu, geom=None, topology=False):
     out["dpa"] = ((x.panel - x.apanel) % 6).astype(np.int32)
     out["dst"] = (x.straw - x.astraw).astype(np.int32)
     out["dt"] = x.t - x.ta
-    if topology:
-        bounds = mu.groupby(T.KEY).plane.agg(["min", "max"]).reset_index()
-        bx = x[T.KEY].merge(bounds, on=T.KEY, how="left", validate="many_to_one")
-        out["source_anchor_plane"] = x.aplane.to_numpy(dtype=np.int32)
-        out["source_plane_min"] = bx["min"].to_numpy(dtype=np.int32)
-        out["source_plane_max"] = bx["max"].to_numpy(dtype=np.int32)
-        out["source_exterior"] = np.where(x.plane.to_numpy() < bx["min"].to_numpy(), -1,
-                                          np.where(x.plane.to_numpy() > bx["max"].to_numpy(), 1, 0)).astype(np.int32)
-        ranks = mu[T.KEY + ["k", "plane"]].copy()
-        ranks["source_plane_rank"] = ranks.groupby(T.KEY + ["plane"]).cumcount()
-        ranks["source_plane_count"] = ranks.groupby(T.KEY + ["plane"])["k"].transform("size")
-        ranks = x[T.KEY + ["k"]].merge(ranks, on=T.KEY + ["k"], how="left", validate="many_to_one")
-        for name in ("source_plane_rank", "source_plane_count"):
-            out[name] = ranks[name].to_numpy(dtype=np.int32)
     if geom is not None:
         js = (x.upanel.to_numpy() * NSTRAWS + x.straw.to_numpy()).astype(np.int64)
         m, ax, half = geom.mid[js], geom.dir[js], geom.halflen[js]
@@ -183,7 +169,7 @@ def anchor_offsets(off, mu, geom=None, topology=False):
     return out
 
 
-def build(paths, geom=None, topology=False):
+def build(paths, geom=None):
     """Return the library tables from reference tables (StrawGasStep positions in the detector frame); with geom
     (geometry.StrawGeometry, Mu2e frame) format v2, the straw-local placement of every step; without, format v1."""
     s = T.read_many(paths, "sgsteps")
@@ -222,7 +208,7 @@ def build(paths, geom=None, topology=False):
     mu["k"] = mu.groupby(T.KEY).cumcount()
     in_mu = sec.merge(mu[T.KEY + ["sid"]].drop_duplicates().assign(_inmu=1), on=T.KEY + ["sid"], how="left")
     off = sec[in_mu._inmu.isna().to_numpy()].reset_index(drop=True)
-    off_out = anchor_offsets(off, mu, geom, topology=topology)
+    off_out = anchor_offsets(off, mu, geom)
 
     # per-event keys for drawing
     first = mu.groupby(T.KEY, sort=False).first().reset_index()
@@ -302,30 +288,18 @@ class OffAxisSampler:
     drawn with the right frequency. Empty keys fall back hierarchically: neighbouring plane-extent bins at the same
     (|p|, angle), then any plane extent at the same (|p|, angle), then neighbouring angle bins. The drawn set carries
     lattice offsets (k, dpl, dpa, dst, dt) that steps.add_offaxis_secondaries applies to the fast muon's straws.
-    edge_anchor (opt-in): steps with dpl != 0 are anchored on the fast muon's first (dpl < 0) or last (dpl > 0) plane
-    instead of the relative rank k, so they stay outside its plane extent (steps._edge_anchor).
     """
 
     COS_BINS = np.array([0.0, 0.5, 0.7, 0.85, 0.95, 1.01])
 
-    def __init__(self, lib, rng, plane_bin_width=PLANE_BIN, edge_anchor=False, topology_anchor=False, drop_muons=False,
-                 plane_sign=False, shift_from_muon=False):
+    def __init__(self, lib, rng, plane_bin_width=PLANE_BIN, drop_muons=False, plane_sign=False, shift_from_muon=False):
         self.shift_from_muon = bool(shift_from_muon)   # opt-in: move steps landing in a fast muon straw, not drop them
-        if plane_sign and (edge_anchor or topology_anchor):
-            raise ValueError("plane_sign applies to the default anchor only")
         if plane_sign and "uz" not in lib["events"]:
             raise ValueError("plane_sign needs the library events' direction (uz)")
         self.plane_sign = bool(plane_sign)     # opt-in: plane offsets follow the muon's direction along the planes
         self.drop_muons = bool(drop_muons)     # opt-in: leave out drawn muon steps (other primary muons of the donor)
-        if edge_anchor and topology_anchor:
-            raise ValueError("edge and topology anchors are mutually exclusive")
-        if topology_anchor:
-            from trkfastsim.sim.placement import validate
-            validate(lib["offaxis"])
-        self.topology_anchor = bool(topology_anchor)
         ev = lib["events"].reset_index(drop=True)
         self.rng = rng
-        self.edge_anchor = bool(edge_anchor)   # opt-in: steps outside the muon's planes anchor on its first/last plane
         self.use_planes = bool(plane_bin_width) and "plane_min" in ev
         self.pbw = int(plane_bin_width) if self.use_planes else 36
         self.nc = len(self.COS_BINS)

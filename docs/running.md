@@ -132,7 +132,7 @@ includes cross-arm event covariance, conditional on the fixed secondary library.
 checked event-ID bounds, matched paired width blocks and yield-factorization checks prevent
 incomplete outputs or unmatched groups from becoming apparent physics losses or zero errors.
 See [secondary validation](secondary-validation.md) for the full saved-default-L paired result,
-exact generator-content audit, event-clustered shape limitations and opt-in edge/topology diagnostics.
+exact generator-content audit and event-clustered shape limitations.
 The saved sample's yield is −2.038 ± 0.366%, mostly selection-only; no placement change is promoted.
 
 Paired campaign on the `g4ref_v2` primaries (10 M generated, 200 subruns; same CRY events in both arms), from the

@@ -131,13 +131,13 @@ def test_v2_build_and_repaste_at_another_angle():
     assert len(ev) == 1
 
 
-def _build(steps, parts, g, tmp=None, topology=False):
+def _build(steps, parts, g, tmp=None):
     """library.build on in-memory tables (T.read_many patched)."""
     from trkfastsim import tables as T
     orig = T.read_many
     T.read_many = lambda paths, tree, cols=None: (steps if tree == "sgsteps" else parts)[cols or slice(None)].copy()
     try:
-        return L.build(["mem"], g, topology=topology)
+        return L.build(["mem"], g)
     finally:
         T.read_many = orig
 
@@ -171,7 +171,7 @@ def test_v1_library_still_pastes_on_chord_and_axis():
 
 
 def test_source_internal_plane_gap_is_not_an_exterior_edge():
-    """Builder-to-paster self closure exposes the opt-in exterior-anchor assumption."""
+    """Builder-to-paster self closure: a step in a plane gap of its muon is pasted back into that gap."""
     g = _geom()
     d = np.array([0.0, -1.0, 0.0])
     ja, jb, js = (10 * 6 + 2) * 96 + 40, (12 * 6 + 2) * 96 + 42, (11 * 6 + 2) * 96 + 50
@@ -187,8 +187,4 @@ def test_source_internal_plane_gap_is_not_an_exterior_edge():
     assert lib['events'].plane_min.tolist() == [10] and lib['events'].plane_max.tolist() == [12]
     base, _, _ = S.add_offaxis_secondaries(steps[steps.sp == 1].copy(), parts.iloc[:1].copy(),
                                           L.OffAxisSampler(lib, np.random.default_rng(1)), g)
-    edge, _, _ = S.add_offaxis_secondaries(steps[steps.sp == 1].copy(), parts.iloc[:1].copy(),
-                                          L.OffAxisSampler(lib, np.random.default_rng(1), edge_anchor=True), g)
     assert base.loc[base.sp >= S.OFFAXIS_KEY0, 'sid'].tolist() == [int(g.sid[js])]
-    assert edge.loc[edge.sp >= S.OFFAXIS_KEY0, 'plane'].tolist() == [13]
-    assert edge.loc[edge.sp >= S.OFFAXIS_KEY0, 'straw'].tolist() == [52]

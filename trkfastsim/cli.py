@@ -71,9 +71,6 @@ def build_parser():
             sp.add_argument("--no-offaxis", action="store_true", help="with --library: in-straw secondaries only")
             sp.add_argument("--offaxis-plane-bin", type=int, default=6,
                             help="off-axis draw: planes per plane-extent bin of the matching key (0 = no plane matching)")
-            sp.add_argument("--offaxis-topology-anchor", action="store_true", help="opt-in donor topology anchor; requires buildlib --topology")
-            sp.add_argument("--offaxis-edge-anchor", action="store_true",
-                            help="off-axis paste: steps outside the library muon's planes anchor on the fast muon's first/last plane (opt-in)")
             sp.add_argument("--library-drop-muons", action="store_true",
                             help="with --library: leave out drawn muon steps (other primary muons of the donor event, which the "
                                  "fast transport already carries; opt-in)")
@@ -159,7 +156,6 @@ def build_parser():
             sp.add_argument("--seed", type=int, default=1)
             sp.add_argument("--splits", default="1,2,4", help="sub-step counts to test, comma-separated")
         if name == "buildlib":
-            sp.add_argument("--topology", action="store_true", help="retain donor plane topology for placement diagnostics (opt-in)")
             sp.add_argument("--out", default=None, metavar="ROOT", help="library file (default <outdir>/trklib.root)")
             sp.add_argument("--format", type=int, default=2, choices=[1, 2], help="library format (2: straw-local placement)")
         if name in ("v1compare", "worldcheck", "msccheck", "stepcheck", "fatecheck", "surfcheck"):
@@ -229,8 +225,6 @@ def build_parser():
             sp.add_argument("--drift-source", default=None, metavar="ROOT", help="digis --f2: drift conditions (default inputs[0])")
             sp.add_argument("--kkline", nargs="+", default=None, metavar="ROOT", help="digis: stock EventNtuples of these events (arm@kkline)")
             sp.add_argument("--batches", type=int, default=1, help="shards per subrun, by event number modulo this (default 1)")
-        if name == "selfpaste":
-            sp.add_argument("--anchor", default="default", choices=["default", "edge", "topology"])
         if name == "shardstats":
             sp.add_argument("--pairs", nargs="+", default=None, metavar="REF:CAND", help="paired comparisons (arm names)")
             sp.add_argument("--splits", nargs="+", default=None, metavar="ARM", help="unpaired split-shard null of these arms")

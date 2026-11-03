@@ -123,6 +123,9 @@ Options that were tried and not made the default are kept on branches, not on ma
   deposition and time ledger) stays open. `ratearms` and `make_steps(history=True)` stay on main.
 - `park/tv3-rescoring-20261103`: the rescoring of saved T-V3 products after a site relocation and its shared Parquet
   environment. It rescored historical products, not current transport; the bank replicas are on `park/tv3-rescoring`.
+- `park/offaxis-anchors-20261103`: the off-axis edge and donor-topology anchors (`steps --offaxis-edge-anchor`,
+  `--offaxis-topology-anchor`, `buildlib --topology`) and their migration and replay tools. The topology anchor fixed
+  the same-plane excess but left the 1-2-plane and nearby-panel deficits and worsened the occupancy score.
 
 ## Inputs
 

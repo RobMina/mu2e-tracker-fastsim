@@ -18,15 +18,15 @@ from trkfastsim import geometry, tables as T
 from trkfastsim.sim import library
 
 
-def run(inputs, outdir, out=None, gdml=None, format=2, topology=False, **kw):
+def run(inputs, outdir, out=None, gdml=None, format=2, **kw):
     paths = T.expand(inputs)
     geom = None
     if int(format) == 2:
         from trkfastsim.sim.run import default_gdml
         geom = geometry.from_gdml(gdml or default_gdml())
-    lib = library.build(paths, geom, topology=topology)
+    lib = library.build(paths, geom)
     out = out or os.path.join(outdir, "trklib.root")
-    library.write(out, lib, {"inputs": ";".join(os.path.basename(p) for p in paths), "nfiles": len(paths), "anchor_topology": bool(topology)})
+    library.write(out, lib, {"inputs": ";".join(os.path.basename(p) for p in paths), "nfiles": len(paths), "anchor_topology": False})
     ins, st, off, ev = lib["instraw"], lib["instraw_steps"], lib["offaxis"], lib["events"]
     c = {"files": len(paths), "muon_events": int(len(ev)), "muon_crossings": int(len(ins)),
          "crossings_with_secondaries": float((ins.nsec > 0).mean()), "instraw_steps": int(len(st)),

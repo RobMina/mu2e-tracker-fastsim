@@ -35,7 +35,7 @@ def default_gdml():
     return os.path.join(data, GDML_NAME)
 
 
-def run(inputs, outdir, seed=1, gdml=None, stage="C", library=None, no_offaxis=False, offaxis_plane_bin=6, offaxis_edge_anchor=False, offaxis_topology_anchor=False, library_drop_muons=False, offaxis_plane_sign=False, offaxis_shift_from_muon=False, instraw_fine_length=False, tag="",
+def run(inputs, outdir, seed=1, gdml=None, stage="C", library=None, no_offaxis=False, offaxis_plane_bin=6, library_drop_muons=False, offaxis_plane_sign=False, offaxis_shift_from_muon=False, instraw_fine_length=False, tag="",
         sliced_msc=True, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True, kink_xx0=st.KINK_XX0,
         tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, first_muon_only=False, backend="numpy", scatter_in=False, **kw):
     gdml = gdml or default_gdml()
@@ -60,7 +60,6 @@ def run(inputs, outdir, seed=1, gdml=None, stage="C", library=None, no_offaxis=F
                                               fine_length=instraw_fine_length)
                    if lib else None)
         offaxis = (lib_mod.OffAxisSampler(lib, np.random.default_rng([int(seed), i, 2]), plane_bin_width=offaxis_plane_bin,
-                                            edge_anchor=offaxis_edge_anchor, topology_anchor=offaxis_topology_anchor,
                                             drop_muons=library_drop_muons,
                                             plane_sign=offaxis_plane_sign, shift_from_muon=offaxis_shift_from_muon)
                    if lib and not no_offaxis else None)

@@ -95,97 +95,16 @@ Each momentum bin is an **event-level truth diagnostic** from its earliest
 primary-muon straw step, not a measured-variable response model or a per-muon
 ancestry assignment.
 
-## Opt-in off-axis anchoring diagnostic
+## Off-axis anchor studies (parked)
 
-`steps --offaxis-edge-anchor` changes only the placement anchor for off-axis
-library steps with nonzero plane offset. Instead of mapping the library anchor's
-relative crossing rank into the recipient muon, it chooses a crossing on the
-recipient's first or last plane. The default remains unchanged. This tests
-compression of the library's plane extent when a recipient crosses a different
-number of straws. A geometry gap or multiple muons in one library event may
-violate the assumption that a nonzero offset lies beyond the plane extent; do
-not promote this diagnostic on one marginal distribution alone.
-
-Validate the plane-distance profile, spatial occupancy, energy per straw and
-stock digitization/reconstruction together. The optional anchor can improve one
-profile while degrading another. A replacement anchor also changes panel,
-straw, time and the local endpoint frame. The lattice mirror, muon-straw veto
-and same-particle/straw merging can then change counts. Source exterior status
-must be distinguished from an internal gap before applying an edge correction;
-the builder-to-paster internal-gap regression deliberately records this limit.
-The builder's event-level `ismcprim` anchor join is distinct from the census's
-any-primary-muon convention. Multiple MC-primary anchors can duplicate template
-rows and classify another primary as secondary; this requires a separate content
-audit, not an implicit change to the builder during placement studies.
-
-### Donor-topology candidate
-
-`buildlib --topology` adds six off-axis columns without changing legacy payloads:
-`source_anchor_plane`, `source_plane_min`, `source_plane_max`, `source_exterior`
-(−1, 0, +1), `source_plane_rank`, and `source_plane_count`. Format 1/2 still describes
-the endpoint representation; topology metadata is an independent opt-in extension.
-Old libraries cannot infer exterior status from `dpl` alone.
-
-`steps --offaxis-topology-anchor` requires that annotation and is mutually exclusive
-with `--offaxis-edge-anchor`. It maps the donor anchor's fractional **plane** position
-into the recipient's plane extent, chooses the nearest crossed plane (lower plane
-breaks a tie), then maps rank within that plane with integer multiplication/division.
-Only truly exterior donor steps force a boundary anchor. Offsets `dpl/dpa/dst/dt`,
-endpoint reconstruction, event-wide muon-straw veto, reflection and merging stay
-unchanged. An internal gap self-repastes correctly; it need not remain internal in
-a recipient with a different or degenerate plane extent. No random numbers are
-consumed by anchor mapping. These are truth-conditioned simulation diagnostics,
-not response corrections conditioned on measured variables.
-
-The synthetic closure tests check final SID, time, endpoints, parent, payload and
-RNG state, including multiple recipient muons and detector edges. Integer arithmetic
-is important: floating-point `floor(15/22*22)` can incorrectly return 14. Nearest-plane
-distances are compared as integer numerators with a common per-donor denominator,
-so an exact tie always selects the lower plane: floating `(9/14)*21` would lie
-slightly above 13.5. Recipient planes must be finite integers in [0,35].
-
-A fixed-library, full saved-sample replay has exact original/annotated-default
-step and particle identity in all 20 groups. It preserves primary and in-straw
-steps and generator/subrun/surface tables, without rerunning transport. In the
-38,431 events selected in both arms, same-plane-other discrepancy improves from
-+29.82 ± 2.80% to +2.15 ± 2.35%, but the 1–2-plane deficit remains −13.28 ± 2.00%
-and nearby-panel deficit is −16.92 ± 1.79%. Secondary-only paired occupancy
-chi2/rank worsens from 1.4910 to 1.6755 (rank 215); mean occupied-straw energy
-is +0.552 ± 0.242% relative to G4. **Do not promote this candidate.** Plane-profile
-improvement alone does not establish spatial, digitization or reconstruction closure.
-These are conditional-library errors, not finite-library uncertainties.
-
-### Joint migration and donor-class diagnostics
-
-The shared-draw audit identifies sampled occurrences before rejection/merging,
-then checks aggregate lattice, eIon, length, time and particle keys against both
-saved arms. In the paired selection, 20,880 exterior donor rows move from
-same-plane-other to more distant-plane categories. Moving only planes or only
-panel/straw anchors produces nearby-panel deficits of 57.33 ± 0.86% or
-52.47 ± 0.99%; the joint lattice mapping cannot be replaced by independent
-marginal corrections.
-
-An exterior-only lattice diagnostic retains the default anchor for internal
-and same-plane donor rows. Same-plane-other becomes +3.31 ± 2.28%, but the
-1–2-plane and nearby-panel deficits remain −13.87 ± 2.15% and −14.46 ± 1.56%.
-The same-plane change relative to baseline is −26.51 ± 0.84 percentage points
-of the reference rate, from a paired file-group contrast. Non-exterior-only
-remapping contributes little to this correction. Neither diagnostic constructs
-endpoints or predicts reconstruction; mixed donor classes belonging to one
-particle are merged together afresh, not added as independent final outputs.
-
-Per-file marginal and paired cross moments permit a delete-one-file-group
-uncertainty on the covariance-score difference, recomputing covariance and
-pseudoinverse per replica. With stable reference support and rank 215 throughout,
-secondary-only topology-minus-default is +0.1845 ± 0.2626 and exterior-only-minus-
-default is −0.0292 ± 0.1833. Neither change is resolved by this diagnostic.
-These are conditional-library sensitivity errors, not calibrated model-selection
-p-values; comparably sized independent groups are assumed. All variants were
-explored on the same sample, not selected then independently certified. The
-residual local deficits and missing digi/reco validation still preclude promotion.
-The quoted topology/migration results predate the exact rational nearest-plane
-tie fix; they remain historical diagnostics, not validation of that corrected
-candidate. Default-L reconstruction does not use the topology hook.
+Two alternative anchors for off-axis library steps were studied and are on branch `park/offaxis-anchors-20261103`,
+with `buildlib --topology` (six donor-topology columns), the shared-draw migration and replay tools and their tests:
+the edge anchor (steps with a plane offset anchored on the recipient's first or last plane) and the donor-topology
+anchor (the donor anchor's fractional plane position mapped into the recipient's plane extent). On the saved
+full sample, in the 38,431 events selected in both arms, the topology anchor moved same-plane-other from
++29.82 +- 2.80 % to +2.15 +- 2.35 %, but the 1-2-plane deficit stayed at -13.28 +- 2.00 %, the nearby-panel deficit
+at -16.92 +- 1.79 %, and the secondary-only paired occupancy chi2/rank got worse (1.4910 to 1.6755, rank 215).
+Neither anchor was promoted. The placement options below replace them.
 
 ## Opt-in placement and in-straw options (paired per-shard)
 
@@ -354,13 +273,6 @@ duplicate or noncontiguous generator indices. `--max-groups` is explicitly parti
 the exact saved input lists. It records source/result hashes, elapsed time, and
 all changed JSON fields. It does not fetch or regenerate physics products.
 
-`secondary_placement_audit.py BASE_JSON EDGE_JSON BASE_LOG EDGE_LOG --out FILE`
-compares saved census bins and placement counters, rejects mismatched coverage,
-and records input hashes. Its log counters precede analysis selection; it is not
-a donor-to-recipient migration matrix and cannot recover covariance between the
-two saved summary estimates. Use the separate ROOT identity audit for generator,
-primary-step and surface-step equality.
-
 `secondary_source_audit.py G4_TABLES ... --out FILE` reproduces the builder's
 `ismcprim` event-anchor join, counts multi-anchor events, duplicated source rows,
 and true-primary muon content in the resulting template population. It does not
@@ -370,38 +282,8 @@ not the training library unless the exact training inputs are supplied. Use
 inputs. It separates all anchor events from library-eligible events with an anchor
 straw crossing; their raw off-axis populations are not interchangeable.
 
-`secondary_library_topology.py --library ORIGINAL --source-dir DONORS --gdml G
---outdir NEW` reads the sidecar's ordered donor manifest, rebuilds one file at a
-time, checks row/content alignment, and appends only topology to the **retained
-original** payload. Only derived p/ux/uy/uz values may differ during alignment by
-at most two dtype eps relative; no such rebuilt values replace original values.
-All other payloads must match exactly. The sidecar records those differences,
-donor/library/geometry/source hashes and row counts. The original is never overwritten.
-
-`secondary_replay.py BASE_FILES... --start-index I --seed N --library ORIGINAL
---annotated TOPOLOGY --gdml G --outdir NEW` reconstructs saved primaries, then
-repeats off-axis → in-straw pasting with the original per-file RNG streams.
-Provide explicit contiguous paths in original order; a subset must retain its
-original index, not restart at zero. Every original and annotated-default check
-must pass before any candidate is written. Candidate checks protect primary and
-in-straw payloads (excluding event `nsgs`) and generator/subrun/surface tables.
-`counts.json` records exact checks, hashes, counts, dtype differences and timings,
-including failures. No transport, stock reconstruction or grid submission runs.
-`secondary_replay_remaining.sh` expands a saved campaign's sorted files and
-preserves the requested tail's original indices.
-
-`secondary_migration.py --census BASE_JSON --topology-census TOPOLOGY_JSON
---library ANNOTATED --gdml G --outdir NEW` reads the saved full seed-1 campaign
-manifest in original order. It records raw state transitions by donor exterior/
-internal-gap/anchor-plane class, complete rejection/merging, and paired occupancy
-for base, topology, plane-only, transverse-only, exterior-only and non-exterior-only
-lattice variants. Full base/topology summaries must close on the saved censuses.
-`--max-groups N` audits a prefix without claiming full-sample closure. No event loops
-or ROOT output; `occupancy_groups.npz` stores per-file moments for reanalysis.
-
-`secondary_migration_report.py MIGRATION_JSON --out NEW_JSON` reports paired
-file-group location contrasts and their interactions. Raw migration counts are
-not merged step or unique occupied-straw counts.
+The anchor-study tools (`secondary_placement_audit`, `secondary_library_topology`, `secondary_replay`,
+`secondary_migration` and its report) are on branch `park/offaxis-anchors-20261103`.
 
 `secondary_occupancy_jackknife.py MIGRATION_JSON OCCUPANCY_GROUPS.npz --out NEW_JSON`
 checks the archive hash and saved scores, then recomputes every paired score after

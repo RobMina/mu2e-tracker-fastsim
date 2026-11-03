@@ -57,7 +57,7 @@ Mu2e-internal and not yet published as a collaborator release (umbrella `docs/ru
 Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md), [`validation.md`](docs/validation.md),
 [`limitations.md`](docs/limitations.md), [`fast-digi.md`](docs/fast-digi.md), [`eventntuple.md`](docs/eventntuple.md),
 [`secondary-validation.md`](docs/secondary-validation.md), [`shard-statistics.md`](docs/shard-statistics.md), [`kit-task.md`](docs/kit-task.md),
-[`device-world.md`](docs/device-world.md); opt-in features below. [`docs/plan.md`](docs/plan.md) is the original plan
+[`device-world.md`](docs/device-world.md), [`device-precision.md`](docs/device-precision.md); opt-in features below. [`docs/plan.md`](docs/plan.md) is the original plan
 (historical).
 
 ### Subcommands
@@ -94,6 +94,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 |---|---|
 | JAX step generator (`steps --backend jax`) | [device-world.md](docs/device-world.md) |
 | JAX digitiser (`digi --backend jax`) | [fast-digi.md](docs/fast-digi.md#opt-in-jax-backend) |
+| float32 step and digitiser kernels (`TRKFASTSIM_DEVICE_FLOAT=core`: follow the core device float) | [device-precision.md](docs/device-precision.md) |
 | ordered stored-material navigation (`steps --navigation ordered-*`) | [ordered-stored-path.md](docs/ordered-stored-path.md) |
 | leave other primary muons out of the library draws (`steps --library-drop-muons`) | [limitations.md](docs/limitations.md) |
 | detector-only F1 prototype (`reco.autonomous`) | [autonomous-f1.md](docs/autonomous-f1.md), [autonomous-reference-inputs.md](docs/autonomous-reference-inputs.md) |

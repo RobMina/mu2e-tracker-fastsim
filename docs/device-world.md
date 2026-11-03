@@ -35,6 +35,11 @@ One NumPy RNG draw creates the JAX root key before transport. World keys are ind
 band, material and purpose. World and interior streams are separate. This changes JAX realizations from versions
 that ran world transport on the host; old CPU tables must not be used as a cross-device reference.
 
+With `steps_jax.SLAB_KERNEL="device"` (the device chain) the band losses of a chunk are one
+`mu2efastsim.slab_jax.path_loss` call over all bands and materials in packed order with the same pair keys
+(`fold_in(fold_in(muon key, band), material)`), the band momentum carried and the mean air loss after each band;
+band radiation lengths, momenta and tail coefficients then follow from the per-band losses (`_band_moments`).
+
 Support slicing retains each pair's original `fold_in(pair_key, slice_index)` stream. Batch-level early completion
 skips only identity rounds after all real lanes finish. Out-of-bounds padding cannot keep the pending-work list
 alive; writes for padding are dropped. Slice limits and fallback behavior are unchanged. Tests compare all carry

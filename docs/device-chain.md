@@ -48,6 +48,20 @@ reconstruction.
   iterated kernel is its own launch (about 28 per slab slice); unrolled, a slice is one kernel. Same keys and
   arithmetic: all seven stage digests are unchanged on an MIG slice. Warm steps time per table 1.8 -> 1.27 s; the
   first-table compilation grows from 223 to 667 s on the slice.
+- **Device-resident slab loss (device chain default; `steps_jax.SLAB_KERNEL`, default `loop`).** With `device` the
+  support slabs of each interior pass are one `mu2efastsim.slab_jax.slab_loss` call and the whole world column of a
+  chunk (every band's materials in order, then its air) one `slab_jax.path_loss` call. On CUDA the call is a Triton
+  kernel whose blocks run their own slice loops, so no host round trip per slice round and no host count per world
+  material; elsewhere it is the XLA while loop (`MU2EFS_SLAB_KERNEL` overrides, reports record the choice). Same keys,
+  draws and slice policy; values equal to rounding (a last-bit difference can move one slice boundary), counts equal
+  to the loop path on every table checked, and downstream hits, combos, seeds and fit tables identical on them.
+  `SLAB_BLOCK` (32) sets lanes per kernel block (shorter float64 latency of a slow block).
+- **Minion electron fill (device chain default, identical).** `digi_clusters_jax.MINION_UNROLL` (16 loop bodies per
+  device iteration; the extra bodies past a lane's end are identity) and `SEARCH_METHOD="compare_all"` (searchsorted
+  without a device loop): all seven stage digests unchanged on 20 tables.
+- **Digitiser overflow.** A JAX chunk with a straw beyond the device digitiser's cluster capacity is digitised by
+  NumPy, seeded from the chunk key (`stats["numpy_fallback_chunks"]`); before, the chain stopped (1 table in 80 at
+  float64).
 - **Other step options (opt-in, not used).** `steps_jax.SLICE_ROUNDS >= N_SLICES_MAX` (slab loss in one device call
   per material), `steps_jax.SLAB_UNROLL` (slices per loop iteration) and `world_jax.SYNC_FREE_PAIRS` (no host count
   per world material) remove host synchronisations but were not faster on an MIG slice, with or without the unrolled
@@ -90,8 +104,13 @@ Repeat passes are byte-identical on every device.
 | 40-core Xeon Gold 6248 node, 40 NumPy processes | 111,500 | |
 | A100-SXM4-80GB, device chain before the unrolled sampler | 14,270 | 3.5 s (steps 2.9, digis 0.5) |
 | RTX PRO 6000 MIG 1g.24gb slice, before the unrolled sampler | 22,160 | 2.3 s (steps 1.8, digis 0.5) |
-| RTX PRO 6000 MIG 1g.24gb slice, device chain | 29,150 | 1.7 s (steps 1.2, digis 0.46) |
-| RTX PRO 6000 MIG 1g.24gb slice, device chain at float32 (`TRKFASTSIM_DEVICE_FLOAT=core`) | 47,120 | 1.06 s (steps 0.68, digis 0.32) |
+| RTX PRO 6000 MIG 1g.24gb slice, before the device slab loss | 29,150 | 1.7 s (steps 1.2, digis 0.46) |
+| RTX PRO 6000 MIG 1g.24gb slice, before the device slab loss, float32 (`TRKFASTSIM_DEVICE_FLOAT=core`) | 47,120 | 1.06 s (steps 0.68, digis 0.32) |
+| RTX PRO 6000 MIG 1g.24gb slice, device chain | 46,340 | 1.08 s (steps 0.69, digis 0.33) |
+| RTX PRO 6000 MIG 1g.24gb slice, device chain, float32 | 80,100 | 0.62 s (steps 0.37, digis 0.20) |
+| RTX PRO 6000 MIG 1g.24gb slice, device chain, 2 processes (sum), float64 / float32 | 59,950 / 111,720 | |
+| A100-SXM4-40GB, device chain, 1 process, float64 / float32 | 44,050 / 42,800 | |
+| A100-SXM4-40GB, device chain, 4 processes (sum), float64 / float32 | 119,550 / 123,490 | |
 
 At float32 (core float32, tracker following core; see [device-precision.md](device-precision.md)) the chain
 against all-NumPy on the same 20 tables: no count beyond 1 sigma (largest pull 0.92, time clusters), 0 of 11
@@ -109,13 +128,22 @@ events (540 k kernels), the device busy 1.6 s of a 3.0 s pass and 3.5 s of host 
 device-to-host (nearly all of at most 64 bytes: loop predicates and work-list counts), 1.3 k host-to-device, 51 k
 device-to-device.
 
+With the device slab loss (80 tables, 4 M generated events, against all-NumPy seed 1 with seed 2 as the null): 0 of 11
+histograms flagged at float64 and at float32; float64 events with fits +1.58 +- 0.52 % against seed 1 and
++0.58 +- 0.53 % against seed 2 (seed 2 against seed 1: +1.00 +- 0.46 %), and the device chain before the change shows
+the same +1.31 +- 0.54 % / +0.54 +- 0.55 % on those tables: the offset is the NumPy seed-1 reference, not the change.
+float32: steps +0.03 +- 0.43 %, fits +0.87 +- 0.49 %. Concurrent processes share a GPU: per device, two processes on
+an MIG slice and four on an A100 match or exceed a 40-core node of NumPy processes (111,500 events/s); one process is
+bound by its host (single process on the A100's EPYC 7742 host: 43-44 k).
+
 ## Limits
 
-- The GPU stages are host-driven: the slab loop is a `lax.while_loop`, which XLA executes on a GPU as a host-driven
-  loop (one predicate copy and a few small kernels per iteration). Before the unrolled sampler a table took about
-  0.5 M device events and 12 k device-to-host copies, nearly all of at most 64 bytes, with the device busy about half
-  of the pass. XLA's own loop unrolling and command buffers did not help. More processes on one MIG slice add 12 %
-  at most: the slice is bound by the serial chain of small kernels.
+- Before the device slab loss the slab loop was a host-driven `lax.while_loop` (one predicate copy and a few small
+  kernels per iteration; about 0.5 M device events and 12 k device-to-host copies per table). The interior pass loop,
+  its support-column work lists and the digitiser's electronics loop are still host-driven `while` loops with small
+  syncs; at float32 one process keeps an MIG slice busy about half the time, hence the gain from two processes.
+- The slab kernel is NVIDIA CUDA only (Triton). Other GPUs and CPUs run the XLA path: same results to rounding,
+  without the speed-up. At float64 a consumer Blackwell slice is bound by its float64 rate in the kernel.
 - The unrolled sampler compiles about three times longer; a persistent compilation cache makes that a once-per-code
   cost per device kind.
 - Host work that stays on the host: generator selection, DataFrame assembly, the digitiser's packing between its

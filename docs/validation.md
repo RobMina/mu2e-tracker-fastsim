@@ -70,6 +70,23 @@ event-number shards); digis of every arm on the same float64 JAX steps; paired p
 | hits, combos, seeds, F2 | | precision | unchanged: stock precision (hits, combos, seeds), float64 (F2) at both settings | | by construction | 2026-11-02 | `8351848` |
 | JAX float64 vs NumPy (for scale) | float64 JAX | steps rate; digis per event | +1.19 +- 1.14 %; +0.26 +- 0.12 % (0 flagged each) | | | 2026-11-02 | `8351848` |
 
+### GPUs
+
+Full device chain (steps to F2 fits, with the device-chain runner of the companion device-chain branch) on four card
+types at both settings; core's determinism setting at its default; generated events from the even shards above, 50 k
+per shard. Paired per-shard rows use the chain runner's 11 histograms and counts, with a different-seed null.
+
+| Check | Cards | Result | Verdict | Date | Commit |
+|---|---|---|---|---|---|
+| run-to-run | MIG 1g.24gb (RTX PRO 6000), V100, A100-80, RTX PRO 6000; two independent processes per setting | identical stage digests on every shard (20, 20, 10, 10 shards), float64 and float32 | pass | 2026-11-02 | `8351848` |
+| cross-card, float64 | the three others against MIG | steps, digis, hits, seeds and good fits counts identical on every shard; hit, combo and cluster digests identical; step floats differ in the last bits | pass | 2026-11-02 | `8351848` |
+| cross-card, float32 | the three others against MIG | 0 of 11 flagged each; step rate -0.18 +- 0.45 % (A100), +0.01 +- 0.25 % (V100), -0.002 +- 0.002 % (RTX PRO 6000); good fits -1.05 +- 0.68 %, -0.46 +- 0.50 %, +0.07 +- 0.35 %. Same-architecture cards agree to a few steps; across architectures single events diverge | statistically equivalent | 2026-11-02 | `8351848` |
+| float32 vs float64 on one card | MIG, 100 shards (5 M generated) | same seed: 0 of 11 flagged; steps +0.09 +- 0.43 %, digis -0.14 +- 0.43 %, good fits -0.24 +- 0.47 %; float32 seed 2 vs seed 1: 0 of 11, steps -0.21 +- 0.38 % | pass | 2026-11-02 | `8351848` |
+
+Warm throughput, generated events per second, float64 -> float32: MIG 1g.24gb 22,100 -> 26,000; RTX PRO 6000
+23,000 -> 25,000; V100 15,200 -> 15,500; A100-80 13,800 -> 13,600. The step stage is 75-85 % of a warm pass at both
+settings; float32 gains most on the Blackwell cards (digitiser 30 % faster on MIG) and nothing on the A100.
+
 ## Performance
 
 | Goal | Target | Result |

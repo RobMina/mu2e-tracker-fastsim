@@ -208,8 +208,8 @@ def main(argv=None):
         runtime = {"jax": None, "error": str(e)}
     report = {"backends": b, "seed": a.seed, "repeat": a.repeat, "prepare_s": prep_s, "runtime": runtime,
               "host": platform.node(), "cpus": len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
-              "env": {k: os.environ.get(k) for k in ("XLA_FLAGS", "JAX_PLATFORMS", "MU2EFS_DEVICE_FLOAT",
-                                                     "MU2EFS_DEVICE_DETERMINISTIC", "OMP_NUM_THREADS")},
+              "env": {k: v for k, v in sorted(os.environ.items()) if k in ("XLA_FLAGS", "JAX_PLATFORMS", "OMP_NUM_THREADS")
+                      or k.startswith(("MU2EFS_", "TRKFASTSIM_", "TRKFS_"))},
               "inputs": {"gen": [file_identity(g) for g in a.gen], "digi_cond": file_identity(a.digi_cond),
                          "reco_cond": file_identity(a.reco_cond), "drift_source": file_identity(a.drift_source)},
               "shards": []}

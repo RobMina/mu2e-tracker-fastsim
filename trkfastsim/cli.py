@@ -13,7 +13,7 @@ from trkfastsim.validation import jaxcheck
 from trkfastsim.validation import digicmp
 from trkfastsim.digi import fastdigi
 from trkfastsim.validation import seccensus
-from trkfastsim.validation import selfpaste, shardhist, shardstats
+from trkfastsim.validation import hybridpaste, selfpaste, shardhist, shardstats
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -37,6 +37,7 @@ ANALYSES = {
     "digicmp": (digicmp.run, "fast vs stock digis on the same steps: digis/event, occupancy, TDC/TOT/PMP, dt, hit reco and combo hits, with a reseeded stock floor"),
     "shardhist": (shardhist.run, "per-shard (subrun) histograms of one arm: steps, digis, hit reco, fits; input of shardstats"),
     "selfpaste": (selfpaste.run, "closure of the off-axis paster: each Geant4 event's own off-axis secondaries pasted back onto its own muon"),
+    "hybridpaste": (hybridpaste.run, "diagnostic: Geant4 primary muons with library secondaries pasted as steps --library does (secondary vs muon part)"),
     "shardstats": (shardstats.run, "paired per-shard statistic: batch variance, sign-flip null, family-wise limits, sizes; split-shard null"),
 }
 BATCHABLE = {"refcheck"}
@@ -58,7 +59,7 @@ def build_parser():
                             formatter_class=argparse.RawDescriptionHelpFormatter)
         sp.add_argument("inputs", nargs="+", help="input files (globs allowed, quote them)")
         sp.add_argument("--outdir", default=None, help="output dir (default plots/<cmd>)")
-        if name in ("v0check", "steps", "buildlib", "worldcheck", "msccheck", "stepcheck", "fatecheck", "seccensus", "selfpaste"):
+        if name in ("v0check", "steps", "buildlib", "worldcheck", "msccheck", "stepcheck", "fatecheck", "seccensus", "selfpaste", "hybridpaste"):
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
@@ -237,6 +238,14 @@ def build_parser():
             sp.add_argument("--drift-source", default=None, metavar="ROOT", help="digis --f2: drift conditions (default inputs[0])")
             sp.add_argument("--kkline", nargs="+", default=None, metavar="ROOT", help="digis: stock EventNtuples of these events (arm@kkline)")
             sp.add_argument("--batches", type=int, default=1, help="shards per subrun, by event number modulo this (default 1)")
+        if name == "hybridpaste":
+            sp.add_argument("--library", default=None, metavar="ROOT", help="G4 secondary library (buildlib)")
+            sp.add_argument("--library-from", nargs="+", default=None, metavar="ROOT",
+                            help="build the library from these reference tables instead (disjoint from the inputs)")
+            sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i, 1) and (seed, i, 2) as steps")
+            sp.add_argument("--no-offaxis", action="store_true", help="in-straw secondaries only")
+            for opt in ("--library-drop-muons", "--offaxis-plane-sign", "--offaxis-shift-from-muon", "--instraw-fine-length"):
+                sp.add_argument(opt, action="store_true", help=f"as steps {opt} (opt-in)")
         if name == "selfpaste":
             sp.add_argument("--anchor", default="default", choices=["default", "edge", "topology"])
         if name == "shardstats":

@@ -84,8 +84,6 @@ restart first regenerates the stock dump and the baseline arms from those 3,000 
 
 ## Not validated
 
-- Ordered stored-material navigation (`steps --navigation ordered-*`) passes its contract tests; the full-geometry
-  gate refuses at cross-material overlaps ([ordered-stored-path.md](ordered-stored-path.md)).
 - `steps --backend jax`: validate each geometry and configuration with `jaxcheck` ([device-world.md](device-world.md)).
 - **NumPy output across host CPU types.** The NumPy chain repeats byte for byte per seed on one host CPU type, not
   across types: for the same seed and shards the steps (and everything after them) from an AMD EPYC 7742 host differ
@@ -113,6 +111,9 @@ Options that were tried and not made the default are kept on branches, not on ma
 
 - `park/offaxis-width-match`: the width-matched off-axis donor key (`steps --offaxis-width-match`), rejected because
   every placement histogram got worse.
+- `park/ordered-navigation-20261103`: ordered stored-material navigation (`steps --navigation ordered-*`, the
+  raised-plane forward handoff). It passed its contract tests, but the full-geometry gate refused at cross-material
+  overlaps, so it never became the default.
 
 ## Inputs
 

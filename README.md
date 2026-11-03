@@ -44,7 +44,7 @@ Mu2e-internal and not yet published as a collaborator release (umbrella `docs/ru
 | Path | Content |
 |---|---|
 | `trkfastsim/` | the package and its CLI (`python3 -m trkfastsim <subcommand> -h`); geometry, crossings and tables at the top |
-| `trkfastsim/sim/` | step generator (world and tracker-interior transport, NumPy and JAX), secondary library, ordered navigation, ledgers |
+| `trkfastsim/sim/` | step generator (world and tracker-interior transport, NumPy and JAX), secondary library, ledgers |
 | `trkfastsim/digi/` | fast digitisation (`digitize`, its JAX twins), conditions, digi tables |
 | `trkfastsim/reco/` | fast reconstruction: hit reco, combos, line finding, F1/F2 fits, EventNtuple writer |
 | `trkfastsim/validation/` | one module per comparison subcommand, and the report/audit libraries behind `scripts/` |
@@ -95,7 +95,6 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | JAX step generator (`steps --backend jax`) | [device-world.md](docs/device-world.md) |
 | JAX digitiser (`digi --backend jax`) | [fast-digi.md](docs/fast-digi.md#opt-in-jax-backend) |
 | float32 step and digitiser kernels (`TRKFASTSIM_DEVICE_FLOAT=core`: follow the core device float) | [device-precision.md](docs/device-precision.md) |
-| ordered stored-material navigation (`steps --navigation ordered-*`) | [ordered-stored-path.md](docs/ordered-stored-path.md) |
 | leave other primary muons out of the library draws (`steps --library-drop-muons`) | [limitations.md](docs/limitations.md) |
 | off-axis plane offsets follow the muon direction, colliding off-axis steps shifted, in-straw draw keyed on long paths (`steps --offaxis-plane-sign --offaxis-shift-from-muon --instraw-fine-length`) | [secondary-validation.md](docs/secondary-validation.md#opt-in-placement-and-in-straw-options-paired-per-shard) |
 | detector-only F1 prototype (`reco.autonomous`) | [autonomous-f1.md](docs/autonomous-f1.md), [autonomous-reference-inputs.md](docs/autonomous-reference-inputs.md) |
@@ -116,7 +115,8 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | Branch | Contents |
 |---|---|
 | `park/f1-native-closure` | F1 native-closure tooling: crossing/operand capture modules, native arithmetic/CA/material/measurement/reference ports, `f1_*` audits and drivers, the per-step f1-* records |
-| `park/ordered-navigation` | ordered-navigation geometry probes and producers (guarded/native/mixed/inclusive envelopes, exact planar, wide torus/convex, segment transport) and the `ordered_*` audit scripts; the `--navigation ordered-*` options stay on main |
+| `park/ordered-navigation` | ordered-navigation geometry probes and producers (guarded/native/mixed/inclusive envelopes, exact planar, wide torus/convex, segment transport) and the `ordered_*` audit scripts (layout before the 2026-11-01 package split) |
+| `park/ordered-navigation-20261103` | ordered stored-material navigation as it was on main: `steps --navigation ordered-*`, the raised-plane forward handoff, the stored-material navigator and its path modules, `orderedinterior_probe`, `docs/ordered-stored-path.md` |
 | `park/rate-ledger` | rate-ledger history state/surfaces and the ledger job drivers |
 | `park/rate-diagnostics` | the earlier rate-deficit diagnostics `geomcheck`, `interiorcensus`, `tubecheck`, `arrivalcheck`, `slowcheck`, `survivalcheck`, `rangecheck`, `secdiag`, `libplacecheck` (untested CLIs, superseded by `ratearms`) |
 | `park/tv3-rescoring` | the saved T-V3 secondary-bank replicas, response and summaries |

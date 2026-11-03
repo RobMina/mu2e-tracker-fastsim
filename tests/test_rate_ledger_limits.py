@@ -1,8 +1,7 @@
 """Open T3 limits: terminal bookkeeping, stopping, and support-only flight time.
 
-Synthetic stage-C boundaries exercise the real transport/writers in both modes.
-Strict legacy xfails preserve default failure evidence; ordered mode must pass.
-Ordered clocks integrate material slices, not loss smeared across vacuum gaps.
+Synthetic stage-C boundaries exercise the real transport/writers.
+Strict legacy xfails preserve default failure evidence.
 """
 
 from types import SimpleNamespace
@@ -33,9 +32,7 @@ def _geometry(ys):
     )
 
 
-@pytest.fixture(params=[("legacy", "entry"), ("ordered-stored-mean-v1", "entry"),
-                        ("ordered-stored-sampled-v1", "entry"), ("ordered-stored-mean-v1", "midpoint"),
-                        ("ordered-stored-sampled-v1", "midpoint")])
+@pytest.fixture(params=[("legacy", "entry")])
 def navigation_spec(request):
     return request.param
 
@@ -89,24 +86,9 @@ def run_transport(monkeypatch, navigation, navigation_spec):
             monkeypatch.setattr(steps.tr, "slab_loss", slab_loss)
             monkeypatch.setattr(steps, "_kink_core", zero_deflection)
 
-        ordered = navigation != "legacy"
-        if ordered:
-            if support_loss is not None:
-                tube = [(materials.COPPER.name, np.eye(3), np.array([0., -100.5, 0.]),
-                         0., .5, 100., 0., 2 * np.pi)]
-                interior.shells = CoaxialShells(tube, axis_point=[0., 0., 0.])
-                monkeypatch.setattr(steps.eloss, "dedx_restricted", lambda mat, p, cut, *args:
-                    np.full_like(p, support_loss if mat.name == materials.COPPER.name else 0.))
-            if navigation == "ordered-stored-sampled-v1":
-                monkeypatch.setattr(steps.eloss, "sample_loss", lambda rng, mat, p, length, cut:
-                    steps.eloss.dedx_restricted(mat, p, cut) * length)
-            monkeypatch.setattr(steps, "_kink_core", lambda rng, v, a, b:
-                (np.zeros((len(v), 2)), np.zeros((len(v), 2)), np.zeros(len(v))))
         rows, particles = steps.make_steps(
             generated, geom, np.random.default_rng(19), stage="C", interior=interior,
-            arms=None if ordered else arms, history=True, msc_tail=False, exit_scatter=False,
-            navigation=navigation, ordered_options={"max_path_mm": 2500.,
-                "stopping_evaluation": navigation_spec[1]} if ordered else None,
+            arms=arms, history=True, msc_tail=False, exit_scatter=False,
             # No thin-material kinks; support still triggers its own kink.
             kink_xx0=np.inf, kink_sup_xx0=None,
         )
@@ -208,7 +190,7 @@ def test_support_only_integrated_step_and_vertex_times_agree(run_transport, supp
         assert r.stats["kinks"] > 0
     np.testing.assert_allclose(r.seg.lost_thin_MeV, 0.0, atol=1e-12)
     np.testing.assert_allclose(r.seg.lost_support_MeV, [0.0, support_loss, support_loss], atol=1e-10)
-    # Legacy smears loss entry-to-entry; ordered time follows actual material slices.
+    # Legacy smears loss entry-to-entry.
     p = ledger.momentum(r.seg.ke_entry_MeV.to_numpy())
     if navigation == "legacy":
         np.testing.assert_allclose(np.diff(r.rows.t),
@@ -222,14 +204,6 @@ def test_support_only_integrated_step_and_vertex_times_agree(run_transport, supp
     assert np.all((left >= 0) & (left < len(v) - 1))
     vertex_time = (v.t0.to_numpy()[left]
                    + path / (v.beta.to_numpy()[left] * steps.C_MM_PER_NS))
-    if navigation != "legacy":
-        from trkfastsim.sim.flighttime import linear_kinetic_dt_ns
-        local = path - v.path.to_numpy()[left]
-        right = left + 1
-        fraction = local / (v.path.to_numpy()[right] - v.path.to_numpy()[left])
-        kin = v.kinetic_MeV.to_numpy()[left]
-        kout = kin + fraction * (v.kinetic_MeV.to_numpy()[right] - kin)
-        vertex_time = v.time_ns.to_numpy()[left] + linear_kinetic_dt_ns(local, kin, kout)
     delta_ps = 1e3 * (r.rows.t.to_numpy() - vertex_time)
     print(f"support loss={support_loss:g} MeV: step-minus-vertex time={delta_ps.tolist()} ps")
     np.testing.assert_allclose(r.rows.t.to_numpy(), vertex_time, rtol=0, atol=1e-9)

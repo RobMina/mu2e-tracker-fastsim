@@ -77,16 +77,13 @@ def near_tracker(o, d, geom, y_plane, margin=FOOTPRINT_MARGIN):
     return down & (x1 > lo[0] - margin) & (x0 < hi[0] + margin) & (z1 > lo[2] - margin) & (z0 < hi[2] + margin)
 
 
-def load_world(gdml_path, geom, mods=None, *, endpoint_y_mm=None):
+def load_world(gdml_path, geom, mods=None):
     """GDML world pieces above the MSC plane, without the straw gas (the tracker itself is handled by crossings),
     pre-split into the stage C height bands and packed for vectorised columns (transport.BandedWorld). mods: name of a
-    worldmods modification (geometry sensitivity runs), None = the GDML as is. endpoint_y_mm explicitly overrides
-    the default world cutoff for the separately named forward handoff, without changing the core loader."""
+    worldmods modification (geometry sensitivity runs), None = the GDML as is."""
     from mu2efastsim import world as world_mod
     names = []
-    y_pl = plane_y(geom) if endpoint_y_mm is None else float(endpoint_y_mm)
-    if not np.isfinite(y_pl):
-        raise ValueError("finite world endpoint plane required")
+    y_pl = plane_y(geom)
     pieces = world_mod.load(gdml_path, y_min=y_pl, names=names)
     if mods:
         from trkfastsim.sim import worldmods
@@ -419,8 +416,7 @@ class TrackerInterior:
 
     def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
                   max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-                  kink_p_mean=False, thin_loss=False, capture=None, navigation="legacy", ordered_options=None,
-                  scatter_in=False):
+                  kink_p_mean=False, thin_loss=False, capture=None, scatter_in=False):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
@@ -454,14 +450,8 @@ class TrackerInterior:
         tail) and its straw crossings are searched again after each kink, so support scattering can move a muon onto the
         straws as well as off them. These kinks draw from their own stream (spawned from `rng`'s seed), not from `rng`.
         """
-        if scatter_in and (navigation != "legacy" or capture is not None):
-            raise ValueError("scatter_in needs legacy navigation without transport capture")
-        if navigation != "legacy":
-            from trkfastsim.sim import orderedinterior
-            if navigation not in orderedinterior.MODES or capture is not None:
-                raise ValueError("unsupported ordered navigation or passive legacy capture")
-            return orderedinterior.transport(self, rng, o, d, p, geom, tail=tail, tail_k=tail_k, mode=navigation,
-                                             **(ordered_options or {}))
+        if scatter_in and capture is not None:
+            raise ValueError("scatter_in needs the transport without capture")
         n = len(p)
         o, d = o.copy(), d.copy()
         tk_start = np.sqrt(p ** 2 + eloss.MMU ** 2) - eloss.MMU
@@ -961,7 +951,7 @@ def _muons(gen, all_muons):
 
 
 def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN, msc_tail=True, tail_k=None,
-             band_spread=False, all_muons=True, history=False, endpoint_y_mm=None):
+             band_spread=False, all_muons=True, history=False):
     """Stage C transport of the primary muons to the plane above the tracker.
 
     Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]). Tracks
@@ -972,16 +962,13 @@ def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARG
     all_muons (default): every generated muon (CRY multi-muon events); False = the first muon of each event only.
     history: also set to_plane.last_history = {"t_world": integrated flight time [ns] from the vertex to the plane
     (ledger.world_time_ns; NaN for muons not transported)}; no random numbers are drawn for it.
-    endpoint_y_mm explicitly overrides the default plane for the separately named forward handoff.
     """
     to_plane.last_history = None
     mu = _muons(gen, all_muons)
     p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     o = mu[["x", "y", "z"]].to_numpy()
     d = mu[["px", "py", "pz"]].to_numpy() / p0[:, None]
-    y_pl = plane_y(geom) if endpoint_y_mm is None else float(endpoint_y_mm)
-    if not np.isfinite(y_pl):
-        raise ValueError("finite transport endpoint plane required")
+    y_pl = plane_y(geom)
     edges = np.r_[BAND_EDGES_Y[BAND_EDGES_Y > y_pl], y_pl]
     near = near_tracker(o, d, geom, y_pl, margin=near_margin)
     p = p0.copy()
@@ -1357,8 +1344,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
                kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
                exit_scatter=True, all_muons=True, entry_ledger="legacy", capture_entry_ledger=False, backend="numpy",
-               arms=None, history=False, capture_transport=False, navigation="legacy", ordered_options=None,
-               handoff="legacy-backproject", handoff_plane_y_mm=None, scatter_in=False):
+               arms=None, history=False, capture_transport=False, scatter_in=False):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
     an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
     primary-muon StrawGasSteps on g4ref_v1 had them only from a second muon); all_muons=False keeps the first muon only
@@ -1390,13 +1376,6 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     history: set make_steps.segment_ledger (one row per emitted primary-muon step: path, kinetic energy before and at
     the entry, ledger components, deposited and escaping gas energy, times in both conventions) and
     make_steps.muon_ledger (one row per muon: plane, world time, final interior state); no random numbers.
-    navigation: legacy (default), ordered-stored-mean-v1 or ordered-stored-sampled-v1: primary-only NumPy stage C
-    with sequential stored material loss, angular MSC and a shared slice KE/time law. Mean caps gas at the mean
-    debit; sampled couples the actual restricted gas proposal plus unassigned hard-mean transfer. ordered_options controls
-    finite path/step/cutoff bounds. Ordered mode never invokes legacy exit_scatter or untraversed extensions.
-    Stored geometry is not complete GDML; unsupported materials/overlaps fail. No secondary libraries or arms.
-    handoff: legacy-backproject (default) or raised-plane-forward-v1 with explicit handoff_plane_y_mm matching
-    world bands. The forward policy requires ordered NumPy history, never backprojects and refuses re-crossing.
     scatter_in: opt-in (NumPy legacy interior only): support kinks also on lines that cross no further straw, so the
     support can scatter muons onto the straws (TrackerInterior.transport scatter_in); default off.
     capture_transport: explicit NumPy stage-C primary-only algorithm-state capture in make_steps.transport_capture.
@@ -1405,36 +1384,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     started from the unchanged legacy restart. No interpolation, extension or terminal repair is performed.
     """
     from trkfastsim.sim import entryledger
-    ordered = navigation in ("ordered-stored-mean-v1", "ordered-stored-sampled-v1")
-    make_steps.handoff_ledger = None
-    if handoff not in ("legacy-backproject", "raised-plane-forward-v1"):
-        raise ValueError("explicit supported handoff policy required")
-    forward_handoff = handoff == "raised-plane-forward-v1"
-    if forward_handoff:
-        from trkfastsim.sim import orderedhandoff
-        if not ordered or stage != "C" or backend != "numpy" or not history:
-            raise ValueError("forward handoff requires ordered NumPy stage C with history")
-        if interior is None or not interior_msc:
-            raise ValueError("forward handoff requires an evolving ordered interior")
-        if handoff_plane_y_mm is None or not np.isfinite(handoff_plane_y_mm):
-            raise ValueError("explicit finite forward handoff plane required")
-        orderedhandoff.validate_world(world, handoff_plane_y_mm)
-        ordered_options = dict(ordered_options or {})
-        supplied_plane = ordered_options.get("forward_plane_y_mm", handoff_plane_y_mm)
-        if supplied_plane != handoff_plane_y_mm:
-            raise ValueError("ordered interior and world handoff planes disagree")
-        ordered_options["forward_plane_y_mm"] = handoff_plane_y_mm
-    elif handoff_plane_y_mm is not None:
-        raise ValueError("explicit handoff plane requires forward handoff policy")
-    if navigation not in ("legacy", "ordered-stored-mean-v1", "ordered-stored-sampled-v1"):
-        raise ValueError("unknown navigation mode")
-    if ordered and (stage != "C" or backend != "numpy" or interior is None or not interior_msc
-                    or sampler is not None or offaxis is not None or capture_transport
-                    or entry_ledger != "legacy" or arms is not None or interior_msc_cal is not None):
-        raise ValueError("ordered navigation requires NumPy stage C primary-only interior without legacy ledger arms")
-    if ordered:
-        air_loss = False
-    if scatter_in and (ordered or backend != "numpy" or capture_transport or stage != "C" or interior is None
+    if scatter_in and (backend != "numpy" or capture_transport or stage != "C" or interior is None
                        or not interior_msc):
         raise ValueError("scatter_in needs the NumPy legacy stage C interior transport without capture")
     make_steps.transport_capture = None
@@ -1457,8 +1407,6 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         thin_loss, time_mode = arms.thin, arms.time
         if (thin_loss or time_mode != "generated") and (stage != "C" or interior is None or not interior_msc):
             raise ValueError("ledger thin/time arms need stage C with the interior transport")
-    if ordered:
-        thin_loss, time_mode = True, "integrated"
     make_steps.segment_ledger = make_steps.muon_ledger = None
     want_hist = history or time_mode == "integrated"
     if entry_ledger not in entryledger.MODES:
@@ -1501,8 +1449,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         plane_transport = steps_jax.to_plane if backend == "jax" else to_plane
         mu, o, d, p_start, t_off, alive = plane_transport(gen, geom, key if backend == "jax" else rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
                                                    msc_tail=msc_tail, tail_k=tail_k, band_spread=band_spread,
-                                                   all_muons=all_muons, **({"history": True} if want_hist else {}),
-                                                   **({"endpoint_y_mm": handoff_plane_y_mm} if forward_handoff else {}))
+                                                   all_muons=all_muons, **({"history": True} if want_hist else {}))
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     else:
         mu = _muons(gen, all_muons)
@@ -1518,13 +1465,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         # the interior shells reach above the plane (support rings to r ~ 820 mm about the axis): start the interior
         # transport where they begin, so their top part is crossed (the world column stops at the plane)
         t_plane_off = t_off.copy()
-        if forward_handoff:
-            make_steps.handoff_ledger = orderedhandoff.capture(mu, o, d, p_start, t_off, alive,
-                to_plane.last_history["t_world"], plane=handoff_plane_y_mm)
-            if (make_steps.handoff_ledger.alive_world & ~make_steps.handoff_ledger.accepted_forward).any():
-                raise ValueError("world delivered an invalid forward handoff; no lane discarded")
-        else:
-            o, t_off = _back_to_interior_top(o, d, t_off, alive, interior, geom)
+        o, t_off = _back_to_interior_top(o, d, t_off, alive, interior, geom)
     if observation is not None:
         observation.bind(mu, origin_mm=o, direction=d, momentum_MeV_c=p_start,
                          alive_plane=alive, generated_momentum_MeV_c=p0, path_offset_mm=t_off,
@@ -1532,9 +1473,6 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     if interior is not None and interior_msc:
         sel = np.flatnonzero(alive)
         phase = observation.phase("interior", sel) if observation is not None else None
-        provider = (ordered_options or {}).get("navigation_provider") if ordered else None
-        if provider is not None and hasattr(provider, "bind_primary_keys"):
-            provider.bind_primary_keys(mu[KEY].assign(sp=mu.mukey).iloc[sel].to_numpy(np.int64))
         t1 = time.perf_counter()
         if backend == "jax":
             dev = steps_jax.device_interior(interior, geom)
@@ -1545,8 +1483,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
                                      msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0,
                                      **({"thin_loss": True} if thin_loss else {}),
                                      **({"scatter_in": True} if scatter_in else {}),
-                                     **({"capture": phase} if phase is not None else {}),
-                                     **({"navigation": navigation, "ordered_options": ordered_options} if ordered else {}))
+                                     **({"capture": phase} if phase is not None else {}))
         timing["transport"] = time.perf_counter() - t1
         # integrated time at the interior start: world flight time to the plane (generated beta if it is unknown),
         # then back up to the ring tops at the plane momentum (no material there)
@@ -1558,7 +1495,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         t_int0 = mu.t.to_numpy() + t_w - back / (np.maximum(ledger.beta(p_start), 1e-12) * C_MM_PER_NS)
         make_steps.interior_stats = interior.last_stats
         kinks = interior.last_kinks
-        if exit_scatter and not ordered:
+        if exit_scatter:
             # scatter the material behind each muon's last straw, so the tracker VD exit crossings carry it; a spawned rng
             # stream (does not advance rng), so the StrawGasSteps are identical with and without it. The transport's final
             # origin is its last restart point; no support lies between it and the last straw (else it would have kinked)
@@ -1581,11 +1518,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             timing["exit_scatter"] = time.perf_counter() - t1
             ek = dict(ek, path=ek["path"] + fin["path"][ek["it"]])
             kinks = {k: np.concatenate([kinks[k], ek[k]]) for k in kinks}
-        if ordered:
-            from trkfastsim.sim import orderedinterior
-            make_steps.path_vertices = orderedinterior.vertices(mu, sel, interior.last_slices,
-                                                               interior.last_final, t_int0)
-        elif entry_ledger == "legacy":
+        if entry_ledger == "legacy":
             make_steps.path_vertices = _path_vertices(mu, sel, o, d, p_start, t_off, p0_all=np.sqrt(
                 mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy(), kinks=kinks,
                 t_start=t_int0 if time_mode == "integrated" else None)
@@ -1593,7 +1526,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         js = tr_["js"]
         w0, w1, dirs = tr_["pos0"], tr_["pos1"], tr_["dir"]
         s_in = tr_["path"]
-        path = tr_["gas_len"] if ordered else np.linalg.norm(w1 - w0, axis=1)
+        path = np.linalg.norm(w1 - w0, axis=1)
         lost = tr_["lost"]
         p = p_start[it]
         if air_loss:
@@ -1603,7 +1536,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         # transport ledger at each entry: kinetic energy, momentum and the integrated time
         ke_tr = ledger.kinetic(p_start[it]) - lost
         p_tr = ledger.momentum(ke_tr)
-        t_int = t_int0[it] + (tr_["dt"] if ordered else ledger.segment_times_ns(tr_["it"], s_in, p_tr, p_start[sel]))
+        t_int = t_int0[it] + ledger.segment_times_ns(tr_["it"], s_in, p_tr, p_start[sel])
         comps = {k: tr_[k] for k in COMPONENTS} if backend == "numpy" else None   # the JAX transport has no ledger terms
     else:
         t1 = time.perf_counter()
@@ -1650,7 +1583,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     if backend == "jax":
         eion = steps_jax.sample_gas_eion(key, p, path, np.asarray(it, np.int64))
     else:
-        eion = tr_["eion"] if ordered else eloss.sample_loss(rng, STRAW_GAS, p, path, delta_cut_mev())
+        eion = eloss.sample_loss(rng, STRAW_GAS, p, path, delta_cut_mev())
     timing["eion"] = time.perf_counter() - t1
     e = np.sqrt(p ** 2 + eloss.MMU ** 2)
     bg = p / eloss.MMU
@@ -1665,14 +1598,6 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
             else None, dict(ledger.Arms(writer="none" if not air_loss else ("energy" if entry_ledger == "energy"
                                          else "momentum"), thin=thin_loss, time=time_mode).as_dict(),
                             **ledger.core_world_convention()))
-        if ordered:
-            make_steps.segment_ledger["escaping_gas_MeV"] = np.nan
-            make_steps.segment_ledger["unassigned_gas_MeV"] = tr_["gas_debit"] - eion
-            make_steps.segment_ledger["gas_primary_debit_MeV"] = tr_["gas_debit"]
-            accounting = ("restricted gas proposal plus nonnegative hard-mean transfer debit" if navigation == "ordered-stored-sampled-v1"
-                          else "gas sample capped by deterministic unrestricted mean debit")
-            make_steps.segment_ledger.attrs.update(navigation=navigation, accounting=accounting)
-            make_steps.muon_ledger.attrs.update(navigation=navigation)
     pos0 = geometry.to_detector(w0)
     pos1 = geometry.to_detector(w1)
     steps = pd.DataFrame({k: mu[k].to_numpy()[it] for k in KEY})

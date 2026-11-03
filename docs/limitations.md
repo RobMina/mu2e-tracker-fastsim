@@ -117,6 +117,10 @@ Options that were tried and not made the default are kept on branches, not on ma
 - `park/f1-native-closure-20261103`: the F1 fit (`reco-vr2f1`, `--time-model legacy|stock`, `reco-ntuple --fit f1`),
   the detector-only `reco.autonomous` chain, the F1 validity and fit-trace diagnostics and `kit.kitf1`. Frozen
   below its targets (above). `reco-ntuple --fit stock|f2` and the EventNtuple writer stay on main.
+- `park/rate-ledger-20261103`: the transport-ledger arms (writer debit from the kinetic energy or none, thin-material
+  loss, integrated step time), the entry-ledger and transport-capture diagnostics, the physical-segment contract and
+  the T3 limit tests. No arm changed the rate on 11 M events ([rate-ledger.md](rate-ledger.md)); T3 (one energy,
+  deposition and time ledger) stays open. `ratearms` and `make_steps(history=True)` stay on main.
 
 ## Inputs
 

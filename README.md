@@ -44,7 +44,7 @@ Mu2e-internal and not yet published as a collaborator release (umbrella `docs/ru
 | Path | Content |
 |---|---|
 | `trkfastsim/` | the package and its CLI (`python3 -m trkfastsim <subcommand> -h`); geometry, crossings and tables at the top |
-| `trkfastsim/sim/` | step generator (world and tracker-interior transport, NumPy and JAX), secondary library, ledgers |
+| `trkfastsim/sim/` | step generator (world and tracker-interior transport, NumPy and JAX), secondary library, transport ledger, rate measurement (`ratearms`) |
 | `trkfastsim/digi/` | fast digitisation (`digitize`, its JAX twins), conditions, digi tables |
 | `trkfastsim/reco/` | fast reconstruction: hit reco, combos, line finding, F2 fit, EventNtuple writer |
 | `trkfastsim/validation/` | one module per comparison subcommand, and the report/audit libraries behind `scripts/` |
@@ -57,7 +57,7 @@ Mu2e-internal and not yet published as a collaborator release (umbrella `docs/ru
 Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md), [`validation.md`](docs/validation.md),
 [`limitations.md`](docs/limitations.md), [`fast-digi.md`](docs/fast-digi.md), [`eventntuple.md`](docs/eventntuple.md),
 [`secondary-validation.md`](docs/secondary-validation.md), [`shard-statistics.md`](docs/shard-statistics.md), [`kit-task.md`](docs/kit-task.md),
-[`device-world.md`](docs/device-world.md), [`device-precision.md`](docs/device-precision.md); opt-in features below. [`docs/plan.md`](docs/plan.md) is the original plan
+[`device-world.md`](docs/device-world.md), [`device-precision.md`](docs/device-precision.md), [`rate-ledger.md`](docs/rate-ledger.md); opt-in features below. [`docs/plan.md`](docs/plan.md) is the original plan
 (historical).
 
 ### Subcommands
@@ -97,7 +97,6 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | float32 step and digitiser kernels (`TRKFASTSIM_DEVICE_FLOAT=core`: follow the core device float) | [device-precision.md](docs/device-precision.md) |
 | leave other primary muons out of the library draws (`steps --library-drop-muons`) | [limitations.md](docs/limitations.md) |
 | off-axis plane offsets follow the muon direction, colliding off-axis steps shifted, in-straw draw keyed on long paths (`steps --offaxis-plane-sign --offaxis-shift-from-muon --instraw-fine-length`) | [secondary-validation.md](docs/secondary-validation.md#opt-in-placement-and-in-straw-options-paired-per-shard) |
-| entry-ledger, transport-ledger and transport-capture diagnostics | [entry-ledger.md](docs/entry-ledger.md), [transport-ledger.md](docs/transport-ledger.md), [transport-capture.md](docs/transport-capture.md), [rate-ledger.md](docs/rate-ledger.md) |
 | relocated saved-product validation | [saved-validation.md](docs/saved-validation.md) |
 | kit task `tracker_point` | [kit-task.md](docs/kit-task.md) |
 | field-on transport from the tracker envelope in a field map (`sim.fieldsteps`, `field-compare`) | [field-on.md](docs/field-on.md) |
@@ -117,6 +116,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | `park/ordered-navigation` | ordered-navigation geometry probes and producers (guarded/native/mixed/inclusive envelopes, exact planar, wide torus/convex, segment transport) and the `ordered_*` audit scripts (layout before the 2026-11-01 package split) |
 | `park/ordered-navigation-20261103` | ordered stored-material navigation as it was on main: `steps --navigation ordered-*`, the raised-plane forward handoff, the stored-material navigator and its path modules, `orderedinterior_probe`, `docs/ordered-stored-path.md` |
 | `park/rate-ledger` | rate-ledger history state/surfaces and the ledger job drivers |
+| `park/rate-ledger-20261103` | the transport-ledger arms (`steps --ledger-arms`, `make_steps(arms)`: energy or no writer debit, thin-material loss, integrated step time), the entry-ledger and transport-capture diagnostics, the physical-segment contract (`transportledger`, `flighttime`), `ledgercheck`, the capture audits, the T3 limit tests, the arm campaign drivers and the rate-residual summary; `ratearms` (default transport, `--scatter-in`) and the segment history stay on main |
 | `park/rate-diagnostics` | the earlier rate-deficit diagnostics `geomcheck`, `interiorcensus`, `tubecheck`, `arrivalcheck`, `slowcheck`, `survivalcheck`, `rangecheck`, `secdiag`, `libplacecheck` (untested CLIs, superseded by `ratearms`) |
 | `park/tv3-rescoring` | the saved T-V3 secondary-bank replicas, response and summaries |
 | `park/offaxis-width-match` | the rejected width-matched off-axis donor key (`steps --offaxis-width-match`) |

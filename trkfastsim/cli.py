@@ -126,9 +126,6 @@ def build_parser():
             sp.add_argument("--backend", default="numpy", choices=["numpy", "jax"],
                             help="numpy (default, the reference) or jax: world/interior transport, crossings and gas eIon on the "
                                  "JAX device (CPU or GPU; different random streams; validate with jaxcheck)")
-            sp.add_argument("--ledger-arms", default=None, metavar="PRESET",
-                            help="stage C transport-ledger arms (trkfastsim.sim.ledger.PRESETS: legacy, A, E, M, T, AM, AMT; "
-                                 "default steps.LEDGER_ARMS_DEFAULT)")
         if name == "jaxcheck":
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i), as steps")

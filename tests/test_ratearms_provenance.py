@@ -61,20 +61,20 @@ def test_missing_requested_history_is_rejected(tmp_path):
 
 def test_chunk_check_requires_exact_inputs_and_physics(tmp_path, monkeypatch):
     config = {"arm": "legacy", "seed": 1, "gdml_sha256": "geometry", "g4": "g4.parquet",
-              **ra.ledger.preset("legacy").as_dict(), **ra.ledger.core_world_convention(),
+              **ra.ledger.Arms().as_dict(), **ra.ledger.core_world_convention(),
               "source": {"sim/steps.py": "transport"}}
     _chunk(tmp_path, settings=config)
     monkeypatch.setattr(ra, "_sha", lambda path: {"gen0.root": "hash0", "gen1.root": "hash1", "geom.gdml": "geometry"}[path])
     monkeypatch.setattr(ra.T, "expand", lambda paths: paths)
     monkeypatch.setattr(ra, "_src_identity", lambda: {"sim/steps.py": "transport", "sim/ratearms.py": "reporter"})
-    ra.check_arm(tmp_path, ["gen0.root"], 0, "legacy", 1, "geom.gdml", "g4.parquet", tag="0000")
+    ra.check_arm(tmp_path, ["gen0.root"], 0, 1, "geom.gdml", "g4.parquet", tag="0000")
     with pytest.raises(ValueError, match="input file coverage"):
-        ra.check_arm(tmp_path, ["gen0.root", "gen1.root"], 0, "legacy", 1, "geom.gdml", "g4.parquet")
+        ra.check_arm(tmp_path, ["gen0.root", "gen1.root"], 0, 1, "geom.gdml", "g4.parquet")
     with pytest.raises(ValueError, match="requested settings"):
-        ra.check_arm(tmp_path, ["gen0.root"], 0, "legacy", 2, "geom.gdml", "g4.parquet")
+        ra.check_arm(tmp_path, ["gen0.root"], 0, 2, "geom.gdml", "g4.parquet")
     monkeypatch.setattr(ra, "_src_identity", lambda: {"sim/steps.py": "changed"})
     with pytest.raises(ValueError, match="transport source"):
-        ra.check_arm(tmp_path, ["gen0.root"], 0, "legacy", 1, "geom.gdml", "g4.parquet")
+        ra.check_arm(tmp_path, ["gen0.root"], 0, 1, "geom.gdml", "g4.parquet")
 
 
 def test_any_muon_rate_counts_event_once_without_summing_tracks():

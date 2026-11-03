@@ -91,6 +91,12 @@ Repeat passes are byte-identical on every device.
 | A100-SXM4-80GB, device chain before the unrolled sampler | 14,270 | 3.5 s (steps 2.9, digis 0.5) |
 | RTX PRO 6000 MIG 1g.24gb slice, before the unrolled sampler | 22,160 | 2.3 s (steps 1.8, digis 0.5) |
 | RTX PRO 6000 MIG 1g.24gb slice, device chain | 29,150 | 1.7 s (steps 1.2, digis 0.46) |
+| RTX PRO 6000 MIG 1g.24gb slice, device chain at float32 (`TRKFASTSIM_DEVICE_FLOAT=core`) | 47,120 | 1.06 s (steps 0.68, digis 0.32) |
+
+At float32 (core float32, tracker following core; see [device-precision.md](device-precision.md)) the chain
+against all-NumPy on the same 20 tables: no count beyond 1 sigma (largest pull 0.92, time clusters), 0 of 11
+histograms flagged (chi2/ndf at most 1.66; null arm at most 1.58); device memory peak 1.4 GB. Float64 output with and
+without the float32 changes is byte-identical at every stage.
 
 On the MIG slice the stream of 20 new tables (every pass after the first, compiled kernels loaded from a persistent
 cache) runs at 22,000 events/s: tables with new kernel shapes add 1-8 s of compilation. The first table costs 490 s

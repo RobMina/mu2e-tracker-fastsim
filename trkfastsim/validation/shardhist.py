@@ -33,6 +33,8 @@ KEV_STRAW = np.linspace(0.0, 10.0, 101)
 LEN = np.linspace(0.0, 20.0, 81)
 PMOM = np.logspace(np.log10(50.0), 5.0, 61)
 TIME = np.linspace(0.0, 100000.0, 201)
+P_BANDS = (50.0, 1000.0, 3000.0, 10000.0, 30000.0, np.inf)        # MeV/c: primary-muon |p| bands of the eIon keys
+P_BAND_NAMES = ("p0-1", "p1-3", "p3-10", "p10-30", "p30up")
 EDGES = {
     "sel/events": np.array([-0.5, 0.5]),
     "ev/mu_steps": np.arange(0, 101) - 0.5, "ev/sec_steps": np.arange(0, 201) - 0.5,
@@ -46,6 +48,8 @@ EDGES = {
     "straw/eion_muonly_keV": KEV_STRAW, "straw/nsteps": np.arange(1, 22) - 0.5,
     "straw/occupancy": np.arange(216 * 96 + 1) - 0.5,
     "straw/len_muonly_mm": LEN, "straw/eion_per_mm_muonly": np.linspace(0.0, 2.0, 101),
+    **{f"mu/eion_per_mm_{b}": np.linspace(0.0, 2.0, 201) for b in P_BAND_NAMES},
+    **{f"straw/eion_muonly_keV_{b}": KEV_STRAW for b in P_BAND_NAMES},
     "fit/fits_per_event": np.arange(0, 7) - 0.5, "fit/nactive": np.arange(0, 81) - 0.5,
     "fit/chi2ndf": np.linspace(0.0, 10.0, 101),
 }
@@ -171,6 +175,10 @@ def steps_arm(paths, arm, outdir, batches=1):
         H.fill("mu/plane", mu.si, mu.plane)
         H.fill("mu/upanel", mu.si, mu.upanel)
         H.fill("mu/straw", mu.si, mu.straw)
+        pband = np.digitize(np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy(), P_BANDS) - 1
+        epm = e[m] / np.maximum(mu.len.to_numpy(), 1e-6)
+        for k, b in enumerate(P_BAND_NAMES):
+            H.fill(f"mu/eion_per_mm_{b}", mu.si[pband == k], epm[pband == k])
         sec = s[~m]
         place, dmin = _place(s)
         H.fill("sec/eion_keV", sec.si, e[~m])
@@ -184,9 +192,10 @@ def steps_arm(paths, arm, outdir, batches=1):
         ws = sec[T.KEY].merge(w.rename("w").reset_index(), on=T.KEY, how="left").w.to_numpy()
         ws = np.where(np.isnan(ws), NWIDTH - 1, np.minimum(ws, NWIDTH - 1))
         H.fill("sec/place_by_width", sec.si, place * NWIDTH + ws)
-        st = s.assign(mulen=np.where(m, s.len.to_numpy(), 0.0)).groupby(T.KEY + ["sid"], sort=False).agg(
+        pmu = np.where(m, np.sqrt(s.px ** 2 + s.py ** 2 + s.pz ** 2).to_numpy(), 0.0)
+        st = s.assign(mulen=np.where(m, s.len.to_numpy(), 0.0), pmu=pmu).groupby(T.KEY + ["sid"], sort=False).agg(
             si=("si", "first"), e=("eion", "sum"), n=("mu", "size"), nmu=("mu", "sum"), upanel=("upanel", "first"),
-            straw=("straw", "first"), mulen=("mulen", "sum"))
+            straw=("straw", "first"), mulen=("mulen", "sum"), pmu=("pmu", "max"))
         ek = 1e3 * st.e.to_numpy()
         hasmu = st.nmu.to_numpy() > 0
         H.fill("straw/eion_keV", st.si, ek)
@@ -198,6 +207,9 @@ def steps_arm(paths, arm, outdir, batches=1):
         ln = st.mulen.to_numpy()
         H.fill("straw/len_muonly_mm", st.si[only], ln[only])
         H.fill("straw/eion_per_mm_muonly", st.si[only], ek[only] / np.maximum(ln[only], 1e-6))
+        sband = np.digitize(st.pmu.to_numpy(), P_BANDS) - 1
+        for k, b in enumerate(P_BAND_NAMES):
+            H.fill(f"straw/eion_muonly_keV_{b}", st.si[only & (sband == k)], ek[only & (sband == k)])
         H.fill("straw/nsteps", st.si, st.n)
         H.fill("straw/occupancy", st.si, st.upanel.to_numpy() * 96 + st.straw.to_numpy())
     return H.save(outdir, arm, {"kind": "steps", "inputs": [os.path.basename(p) for p in paths], "selected_events": nsel,

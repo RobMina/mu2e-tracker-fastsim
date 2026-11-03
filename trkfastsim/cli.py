@@ -14,6 +14,7 @@ from trkfastsim.validation import digicmp
 from trkfastsim.digi import fastdigi
 from trkfastsim.validation import seccensus
 from trkfastsim.validation import selfpaste, shardhist, shardstats
+from trkfastsim.validation import fieldcompare, fieldreco
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -34,6 +35,8 @@ ANALYSES = {
     "jaxcheck": (jaxcheck.run, "steps --backend jax against numpy on the same primaries: statistics, paired PrimaryFilter, reproducibility, timing"),
     "digi-cond": (fastdigi.run_cond, "fast digitisation conditions (.npz) from the stock job's fhicl-dump, DB CSVs and the GDML"),
     "digi": (fastdigi.run_digi, "fast digitisation (port of StrawDigisFromStrawGasSteps): step tables -> StrawHitTableDumper-layout digi tables"),
+    "field-reco": (fieldreco.run, "stock KKCHmu reco on injected field-on steps: arms (NAME=DIR of nts files) paired per event against --ref (yield, hits, fit quality, momentum)"),
+    "field-compare": (fieldcompare.run, "field-on primary StrawGasSteps: fast chord transport (sim.fieldsteps) vs G4, restarted from the G4 tracker-VD entry state"),
     "digicmp": (digicmp.run, "fast vs stock digis on the same steps: digis/event, occupancy, TDC/TOT/PMP, dt, hit reco and combo hits, with a reseeded stock floor"),
     "shardhist": (shardhist.run, "per-shard (subrun) histograms of one arm: steps, digis, hit reco, fits; input of shardstats"),
     "selfpaste": (selfpaste.run, "closure of the off-axis paster: each Geant4 event's own off-axis secondaries pasted back onto its own muon"),
@@ -250,6 +253,58 @@ def build_parser():
             sp.add_argument("--detail-min-pull", type=float, default=0.0, help="print only bins with |pull| >= this")
             sp.add_argument("--shard-range", type=int, nargs=2, default=None, metavar=("LO", "HI"),
                             help="use only shards with LO <= id <= HI (e.g. a development or confirmation subset)")
+        if name == "field-reco":
+            sp.add_argument("--events", default=None, help="injector table (dump/sgsteps) whose events restrict the denominator")
+            sp.add_argument("--file-tables", default=None, help="directory of the per-file dumper tables sgsteps.<stem>.root")
+            sp.add_argument("--ref", default="g4", help="reference arm name")
+            sp.add_argument("--hits", action="store_true", help="also hit-level comparison (trkhits, same straw on both first tracks)")
+            sp.add_argument("--arm-tables", nargs="+", default=None, metavar="NAME=TABLE",
+                            help="each arm's own injector table: its first-straw |p| is that arm's truth")
+            sp.add_argument("--dump-events", action="store_true", help="also write the per-event frame (events.csv.gz)")
+            sp.add_argument("--unbiased", action="store_true",
+                            help="denominator: drop events in which a non-primary particle passes the Signal/Calib windows")
+            sp.add_argument("--self-pass", action="store_true",
+                            help="denominator: only events whose primary passes the Signal/Calib windows on its own (--events steps)")
+        if name == "field-compare":
+            sp.add_argument("--gdml", required=True, help="GDML world export of the sample's geometry (straws, support)")
+            sp.add_argument("--species", type=int, default=13, choices=[11, 13], help="MC primary |pdg| (13 muons, 11 electrons)")
+            sp.add_argument("--map", dest="field_map", default=None, metavar="HEADER", help="G4BL field map header (e.g. DSMap.header)")
+            sp.add_argument("--bz", type=float, default=None, help="constant Bz [T] instead of a map (default 1.0 without --map)")
+            sp.add_argument("--no-field", action="store_true", help="straight-line control arm")
+            sp.add_argument("--seed", type=int, default=1)
+            sp.add_argument("--chord-mm", type=float, default=20.0, help="longest chord of the helix [mm]")
+            sp.add_argument("--sagitta-mm", type=float, default=0.02, help="largest chord sagitta [mm]")
+            sp.add_argument("--entry-vds", type=int, nargs="+", default=list(fieldcompare.TRACKER_VDS),
+                            help="VirtualDetectorIds whose first crossing is the entry state (13 = TT_FrontHollow)")
+            sp.add_argument("--entry", choices=["vd", "surface", "first"], default="vd",
+                            help="entry state from the first tracker VD crossing (default), the first tracker SurfaceStep "
+                                 "(entry vdid = -1 - SurfaceId in the output), or the earlier of the two")
+            sp.add_argument("--origin", type=float, nargs=3, default=None,
+                            help="detector-frame origin in the Mu2e frame [mm] (default: fitted from the G4 steps)")
+            sp.add_argument("--interior", action=argparse.BooleanOptionalAction, default=True,
+                            help="support structure from the GDML (default on)")
+            sp.add_argument("--max-events", type=int, default=None, help="first N events with a primary (quick checks)")
+            sp.add_argument("--unbiased-only", action="store_true",
+                            help="drop events in which a non-primary particle passes the sample's Signal/Calib windows")
+            sp.add_argument("--self-pass-only", action="store_true",
+                            help="only tracks whose own G4 steps pass the sample's Signal/Calib filter windows")
+            sp.add_argument("--matched-straws", action="store_true",
+                            help="fast - G4 step time, wire DOCA and length on the straws both arms cross, per |p| bin")
+            sp.add_argument("--delta-census", action="store_true",
+                            help="G4 e+- daughters of the primaries above 10 MeV: in straw gas, wall or elsewhere, per crossing")
+            sp.add_argument("--offset-bound", action="store_true",
+                            help="first-straw entry offsets per entry type and |p| bin vs the Highland spread of G4's own "
+                                 "support scattering (first_straw_offset_bound)")
+            sp.add_argument("--gas-state", choices=["solid", "gas"], default="solid",
+                            help="density-effect branch for the straw gas: solid (as the extracted chain) or Geant4's "
+                                 "gas branch (the GDML StrawGas state)")
+            sp.add_argument("--mu-radiative", action="store_true",
+                            help="muons: also bremsstrahlung, pair and photonuclear losses in the solids (opt-in)")
+            sp.add_argument("--save-steps", action="store_true", help="also write the fast steps and final states (fast_steps.root)")
+            sp.add_argument("--dump-tracks", type=int, default=0, metavar="N",
+                            help="write tracks.json: the step lists of N tracks above 2 GeV/c per entry type, both arms")
+            sp.add_argument("--write-tables", action="store_true",
+                            help="also write primary-only sgsteps/particles TTrees (fast and G4) for the StrawGasStepsFromTable injector")
         if name in BATCHABLE:
             sp.add_argument("--emit", default=None, metavar="JSON", help="write this batch's counts, no summary")
             sp.add_argument("--merge", action="store_true", help="inputs are --emit JSONs: sum and report")

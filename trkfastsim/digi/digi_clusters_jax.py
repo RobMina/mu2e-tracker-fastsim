@@ -31,6 +31,11 @@ BATCH_SIZE = 4096 if jax is not None and jax.default_backend() == "gpu" else 128
 MAX_SAMPLE_LANES = 262144
 MAX_CLUSTER_BUCKET = 4096
 MAX_DRIFT_CLUSTERS = 4_000_000
+# minion electron fill: loop bodies per device-loop iteration (> 1: the loop predicate is read back 1/N as often; the
+# extra bodies past a lane's end are identity, so outputs are unchanged) and the searchsorted method of the truncated
+# draw ("scan": a device loop per call; "compare_all": one comparison pass, the same indices)
+MINION_UNROLL = 1
+SEARCH_METHOD = "scan"
 
 
 def _require_jax():
@@ -79,19 +84,28 @@ def _counts(key, idx, eion, length, single, minion, mean_free_path, eaverage, e1
     return nc, ne
 
 
-def _trunc_ne(keys, probabilities, energies, emax):
+def _trunc_ne(keys, probabilities, energies, emax, method="scan"):
     """Exact inverse CDF of the reference's strictly energy-truncated draw.
 
     At emax == E1 the reference's fallback still returns one electron; preserving
     that convention also makes exactly integral energy budgets terminate.
     """
-    kmax = jnp.searchsorted(energies, emax, side="left")
+    kmax = jnp.searchsorted(energies, emax, side="left", method=method)
     u = _uniform(keys) * probabilities[jnp.maximum(kmax, 1) - 1]
-    return jnp.searchsorted(probabilities, u, side="right") + 1
+    return jnp.searchsorted(probabilities, u, side="right", method=method) + 1
 
 
-@_jit(static_argnames=("capacity",))
-def _minion_clusters(keys, energies, probabilities, etot, nc, capacity):
+def _repeat(body, n):
+    """`body` applied n times per loop iteration."""
+    def run(state):
+        for _ in range(n):
+            state = body(state)
+        return state
+    return run
+
+
+@_jit(static_argnames=("capacity", "unroll", "method"))
+def _minion_clusters(keys, energies, probabilities, etot, nc, capacity, unroll=1, method="scan"):
     """Padded [batch, capacity] electron counts and final residual energies.
 
     nc == 0 denotes an inactive lane. Both the ordered initial fills and residual
@@ -110,12 +124,12 @@ def _minion_clusters(keys, energies, probabilities, etot, nc, capacity):
         i, ne, esum = state
         active = nc > i
         emax = etot - esum - (nc - i - 1) * energies[0]
-        ie = _trunc_ne(_fold(initial_keys, i), probabilities, energies, emax)
+        ie = _trunc_ne(_fold(initial_keys, i), probabilities, energies, emax, method)
         ne = ne.at[rows, i].set(jnp.where(active, ie, 0))
         esum += jnp.where(active, energies[jnp.minimum(ie, energies.size) - 1], 0.0)
         return i + 1, ne, esum
 
-    _, ne, esum = lax.while_loop(fill_condition, fill, (jnp.int64(0), ne, jnp.zeros_like(etot)))
+    _, ne, esum = lax.while_loop(fill_condition, _repeat(fill, unroll), (jnp.int64(0), ne, jnp.zeros_like(etot)))
     residual = jnp.where(nc > 0, etot - esum, 0.0)
 
     def residual_condition(state):
@@ -126,19 +140,20 @@ def _minion_clusters(keys, energies, probabilities, etot, nc, capacity):
         keys, ne, res = state
         parts = jax.vmap(lambda k: random.split(k, 3))(keys)
         active = (nc > 0) & (res >= energies[0])
-        ie = _trunc_ne(parts[:, 1], probabilities, energies, res)
+        ie = _trunc_ne(parts[:, 1], probabilities, energies, res, method)
         cl = jnp.floor(_uniform(parts[:, 2]) * jnp.maximum(nc, 1)).astype(jnp.int64)
         cl = jnp.minimum(cl, jnp.maximum(nc - 1, 0))
         ne = ne.at[rows, cl].add(jnp.where(active, ie, 0))
         res -= jnp.where(active, energies[jnp.minimum(ie, energies.size) - 1], 0.0)
         return parts[:, 0], ne, res
 
-    _, ne, residual = lax.while_loop(residual_condition, residual_fill, (_fold(keys, 5), ne, residual))
+    _, ne, residual = lax.while_loop(residual_condition, _repeat(residual_fill, unroll), (_fold(keys, 5), ne, residual))
     return ne, residual
 
 
-@_jit(static_argnames=("capacity",))
-def _sample(key, idx, eion, nc, minion, p0, p1, sdir, width, eaverage, energies, probabilities, capacity):
+@_jit(static_argnames=("capacity", "unroll", "method"))
+def _sample(key, idx, eion, nc, minion, p0, p1, sdir, width, eaverage, energies, probabilities, capacity, unroll=1,
+            method="scan"):
     keys = _step_keys(key, idx)
     slots = jnp.arange(capacity, dtype=jnp.uint32)
     slot_keys = jax.vmap(lambda k: jax.vmap(lambda i: random.fold_in(k, i))(slots))(_fold(keys, 2))
@@ -158,7 +173,7 @@ def _sample(key, idx, eion, nc, minion, p0, p1, sdir, width, eaverage, energies,
     means = jnp.broadcast_to(jnp.where(minion, 0.0, eion / (jnp.maximum(nc, 1).astype(eion.dtype) * eaverage))[:, None],
                              nc.shape + (capacity,))
     ne = jnp.maximum(jax.vmap(_poisson)(electron_keys, means), 1)
-    mine, _ = _minion_clusters(keys, energies, probabilities, eion, jnp.where(minion, nc, 0), capacity)
+    mine, _ = _minion_clusters(keys, energies, probabilities, eion, jnp.where(minion, nc, 0), capacity, unroll, method)
     ne = jnp.where(minion[:, None], mine, ne)
     return pos, ne
 
@@ -237,7 +252,7 @@ def make_clusters(key, c, st, idx):
                 ref = np.asarray(c.straw_mid, np.float64)[st["_us"][idx[m]]] if df.SINGLE else 0.0
                 pos, ne = _sample(key, _pad(idx[m], batch), _pad(eion[m], batch), _pad(nc[m], batch), _pad(minion[m], batch),
                                   _pad(p0[m] - ref, batch), _pad(p1[m] - ref, batch), _pad(sdir, batch), _pad(width, batch),
-                                  c.EAverage, energies, probabilities, int(capacity))
+                                  c.EAverage, energies, probabilities, int(capacity), MINION_UNROLL, SEARCH_METHOD)
                 keep = np.arange(capacity)[None, :] < nc[m, None]
                 pieces_s.append(np.broadcast_to(m[:, None], keep.shape)[keep])
                 pos = df.host(pos)[:len(m)]

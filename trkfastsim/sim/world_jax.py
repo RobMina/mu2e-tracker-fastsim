@@ -11,7 +11,7 @@ import jax.numpy as jnp
 import numpy as np
 from jax import lax
 
-from mu2efastsim import eloss, eloss_jax, materials, transport as tr
+from mu2efastsim import eloss, eloss_jax, materials, slab_jax, transport as tr
 from trkfastsim import devfloat as df
 from trkfastsim.sim import steps as st, steps_jax as sj
 df.register(__name__)   # follows the core device float when TRKFASTSIM_DEVICE_FLOAT=core
@@ -134,6 +134,42 @@ def _compact_band_loss(MC, coeff, col, seg, p, lost, keys):
         dl = sj._slab_finish(MC, mat, pp, carry)
         lost = _material_add(lost, idx, valid, dl)
     return _band_finish(MC, coeff, col, seg, p, before, lost)
+
+
+@partial(df.jit, static_argnames=("impl", "block"))
+def _world_path(MCs, cols, segs, p, keys, impl, block=32):
+    """The whole chunk's band losses in one slab_jax.path_loss call (steps_jax.SLAB_KERNEL): per band its materials
+    in packed order (pair key fold_in(fold_in(muon key, band), material), the band momentum carried), then the mean
+    air loss over the uncovered path; returns the cumulative loss after each band [bands][B]."""
+    c, f1, f2, mean, L, ends = [], [], [], [], [], []
+    for k, (mc, col, seg) in enumerate(zip(MCs, cols, segs)):
+        nm = col.shape[1]
+        for m in range(nm + 1):
+            c.append([f[m] if m < nm else f[-1] for f in mc])
+            f1.append(k), f2.append(m if m < nm else 0), mean.append(m == nm)
+            L.append(jnp.where(col[:, m] > 0, col[:, m], 0.0) if m < nm else jnp.maximum(seg - col.sum(1), 0.0))
+        ends.append(len(L) - 1)
+    c = eloss_jax.MatConsts(*(jnp.stack([jnp.asarray(x[i]) for x in c]) for i in range(len(eloss_jax.MatConsts._fields))))
+    out = slab_jax.path_loss(slab_jax.raw(keys), p, jnp.stack(L), c, jnp.asarray(f1, jnp.uint32),
+                             jnp.asarray(f2, jnp.uint32), jnp.asarray(mean), impl=impl, block=block)
+    return tuple(out[j] for j in ends)
+
+
+@df.jit
+def _band_moments(coeff, col, seg, p, before, lost):
+    """_band_finish's radiation lengths, band momentum and tail coefficients for a band whose loss (air included)
+    is already known."""
+    air = jnp.maximum(seg - col.sum(1), 0.0)
+    columns = jnp.concatenate([col, air[:, None]], 1)
+    xx0 = jnp.sum(columns * coeff[0], 1)
+    bp = jnp.where(seg > 0, 0.5 * (_p_after(p, before) + _p_after(p, lost)), 0.0)
+    pm = jnp.maximum(bp, 1.0)
+    pb2 = (pm * pm / jnp.sqrt(pm * pm + eloss.MMU ** 2)) ** 2
+    x2 = columns * coeff[1] / pb2[:, None]
+    chi = x2.sum(1)
+    thw = (x2 * coeff[2] / pm[:, None]).sum(1)
+    thn = jnp.where(chi > 0, thw / jnp.maximum(chi, df.TINY), 1.0)
+    return xx0, bp, chi, thn
 
 
 @df.jit
@@ -303,7 +339,22 @@ class DeviceWorld:
             keys = jax.vmap(lambda i: jax.random.fold_in(jax.random.fold_in(key, KEY_WORLD), i))(ix)
             lost = jnp.zeros(B, df.FLOAT)
             bands = []
+            if sj.SLAB_KERNEL != "loop":
+                geo = []
+                for k, (top, bot) in enumerate(zip(self.kedges[:-1], self.kedges[1:])):
+                    origin, length, height = _band_segment(oo, dd, top, bot, self.kedges[-1], valid)
+                    geo.append((self.column(k, origin, dd, length, valid), length, height))
+                cols = tuple(g[0] for g in geo)
+                ends = _world_path(tuple(b[1] for b in self.bands), cols, tuple(g[1] for g in geo), pp, keys,
+                                   sj.slab_impl(), sj.SLAB_BLOCK)
+                for k, (col, length, height) in enumerate(geo):
+                    _, mc, coeff, _ = self.bands[k]
+                    xx0, bp, chi, thn = _band_moments(coeff, col, length, pp, lost, ends[k])
+                    lost = ends[k]
+                    bands.append((xx0, height, bp, chi, thn, length))
             for k, (top, bot) in enumerate(zip(self.kedges[:-1], self.kedges[1:])):
+                if sj.SLAB_KERNEL != "loop":
+                    break
                 origin, length, height = _band_segment(oo, dd, top, bot, self.kedges[-1], valid)
                 col = self.column(k, origin, dd, length, valid)
                 _, mc, coeff, _ = self.bands[k]

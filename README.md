@@ -103,6 +103,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | entry-ledger, transport-ledger and transport-capture diagnostics | [entry-ledger.md](docs/entry-ledger.md), [transport-ledger.md](docs/transport-ledger.md), [transport-capture.md](docs/transport-capture.md), [rate-ledger.md](docs/rate-ledger.md) |
 | relocated saved-product validation | [saved-validation.md](docs/saved-validation.md) |
 | kit task `tracker_point` | [kit-task.md](docs/kit-task.md) |
+| field-on transport from the tracker envelope in a field map (`sim.fieldsteps`, `field-compare`) | [field-on.md](docs/field-on.md) |
 
 ## Tests
 

@@ -134,7 +134,9 @@ def digitize_steps(s, cond, rng, keys=None, chunk=1000, stats=None, backend="num
     """digitize_table on an in-memory StrawGasStep DataFrame (STEP_COLS); same outputs as after a table round trip.
     compact (opt-in): chunk over the events that have steps only, so a sparse population (most generated events
     have no tracker step) takes a few large calls instead of one per `chunk` generated events. Digis and their event
-    indices are those of the full key list; the random streams differ from compact=False (another chunking)."""
+    indices are those of the full key list; the random streams differ from compact=False (another chunking).
+    backend="jax": a chunk the device digitiser cannot hold (OverflowError: a straw beyond its fixed cluster capacity)
+    is digitised by NumPy, seeded from that chunk's key (counted in stats["numpy_fallback_chunks"])."""
     validate_backend(backend)
     if backend == "jax":
         from jax import random as jr
@@ -171,7 +173,13 @@ def digitize_steps(s, cond, rng, keys=None, chunk=1000, stats=None, backend="num
         if backend == "numpy":
             d = D.digitize(sub, min(chunk, nkeys - e0), cond, rng, stats)
         else:
-            d = digitize_jax(sub, min(chunk, nkeys - e0), cond, jr.fold_in(rng, e0), stats)
+            try:
+                d = digitize_jax(sub, min(chunk, nkeys - e0), cond, jr.fold_in(rng, e0), stats)
+            except OverflowError:   # a straw beyond the device digitiser's fixed capacity: this chunk on NumPy
+                seed = np.asarray(jr.key_data(jr.fold_in(rng, e0))).astype(np.uint64).tolist()
+                d = D.digitize(sub, min(chunk, nkeys - e0), cond, np.random.default_rng(seed), stats)
+                if stats is not None:
+                    stats["numpy_fallback_chunks"] = stats.get("numpy_fallback_chunks", 0) + 1
         if stats is not None:
             stats["digitize_s"] = stats.get("digitize_s", 0.0) + time.perf_counter() - t0
         d["ev"] = d["ev"] + e0

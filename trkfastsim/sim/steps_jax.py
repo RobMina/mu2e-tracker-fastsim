@@ -28,7 +28,7 @@ import jax
 import jax.numpy as jnp
 from jax import lax
 
-from mu2efastsim import eloss, eloss_jax, materials
+from mu2efastsim import eloss, eloss_jax, materials, slab_jax
 from mu2efastsim import transport as tr
 
 from trkfastsim import crossings, devfloat as df, geometry
@@ -51,6 +51,11 @@ LANES = 4096      # muons per transport chunk
 SLICE_ROUNDS = 8  # slab slices per device call between compactions (>= transport.N_SLICES_MAX: one call, no sync)
 SLAB_UNROLL = 1   # slab slices per device loop iteration (> 1: fewer loop iterations, same slices per lane)
 SAMPLER_UNROLL = False   # unroll the loss sampler's fixed-trip loops inside the slab loop (no inner device loops)
+# support slab loss: "loop" = slice rounds in XLA, compacted between host-checked calls (default); "device" = one
+# mu2efastsim.slab_jax call per slab and one per world chunk (same keys, draws and slice policy, a per-lane slice loop:
+# the Triton kernel on CUDA, the XLA while loop elsewhere, per slab_jax.default_impl); "pallas" / "xla" force one
+SLAB_KERNEL = "loop"
+SLAB_BLOCK = 32   # lanes per kernel program of the slab kernels (smaller: shorter float64 latency of a slow block)
 KEY_TRANSPORT, KEY_EXIT, KEY_EION, KEY_SLAB, KEY_CORE, KEY_TAIL = 1, 2, 3, 2, 0, 1
 # column sums in int64 fixed point (exact and order-free, so independent of batching and of the device): length in
 # 1e-9 mm, first moment in 1e-6 mm^2, second in 1e-3 mm^3
@@ -624,6 +629,30 @@ def _slab_finish(MC, mat, p, carry):
     return jnp.where(stopped, tk0, jnp.minimum(lost, tk0))
 
 
+def slab_impl():
+    """mu2efastsim.slab_jax implementation for SLAB_KERNEL (not "loop")."""
+    if SLAB_KERNEL == "device":
+        return slab_jax.default_impl()
+    if SLAB_KERNEL not in ("pallas", "xla", "interpret"):
+        raise ValueError(f"SLAB_KERNEL must be loop, device, pallas, xla or interpret, not {SLAB_KERNEL!r}")
+    return SLAB_KERNEL
+
+
+@partial(df.jit, static_argnames=("impl", "block"))
+def _slab_kernel(MC, col, p, keys, impl, block=32):
+    """slab() in one slab_jax call over every (row, material) lane: pair keys fold_in(row key, material), |p| floored
+    at 1, lanes without support length lose nothing; the per-row sum as _slab_scatter."""
+    R, M = col.shape
+    mat = jnp.arange(M)
+    k = jax.vmap(lambda kk: jax.vmap(lambda m: jax.random.fold_in(kk, m))(mat))(keys).reshape(-1)
+    lanes = jnp.tile(mat, R)
+    c = eloss_jax.MatConsts(*(f[lanes] for f in MC))
+    hit = col > 0
+    loss, _ = slab_jax.slab_loss(slab_jax.raw(k), c, jnp.repeat(jnp.maximum(p, 1.0), M),
+                                 jnp.where(hit, col, 0.0).reshape(-1), impl=impl, block=block)
+    return _dot(jnp.where(hit, loss.reshape(R, M), 0.0), jnp.ones(M))
+
+
 @df.jit
 def _count_pos(col):
     return jnp.sum(col > 0)
@@ -1135,6 +1164,8 @@ class DeviceInterior:
 
     def slab(self, col, p, keys):
         """Sum over support materials of transport.slab_loss(mat, max(p, 1), col[:, m]) per row [R]."""
+        if SLAB_KERNEL != "loop":
+            return _slab_kernel(self.MC, col, p, keys, slab_impl(), SLAB_BLOCK)
         R, M = col.shape
         npairs = int(_count_pos(col))
         if not npairs:

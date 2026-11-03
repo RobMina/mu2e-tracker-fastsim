@@ -187,6 +187,60 @@ The quoted topology/migration results predate the exact rational nearest-plane
 tie fix; they remain historical diagnostics, not validation of that corrected
 candidate. Default-L reconstruction does not use the topology hook.
 
+## Opt-in placement and in-straw options (paired per-shard)
+
+Four `steps` options change how library secondaries are pasted. Each is off by default; with all of them off the step
+tables are identical to the default, table for table. None has a fitted value.
+
+| option | what it changes | motivation (measured upstream of the digis) |
+|---|---|---|
+| `--library-drop-muons` | leaves out drawn rows with \|pdg\| = 13 (other primary muons of the donor event) | species flag: non-primary muons the fast transport already carries |
+| `--offaxis-plane-sign` | mirrors a drawn set's plane offsets when donor and recipient muons travel opposite ways along the planes (sign of u_z) | same-plane excess, 1-2 and >= 3 plane deficits; the self-paste closure (each Geant4 event's own set pasted back) reproduces every place class |
+| `--offaxis-shift-from-muon` | an off-axis step landing in a fast muon straw moves up to 3 straws along its straw offset instead of being dropped | about 2.7 % of drawn off-axis steps were dropped; a donor's off-axis step never shares a straw with its muon |
+| `--instraw-fine-length` | the in-straw draw key splits the muon path in the straw beyond 8 mm (10, 12, 15, 20, 30 mm) | muon-only straws: path-length population flagged (chords longer than 20 mm +25 %, 8-11 mm -5 to -8 %) while eIon per mm agrees; the 8 mm-and-above key gave long chords along the wire the secondary rate of 8-10 mm crossings |
+| `--offaxis-width-match` | keys off-axis donors on the width of the muon's plane extent | tested and rejected: every placement histogram is worse |
+
+Method: arms are fast steps (seed 1) of the `g4ref_v2` generation (10 M generated, 200 subruns); the statistic is the
+paired per-shard one in shape mode ([shard-statistics.md](shard-statistics.md)), against Geant4 steps of the same
+events. The options were chosen on subruns 21-120; subruns 121-220 were looked at once for the chosen set; the
+row "all" uses every subrun. The T-V2 proxy is the fast digitiser on each arm's steps against the fast digitiser on
+the Geant4 steps (the fast digitiser on Geant4 steps against stock: 0 of 16 histograms flagged on all 200 subruns).
+The placement and shift options were developed while subruns 121-220 had been seen for an earlier placement
+candidate, and the path-length cause was found on the default arm over all 200 subruns, so the 121-220 look is not
+blind for them.
+
+Steps, chi2/ndf with the family-wise limit in brackets (27 histograms):
+
+| | default | all four options |
+|---|---:|---:|
+| flags, subruns 21-120 / 121-220 / all | 5 / 5 / 11 | 4 / 4 / 6 |
+| secondary place (all) | 112 (6.9) | 55 (6.5) |
+| same plane / 1-2 planes / >= 3 planes (all) | +25 / -27 / -29 % | +18 / -18 / -21 % (each +- 2-3 %) |
+| secondary species (all) | 255 (6.1) | not flagged |
+| eIon per straw (all) | 1.83 (1.82) | 1.54 (1.83) |
+| eIon per muon-only straw (all) | 1.73 (1.68) | 1.20 (1.69) |
+| muon path per muon-only straw (all) | 2.21 (1.80) | 1.31 (1.81) |
+| secondary-only straws (all) | -4.1 +- 1.6 % | -1.5 +- 1.7 % |
+| other steps per event (all) | -3.2 +- 1.1 % | -2.3 +- 1.1 % |
+
+Fast digis on these steps against fast digis on the Geant4 steps (17 histograms):
+
+| | default | all four options |
+|---|---:|---:|
+| flags, subruns 21-120 / 121-220 / all | 1 / 0 / 7 | 0 / 0 / 4 |
+| TOT0 / TOT1 (all) | 4.45 / 4.52 (4.1) | 2.84 / 2.85 (4.4) |
+| PMP (all) | 2.33 (2.05) | 1.61 (2.07) |
+| hit energy (all) | 2.40 (2.13) | 1.52 (2.18) |
+| dt (all) | 1.90 (1.70) | 1.66 (1.71) |
+| digis per selected event (all) | -0.70 +- 0.44 % | -0.48 +- 0.43 % |
+
+Still flagged with all four options: secondary placement (about half the default's excess left), plane distance,
+other steps per event, secondary path, event eIon; through the digitiser, straw occupancy, wire distance and the
+digis-per-event shape. Muon-only straws with chords below 1.25 mm are 3-4 % low with or without the options (not a
+library effect). Steps wall time with all four options against the default on the same node: -0.8 % and +1.2 % in two
+measurements, each with about 3 % spread between repetitions, i.e. no measurable change (about 10,000 generated
+events per second per core for the steps).
+
 ## Full paired saved-default-L reconstruction
 
 Twenty ten-subrun groups contain 10 million generated events. There are 55,432

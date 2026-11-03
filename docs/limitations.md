@@ -20,14 +20,21 @@
   ([shard-statistics.md](shard-statistics.md)). Under the paired statistic eIon per straw is just resolved (1.83 +- 0.47
   against a limit of 1.81, rms excess 1.4 %). Its causes:
   - The off-axis placement: 4.4 +- 1.7 % fewer secondary-only straws, with same-plane steps +25 % and steps one or more
-    planes away -27 to -29 %. This is the main cause.
-  - In-straw secondaries are drawn independently of the muon's own loss: straws with only a muon step have 8-12 % more
-    entries at 3.4-4 keV.
+    planes away -27 to -29 %. This is the main cause. Opt-in `--offaxis-plane-sign` (plane offsets follow the muon's
+    direction along the planes) leaves +18 / -18 / -21 %; opt-in `--offaxis-shift-from-muon` keeps the 2.7 % of
+    off-axis steps that the default drops when they land in a fast muon straw (secondary-only straws -1.5 +- 1.7 %).
+    About half of the placement excess remains; its cause is not identified.
+  - Straws with only a muon step: their path-length population differs (chords above 20 mm +25 %, 8-11 mm -5 to
+    -8 %), their eIon per mm agrees. The in-straw draw keys the path on bins whose last one starts at 8 mm, so long
+    chords along the wire get too few in-straw secondaries. Opt-in `--instraw-fine-length` (keys up to 30 mm) removes
+    the flag (path 2.21 -> 1.31, limit 1.81). Chords below 1.25 mm stay 3-4 % low (not a library effect).
   - The library builder keeps other primary muons of a donor event as secondaries (0.29 % of other steps), which the
     fast transport already carries. Opt-in `steps --library-drop-muons` leaves them out. With it the species flag goes
     and eIon per straw is no longer flagged (1.78 +- 0.47).
-  - Other steps per event are -3.2 +- 1.1 %. Through stock digitisation the per-straw content shows in straw
-    occupancy, TOT, PMP and hit energy (rms 1.2-1.9 %); panel occupancy passes.
+  - Other steps per event are -3.2 +- 1.1 % (-2.3 +- 1.1 % with the four options). Through stock digitisation the
+    per-straw content shows in straw occupancy, TOT, PMP and hit energy (rms 1.2-1.9 %); panel occupancy passes. With
+    the four options the fast-digitiser proxy no longer flags TOT, PMP, hit energy or dt; straw occupancy, wire distance
+    and the digis-per-event shape stay flagged. Summary in [secondary-validation.md](secondary-validation.md).
 
 ## Frozen
 

@@ -1209,6 +1209,11 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     panel = (anc.panel.to_numpy() + st.dpa.to_numpy()) % NPANELS_
     straw0 = anc.straw.to_numpy() + st.dst.to_numpy()
     plane, straw = _mirror(plane0, NPLANES_), _mirror(straw0, NSTRAWS_)
+    # opt-in: a target outside the planes (straws) is dropped, as Geant4 records no step there, instead of mirrored
+    if getattr(sampler, "no_plane_mirror", False):
+        plane = plane0
+    if getattr(sampler, "no_straw_mirror", False):
+        straw = straw0
     reflected = (plane != plane0) | (straw != straw0)
     ok = (plane >= 0) & (plane < NPLANES_) & (straw >= 0) & (straw < NSTRAWS_)
     js = np.where(ok, (plane * NPANELS_ + panel) * NSTRAWS_ + straw, 0).astype(np.int64)

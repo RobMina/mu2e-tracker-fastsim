@@ -37,7 +37,7 @@ def default_gdml():
 
 def run(inputs, outdir, seed=1, gdml=None, stage="C", library=None, no_offaxis=False, offaxis_plane_bin=6, library_drop_muons=False, offaxis_plane_sign=False, offaxis_shift_from_muon=False, instraw_fine_length=False, tag="",
         sliced_msc=True, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True, kink_xx0=st.KINK_XX0,
-        tail_k=None, no_surfsteps=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, first_muon_only=False, backend="numpy", scatter_in=False, **kw):
+        tail_k=None, no_surfsteps=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, backend="numpy", scatter_in=False, **kw):
     gdml = gdml or default_gdml()
     geom = geometry.from_gdml(gdml)
     world = st.load_world(gdml, geom, mods=world_mods) if stage == "C" else None
@@ -64,7 +64,7 @@ def run(inputs, outdir, seed=1, gdml=None, stage="C", library=None, no_offaxis=F
                                    sliced_msc=sliced_msc, interior=interior, near_margin=near_margin,
                                    interior_msc=not no_interior_msc, msc_tail=msc_tail, tail_k=tail_k,
                                    kink_xx0=kink_xx0, kink_sup_xx0=kink_sup_xx0, exit_scatter=exit_scatter,
-                                   all_muons=not first_muon_only, backend=backend,
+                                   backend=backend,
                                    **({"scatter_in": True} if scatter_in else {}))
         if interior is not None:
             print(f"#   interior: {getattr(st.make_steps, 'interior_stats', {})}", flush=True)

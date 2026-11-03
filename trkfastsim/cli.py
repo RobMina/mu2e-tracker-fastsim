@@ -86,8 +86,6 @@ def build_parser():
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action=argparse.BooleanOptionalAction, default=True,
                             help="stage C: per-band |p| in the Highland scattering (default on; --no-sliced-msc: one |p| for the column)")
-            sp.add_argument("--first-muon-only", action="store_true",
-                            help="transport only the first generated muon of each event (before 2026-10-24; default: all)")
             sp.add_argument("--near-margin", type=float, default=1500.0,
                             help="stage C: transport through the world only muons whose straight line passes within this "
                                  "many mm of the straws' footprint at the plane (1e9 = every downward muon)")

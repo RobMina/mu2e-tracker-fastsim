@@ -1482,13 +1482,7 @@ def sample_gas_eion(key, p, path, mu, chunk=1 << 16):
     return np.concatenate(out)
 
 
-UNSUPPORTED = {"entry_ledger": "legacy", "capture_entry_ledger": False}
-
-
-def check_options(interior, interior_msc, **kw):
-    """Raise for make_steps options the jax backend does not implement (diagnostic knobs; numpy has them)."""
-    for k, default in UNSUPPORTED.items():
-        if kw.get(k, default) != default:
-            raise NotImplementedError(f"jax backend: {k}={kw[k]!r} (use the numpy backend)")
+def check_options(interior, interior_msc):
+    """Raise for make_steps options the jax backend does not implement (numpy has them)."""
     if interior is not None and not interior_msc:
         raise NotImplementedError("jax backend: --no-interior-msc (loss-only interior); use the numpy backend")

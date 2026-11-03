@@ -24,10 +24,17 @@ def panel_boxes(geom, pad=None):
     return lo - pad, hi + pad
 
 
-def straw_crossings(origin, direction, geom, chunk: int = 8192):
-    """Rows (track, straw index, s_in, s_out) of every straw gas volume each track crosses, sorted by track, s_in."""
+def panel_index(geom):
+    """(lo, hi, straws_of): the padded panel boxes and the [216, 96] straw indices per panel, as straw_crossings
+    builds them on every call; pass it as `index` to reuse it across many calls on one geometry."""
     lo, hi = panel_boxes(geom)
-    straws_of = np.argsort(geom.upanel, kind="stable").reshape(lo.shape[0], -1)   # [216, 96] straw indices
+    return lo, hi, np.argsort(geom.upanel, kind="stable").reshape(lo.shape[0], -1)
+
+
+def straw_crossings(origin, direction, geom, chunk: int = 8192, index=None):
+    """Rows (track, straw index, s_in, s_out) of every straw gas volume each track crosses, sorted by track, s_in.
+    index: panel_index(geom), precomputed (same result)."""
+    lo, hi, straws_of = panel_index(geom) if index is None else index
     # one envelope box around all panels first: most tracks of a shard never come near the tracker
     env = box.crossings(origin, direction, lo.min(0)[None], hi.max(0)[None], backend="numpy")
     sel = np.unique(env[:, 0].astype(np.int64)) if len(env) else np.zeros(0, np.int64)

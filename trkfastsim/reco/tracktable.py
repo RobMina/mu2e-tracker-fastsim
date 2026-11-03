@@ -159,19 +159,32 @@ def from_f2(path, cond, settings="mc", niter=4, all_fits=False, drift=None):
     """reco-vr3 chain on the dump's digis (fast hit reco, SimpleTimeCluster, LineFinder, F2 with its own states).
     Every seed is fitted; `all_fits` keeps the failed ones (goodfit 0), else only the fits passing the KKFit gates.
     `drift` supplies an explicit calibration when the digi-only input has no conditions tree."""
-    from . import linefind, linefind_jax, linefit_jax
     from .cli import _drift_table
-    d = hitreco.read_digis([path])
-    sh = hitreco.straw_hits(d, cond, settings)
-    tc = linefind.time_clusters(sh)
-    sd = linefind_jax.line_seeds(sh, tc, cond)
     explicit_drift = drift is not None
     drift = _drift_table(path) if drift is None else drift
+    return from_f2_digis(hitreco.read_digis([path]), _events(path), cond, settings, niter, all_fits, drift,
+                         source=path, explicit_drift=explicit_drift)
+
+
+def from_f2_digis(d, events, cond, settings="mc", niter=4, all_fits=False, drift=None, source=None,
+                  explicit_drift=True, sh=None, stages=None):
+    """from_f2 on in-memory digis (hitreco.read_digis layout) and events (_events layout). `sh`: straw hits already
+    made from d (e.g. by the JAX twin); `stages`: dict that receives the intermediate products and stage timings."""
+    import time
+    from . import linefind, linefind_jax, linefit_jax
+    t = time.perf_counter()
+    sh = hitreco.straw_hits(d, cond, settings) if sh is None else sh
+    t_hits = time.perf_counter()
+    tc = linefind.time_clusters(sh)
+    t_tc = time.perf_counter()
+    sd = linefind_jax.line_seeds(sh, tc, cond)
+    t_sd = time.perf_counter()
     ns = sd["n"]
     trk = np.repeat(np.arange(len(ns)), ns)
     H = linefit.build_hits(trk, sd["member"], np.zeros(len(trk)), np.ones(len(trk), bool), sh, cond, len(ns))
     x0 = linefit.seed_params(sd["a0"], sd["b0"], sd["a1"], sd["b1"], sd["t0"])
     f = linefit_jax.fit_own_states(x0, H, drift, niter=niter) if len(ns) else None
+    t_fit = time.perf_counter()
     T = len(ns)
     if T:
         nact = f["active"].sum(1)
@@ -200,13 +213,16 @@ def from_f2(path, cond, settings="mc", niter=4, all_fits=False, drift=None):
     hits = _hits(remap[trk[hk]], sd["member"][hk], lr_f[hk], act_f[hk], sh, cond, len(k))
     meta = {"version": VERSION, "fit": "F2 (linefit_jax.fit_own_states, fixed momentum, no material)", "fit_type": "F2",
             "stock_conditioned": False, "chain": "reco-vr3: fast makeSH, SimpleTimeCluster, LineFinder (JAX), F2 own states",
-            "source": path, "settings": settings, "niter": niter, "all_fits": all_fits, "n_events": int(len(d["evkey"])),
+            "source": source, "settings": settings, "niter": niter, "all_fits": all_fits, "n_events": int(len(d["evkey"])),
             "n_hits": int(len(sh["ev"])), "n_seeds": int(T), "n_good": int(good.sum()), "n_written": int(len(k)),
             "drift_source": "explicit calibration" if explicit_drift else "input conditions tree",
             "status_rule": "goodfit = (>= 5 active hits, finite chi2, ndof >= 1); status 1 when goodfit (fixed iteration "
                            "count, no convergence test), -1 otherwise"}
     g = good[k] if T else np.zeros(0, bool)
-    return {"events": _events(path), "ev": sd["ev"][k].astype(np.int64), "x": x, "cov": cov,
+    if stages is not None:
+        stages.update(hits=sh, clusters=tc, seeds=sd, fit=f, timing={"hits_s": t_hits - t, "clusters_s": t_tc - t_hits,
+                      "seeds_s": t_sd - t_tc, "fit_s": t_fit - t_sd, "table_s": time.perf_counter() - t_fit})
+    return {"events": events, "ev": sd["ev"][k].astype(np.int64), "x": x, "cov": cov,
             "chi2": np.asarray(f["chi2"])[k].astype(np.float64) if T else np.zeros(0),
             "ndof": np.asarray(f["ndof"])[k].astype(np.int64) if T else np.zeros(0, np.int64),
             "status": np.where(g, 1, -1).astype(np.int32), "goodfit": g.astype(np.int32), "momfit": np.zeros(len(k), np.int32),

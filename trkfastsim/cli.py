@@ -254,6 +254,9 @@ def build_parser():
             sp.add_argument("--interior", action=argparse.BooleanOptionalAction, default=True,
                             help="support structure from the GDML (default on)")
             sp.add_argument("--max-events", type=int, default=None, help="first N events with a primary (quick checks)")
+            sp.add_argument("--offset-bound", action="store_true",
+                            help="first-straw entry offsets per entry type and |p| bin vs the Highland spread of G4's own "
+                                 "support scattering (first_straw_offset_bound)")
             sp.add_argument("--gas-state", choices=["solid", "gas"], default="solid",
                             help="density-effect branch for the straw gas: solid (as the extracted chain) or Geant4's "
                                  "gas branch (the GDML StrawGas state)")

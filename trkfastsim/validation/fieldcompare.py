@@ -246,6 +246,51 @@ def compare(g4, fast, ent, final, geom):
     return out
 
 
+OFFSET_P_EDGES = np.array([2000.0, 5000.0, 10000.0, 20000.0, 50000.0, 1e9])
+
+
+def offset_bound(g4, fast, ent, inter, origin):
+    """First-straw entry offset fast vs G4 per entry type and |p| bin (>= 2 GeV/c), against the spread that Geant4's
+    own scattering in the support between the entry state and the first straw gives: Highland theta0 on the x/X0 of
+    the support along the entry-to-first-straw line (inter._support), lever arm L = that line's length. Predicted
+    median 3D offset = 1.177 sigma (Rayleigh) with sigma = theta0 L k, k = 1/sqrt(3) (material spread along the line)
+    and k = 1 (material at the entry); a fast arm with its own support scattering doubles the variance (x sqrt 2).
+    Also median(offset x p) per bin: constant across bins if the offset is scattering."""
+    from mu2efastsim import eloss as _el, materials as _mt
+    key = T.KEY + ["sp"]
+    g1 = g4.sort_values("t").groupby(key).first().reset_index()[key + ["sid", "x0", "y0", "z0"]]
+    f1 = fast.sort_values("t").groupby(key).first().reset_index()[key + ["sid", "x0", "y0", "z0"]]
+    m = g1.merge(f1, on=key + ["sid"], suffixes=("_g", "_f")).merge(
+        ent[key + ["x", "y", "z", "px", "py", "pz", "vdid"]], on=key)
+    p = np.sqrt(m.px ** 2 + m.py ** 2 + m.pz ** 2).to_numpy()
+    m, p = m[p >= OFFSET_P_EDGES[0]], p[p >= OFFSET_P_EDGES[0]]
+    if not len(m):
+        return {}
+    d = np.sqrt((m.x0_f - m.x0_g) ** 2 + (m.y0_f - m.y0_g) ** 2 + (m.z0_f - m.z0_g) ** 2).to_numpy()
+    a = m[["x", "y", "z"]].to_numpy()
+    b = geometry.to_mu2e(m[["x0_g", "y0_g", "z0_g"]].to_numpy(), origin)
+    L = np.linalg.norm(b - a, axis=1)
+    col, _ = inter._support(a, (b - a) / np.maximum(L, 1e-9)[:, None], L, False)
+    xx = sum(c / _el.radiation_length_mm(_mt.get(nm)) for nm, c in col.items()) if col else np.zeros(len(m))
+    th0 = np.where(xx > 0, _el.highland_theta0(p, np.maximum(xx, 1e-12)), 0.0)
+    out = {}
+    for v in np.unique(m.vdid):
+        rows = []
+        for lo, hi in zip(OFFSET_P_EDGES[:-1], OFFSET_P_EDGES[1:]):
+            k = ((m.vdid == v).to_numpy()) & (p >= lo) & (p < hi)
+            if k.sum() < 5:
+                continue
+            sig = th0[k] * L[k]
+            rows.append({"p_lo": float(lo), "p_hi": float(hi), "n": int(k.sum()), "median_mm": float(np.median(d[k])),
+                         "q90_mm": float(np.quantile(d[k], 0.9)),
+                         "median_mm_x_GeV": float(np.median(d[k] * p[k] / 1e3)),
+                         "x_over_X0_median": float(np.median(xx[k])), "L_mm_median": float(np.median(L[k])),
+                         "pred_median_mm_k1": float(1.177 * np.median(sig)),
+                         "pred_median_mm_kuniform": float(1.177 * np.median(sig) / np.sqrt(3))})
+        out[int(v)] = rows
+    return out
+
+
 def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=None, no_field=False, seed=1,
         chord_mm=20.0, sagitta_mm=0.02, entry_vds=TRACKER_VDS, entry="vd", origin=None, interior=True, max_events=None,
         mu_radiative=False, gas_state="solid", **kw):
@@ -303,6 +348,11 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     res = json.loads(json.dumps(res, default=lambda o: o.item() if hasattr(o, "item") else str(o)))
     with open(os.path.join(outdir, "fieldcompare.json"), "w") as f:
         json.dump(res, f, indent=1)
+    if kw.get("offset_bound") and len(g4):
+        res["first_straw_offset_bound"] = offset_bound(g4, fast, ent, inter if inter is not None else
+                                                       fs.interior(gdml, geom, env, origin=org), org)
+        with open(os.path.join(outdir, "fieldcompare.json"), "w") as f:
+            json.dump(res, f, indent=1)
     if inter is not None and len(g4):
         # support material on the straight line from each entry to its first G4 straw entry, per entry type
         key = T.KEY + ["sp"]

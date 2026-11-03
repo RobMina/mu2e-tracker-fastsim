@@ -26,7 +26,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from mu2efastsim import ehelix, stats
+from mu2efastsim import ehelix, eloss, stats
 from trkfastsim import geometry, tables as T
 from trkfastsim.sim import fieldsteps as fs
 from trkfastsim.sim import steps as st
@@ -280,6 +280,35 @@ def compare(g4, fast, ent, final, geom):
     return out
 
 
+def delta_census(paths, part, sgs, geom, t_min=10.0, chunk=2000):
+    """Electrons and positrons with kinetic energy above t_min [MeV] whose parent is one of the primaries (`part`), by
+    creation process code and by where they start: in a straw's gas, in its wall (r about the straw axis up to
+    wall_rmax), or elsewhere; per primary straw crossing (`sgs` rows), with the kinetic-energy mean. A muon's hard
+    knock-on rate in the straws is (K/2)(Z/A) rho x / t_min per crossing (about 1e-4 at 10 MeV for walls and gas)."""
+    d = T.read_many(paths, "particles", T.KEY + ["key", "pdg", "parent", "ccode", "se", "sx", "sy", "sz"])
+    d = d.merge(part[T.KEY + ["sp"]].rename(columns={"sp": "parent"}), on=T.KEY + ["parent"])
+    d = d[(d.pdg.abs() == 11) & (d.se - eloss.ME > t_min)].reset_index(drop=True)
+    where = np.full(len(d), "other", dtype=object)
+    x = d[["sx", "sy", "sz"]].to_numpy()
+    r_out = geom.wall_rmax if geom.wall_rmax is not None else geom.radius + 0.015
+    for a in range(0, len(d), chunk):
+        xx = x[a:a + chunk]
+        dv = xx[:, None, :] - geom.mid[None]
+        t = (dv * geom.dir[None]).sum(2)
+        perp = np.linalg.norm(dv - t[..., None] * geom.dir[None], axis=2)
+        perp = np.where(np.abs(t) <= geom.halflen[None], perp, np.inf)
+        pm = perp.min(1)
+        where[a:a + chunk] = np.where(pm <= geom.radius, "gas", np.where(pm <= r_out, "wall", "other"))
+    n_cross = int(len(sgs))
+    out = {"t_min_MeV": t_min, "primary_straw_crossings": n_cross, "tracks": int(len(sgs[T.KEY + ["sp"]].drop_duplicates()))}
+    for w in ("gas", "wall", "other"):
+        k = where == w
+        out[w] = {"n": int(k.sum()), "per_crossing": float(k.sum() / max(n_cross, 1)),
+                  "tkin_mean_MeV": float((d.se[k] - eloss.ME).mean()) if k.any() else float("nan"),
+                  "by_ccode": {int(c): int(n) for c, n in d[k].ccode.value_counts().head(6).items()}}
+    return out
+
+
 OFFSET_P_EDGES = np.array([2000.0, 5000.0, 10000.0, 20000.0, 50000.0, 1e9])
 
 
@@ -382,6 +411,10 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     res = json.loads(json.dumps(res, default=lambda o: o.item() if hasattr(o, "item") else str(o)))
     with open(os.path.join(outdir, "fieldcompare.json"), "w") as f:
         json.dump(res, f, indent=1)
+    if kw.get("delta_census"):
+        res["delta_census"] = delta_census(inputs, part, g4, geom)
+        with open(os.path.join(outdir, "fieldcompare.json"), "w") as f:
+            json.dump(res, f, indent=1)
     if kw.get("offset_bound") and len(g4):
         res["first_straw_offset_bound"] = offset_bound(g4, fast, ent, inter if inter is not None else
                                                        fs.interior(gdml, geom, env, origin=org), org)

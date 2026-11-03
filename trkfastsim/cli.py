@@ -259,6 +259,8 @@ def build_parser():
             sp.add_argument("--interior", action=argparse.BooleanOptionalAction, default=True,
                             help="support structure from the GDML (default on)")
             sp.add_argument("--max-events", type=int, default=None, help="first N events with a primary (quick checks)")
+            sp.add_argument("--delta-census", action="store_true",
+                            help="G4 e+- daughters of the primaries above 10 MeV: in straw gas, wall or elsewhere, per crossing")
             sp.add_argument("--offset-bound", action="store_true",
                             help="first-straw entry offsets per entry type and |p| bin vs the Highland spread of G4's own "
                                  "support scattering (first_straw_offset_bound)")

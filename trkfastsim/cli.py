@@ -77,9 +77,6 @@ def build_parser():
             sp.add_argument("--library-drop-muons", action="store_true",
                             help="with --library: leave out drawn muon steps (other primary muons of the donor event, which the "
                                  "fast transport already carries; opt-in)")
-            sp.add_argument("--offaxis-width-match", action="store_true",
-                            help="off-axis draw keyed on the width of the muon's plane extent (last - first plane) instead "
-                                 "of its position in --offaxis-plane-bin bins (opt-in)")
             sp.add_argument("--offaxis-plane-sign", action="store_true",
                             help="off-axis paste: mirror a drawn set's plane offsets when the library muon and the fast muon "
                                  "travel opposite ways along the planes (sign of u_z; opt-in)")

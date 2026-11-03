@@ -107,6 +107,13 @@ restart first regenerates the stock dump and the baseline arms from those 3,000 
   rounds it the other way gives the 2.2e-3 mm path difference seen on one GitHub runner, while the entry positions
   agree to 1e-9. The test tolerance on `path` is 1e-2 mm.
 
+## Parked on branches
+
+Options that were tried and not made the default are kept on branches, not on main:
+
+- `park/offaxis-width-match`: the width-matched off-axis donor key (`steps --offaxis-width-match`), rejected because
+  every placement histogram got worse.
+
 ## Inputs
 
 Gen tables, the GDML export, the secondary library and the digitisation/reco conditions are Mu2e-internal and not

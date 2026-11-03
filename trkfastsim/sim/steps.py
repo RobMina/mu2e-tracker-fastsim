@@ -386,8 +386,7 @@ class TrackerInterior:
         return out, stats
 
     def transport(self, rng, o, d, p, geom, tail=True, tail_k=None, kink_xx0=KINK_XX0, gap=GAP_MATERIAL, wire=True,
-                  max_iter=400, stats=None, msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
-                  kink_p_mean=False, scatter_in=False):
+                  max_iter=400, stats=None, kink_sup_xx0=KINK_SUP_XX0, scatter_in=False):
         """Straw crossings of muons scattered and slowed inside the tracker, segment by segment.
 
         o, d, p: per muon [N] at the plane above the tracker. Each crossing row k of a muon carries the material in front
@@ -399,8 +398,7 @@ class TrackerInterior:
         (slab_loss) and applies from this straw on. Scattering: rows are grouped from the pass origin until their summed
         x/X0 reaches kink_xx0 or a row holds support material; the group kinks at the entry of that row's straw with
         the correlated (angle, displacement) Gaussian, Highland with the log term on the cumulative in-tracker x/X0
-        (lever arms of the support material at its segment's midpoint, or with lever_moments=True at the material's own
-        first and second moments along the track, x/X0-weighted; random numbers and lengths are the same either way).
+        (lever arms of the support material at its segment's midpoint).
         kink_sup_xx0: split support segments with more x/X0 than this into several kinks (each at the |p| reached
         there); None or <= 0 = one kink per segment (the behaviour before 2026-10-23)
         (transport.highland_var_increment), each piece at its own lever arm (support and air at the segment midpoint,
@@ -409,8 +407,6 @@ class TrackerInterior:
         the angle where the summed single-scattering density crosses the Gaussian. Rows before the kink row are final; crossings are then recomputed from the kinked track (straws already
         recorded for that muon are skipped). The material behind a muon's last straw is not scattered. Returns a dict of per-crossing arrays sorted by muon then path: it, js, pos0, pos1 (Mu2e frame),
         dir, path (to the entry, from the plane), lost (interior loss before the entry, MeV).
-        msc_cal: support-material width calibration against G4 slabs (INTERIOR_MSC_CAL or a dict of that form; None = off),
-        see interior_msc_var_factor.
         Every returned crossing also carries the cumulative components at its entry: lost_support, lost_thin [MeV] (the
         thin straw material takes no energy, so lost_thin is 0) and the lengths l_support, l_thin, l_gap [mm];
         last_final adds ke and stopped.
@@ -489,7 +485,7 @@ class TrackerInterior:
             # the back-off segment in front of a restarted muon's first straw was counted in the pass before
             seg = np.where(first & restarted[it], 0.0, np.clip(s_in - prev, 0.0, None))
             # support structure in the segment before each straw
-            col, mom = self._support(o[it] + d[it] * prev[:, None], d[it], seg, lever_moments)
+            col, mom = self._support(o[it] + d[it] * prev[:, None], d[it], seg, False)
             solid, x_sup, sm1, sm2 = self._support_sums(col, mom, nr)
             # thick support: kink inside the segment, after 1/n of it (n = ceil(x_sup / kink_sup_xx0)), and restart there
             cut = np.zeros(nr, bool)
@@ -500,7 +496,7 @@ class TrackerInterior:
                     ci = np.flatnonzero(cut)
                     seg_c = self._split_length(o[it[ci]] + d[it[ci]] * prev[ci, None], d[it[ci]], seg[ci],
                                                x_sup[ci] / np.ceil(x_sup[ci] / kink_sup_xx0))
-                    cc, cm = self._support(o[it[ci]] + d[it[ci]] * prev[ci, None], d[it[ci]], seg_c, lever_moments)
+                    cc, cm = self._support(o[it[ci]] + d[it[ci]] * prev[ci, None], d[it[ci]], seg_c, False)
                     col, mom = _replace_rows(col, mom, ci, cc, cm, nr)
                     solid, x_sup, sm1, sm2 = self._support_sums(col, mom, nr)
                     seg = seg.copy()
@@ -593,27 +589,13 @@ class TrackerInterior:
             h_str = s_k[gk] - h_mid_str[member]
             xt_m = x_str[member]
             X = np.bincount(gk, xrow[member], minlength=len(km))
-            if lever_moments:
-                skp = s_k[gk] - prev[member]          # kink point from the segment start; h = skp - s over the material
-                xa = x_air[member]
-                sup1 = x_sup[member] * skp - sm1[member]
-                sup2 = x_sup[member] * skp ** 2 - 2 * skp * sm1[member] + sm2[member]
-                S1 = np.bincount(gk, sup1 + xa * h_seg + xt_m * h_str, minlength=len(km))
-                S2 = np.bincount(gk, sup2 + xa * h_seg ** 2 + xt_m * h_str ** 2, minlength=len(km))
-            else:
-                xs_m = x_sup[member] + x_air[member]
-                S1 = np.bincount(gk, xs_m * h_seg + xt_m * h_str, minlength=len(km))
-                S2 = np.bincount(gk, xs_m * h_seg ** 2 + xt_m * h_str ** 2, minlength=len(km))
+            xs_m = x_sup[member] + x_air[member]
+            S1 = np.bincount(gk, xs_m * h_seg + xt_m * h_str, minlength=len(km))
+            S2 = np.bincount(gk, xs_m * h_seg ** 2 + xt_m * h_str ** 2, minlength=len(km))
             w1, w2 = S1 / np.maximum(X, 1e-30), S2 / np.maximum(X, 1e-30)
             p_k = _p_of(tk_start[km] - lost[km] - cum[kr])
-            # scattering |p| of the group: its exit |p| (default) or, with KINK_P_MEAN, the mean of entry and exit |p|
-            # (a slow muon losing much of its energy in the group otherwise scatters as if it had the exit |p| throughout)
-            p_sc = 0.5 * (_p_of(tk_start[km] - lost[km]) + p_k) if kink_p_mean else p_k
+            p_sc = p_k                                  # scattering |p| of the group: its exit |p|
             V = tr.highland_var_increment(p_sc, xcum[km], xcum[km] + X)
-            if msc_cal is not None:
-                xm = {m: np.bincount(gk, (c / eloss.radiation_length_mm(materials.get(m)))[member],
-                                     minlength=len(km)) for m, c in col.items()}
-                V = V * interior_msc_var_factor(msc_cal, xm, X, p_k)
             dth, dy, a = _kink_core(rng, V, w1, w2)
             if tail:
                 pm = p_sc[gk]
@@ -661,41 +643,6 @@ class TrackerInterior:
         out = {k: np.concatenate([r[k] for r in rows]) for k in rows[0]}
         order = np.lexsort((out["path"], out["it"]))
         return {k: v[order] for k, v in out.items()}
-
-
-# G4/fast width of the support scattering, fitted on G4 slabs (slabcheck --model interior, NIST G4_Al, G4_Cu, G4_Pb):
-# s(x, p) = c0 + c1 ln(x/X0) + c2 ln(p / 1 GeV), per calibration material; support materials map by X0 [g/cm2] (filled below)
-INTERIOR_MSC_CAL = {"points": [(6.3697, (1.0537, -0.0273, 0.0195)),      # G4_Pb
-                               (12.8629, (0.9819, -0.0386, 0.0384)),     # G4_Cu
-                               (24.0112, (0.9338, -0.0433, 0.0410))],    # G4_Al
-                    "clip": (0.5, 1.2)}   # fit range x/X0 0.3-10, |p| 0.3-3 GeV/c, median exit |p| >= 0.6 entry (2026-10-22)
-
-
-def interior_msc_scale(cal, mat, x, p):
-    """Width factor s (G4 / fast, plane-projected core) of one support material for a group of x/X0 `x` at |p| `p` [MeV/c].
-
-    cal: {"points": [(X0 g/cm2, (c0, c1, c2)), ...] sorted by X0, "clip": (lo, hi)}; the coefficients are interpolated
-    linearly in ln X0 of `mat` (clamped at the ends), s = c0 + c1 ln x + c2 ln(p / 1000), clipped to cal["clip"]."""
-    x0g = eloss.radiation_length_mm(mat) * mat.rho / 10.0
-    lx = np.log([q[0] for q in cal["points"]])
-    c = np.array([q[1] for q in cal["points"]], float)
-    cc = [np.interp(np.log(x0g), lx, c[:, k]) for k in range(c.shape[1])]
-    xx = np.maximum(np.asarray(x, float), 1e-6)
-    s = cc[0] + cc[1] * np.log(xx) + cc[2] * np.log(np.maximum(np.asarray(p, float), 1.0) / 1000.0)
-    return np.clip(s, *cal.get("clip", (0.5, 1.2)))
-
-
-def interior_msc_var_factor(cal, xm, X, p):
-    """Factor on a kink group's Highland variance: sum over support materials of (x_m / X) s_m^2 plus the uncorrected
-    rest (straw material, gap); s_m at the group's support x/X0 in that material (interior_msc_scale). xm: name -> [G] x/X0."""
-    X = np.maximum(np.asarray(X, float), 1e-30)
-    f = np.ones_like(X)
-    for m, x in xm.items():
-        if not np.any(x > 0):
-            continue
-        s = interior_msc_scale(cal, materials.get(m), x, p)
-        f += (x / X) * (s * s - 1.0)
-    return f
 
 
 ENVELOPE_PAD_MM = 0.0   # exit_scatter stops this far beyond the tracker VD envelope
@@ -777,11 +724,10 @@ def _group_tail(rng, parts, gk, pm, p_k, a, tail_k):
     return tt
 
 
-def slab_group(rng, mat, length_mm, p, tail=True, tail_k=None, msc_cal=None, kink_p_mean=False):
+def slab_group(rng, mat, length_mm, p, tail=True, tail_k=None):
     """One support segment of `mat` (length_mm, normal incidence, entry |p| p [N]) as TrackerInterior.transport treats it
     when it lies alone in front of a straw: sampled loss (slab_loss), one kink group at the segment's end with Highland on
-    its x/X0 at the exit |p| (or entry/exit mean with kink_p_mean), lever arm at the segment midpoint, the tail, and
-    msc_cal evaluated at exit |p| as in transport. Returns (alive, p_exit, dth [N,2], dy [N,2]) at the exit face
+    its x/X0 at the exit |p|, lever arm at the segment midpoint and the tail, as in transport. Returns (alive, p_exit, dth [N,2], dy [N,2]) at the exit face
     (the kink is applied there, KINK_BACKOFF_MM ignored). This is one unsplit group, not a multi-kink slab traversal."""
     n = len(p)
     L = np.full(n, float(length_mm))
@@ -790,10 +736,8 @@ def slab_group(rng, mat, length_mm, p, tail=True, tail_k=None, msc_cal=None, kin
     alive = tk - lost > 0.5
     p_k = _p_of(tk - lost)
     X = L / eloss.radiation_length_mm(mat)
-    p_sc = 0.5 * (_p_of(tk) + p_k) if kink_p_mean else p_k
+    p_sc = p_k
     V = tr.highland_var_increment(p_sc, np.zeros(n), X)
-    if msc_cal is not None:
-        V = V * interior_msc_var_factor(msc_cal, {mat.name: X}, X, p_k)
     w1, w2 = 0.5 * L, 0.25 * L ** 2
     dth, dy, a = _kink_core(rng, V, w1, w2)
     if tail:
@@ -869,14 +813,13 @@ def _muons(gen, all_muons):
 
 
 def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARGIN, msc_tail=True, tail_k=None,
-             band_spread=False, all_muons=True, history=False):
+             all_muons=True, history=False):
     """Stage C transport of the primary muons to the plane above the tracker.
 
     Returns (mu, origin [N,3], direction [N,3], |p| at the origin [N], path already travelled [N], alive [N]). Tracks
     not near the tracker (straight line outside the footprint margin at the plane, or upward) are not transported and
     are returned with alive = False: their generated state has crossed no material, so a straw they happen to cross
-    below the plane would be reached with no energy loss and no scattering. band_spread: spread each height band's
-    scattering uniformly along its path (transport.msc_to_plane band_len) instead of at the band centre.
+    below the plane would be reached with no energy loss and no scattering.
     all_muons (default): every generated muon (CRY multi-muon events); False = the first muon of each event only.
     history: also set to_plane.last_history = {"t_world": integrated flight time [ns] from the vertex to the plane
     (ledger.world_time_ns; NaN for muons not transported)}; no random numbers are drawn for it.
@@ -894,15 +837,14 @@ def to_plane(gen, geom, rng, world, sliced_msc=False, near_margin=FOOTPRINT_MARG
     alive = near.copy()
     if near.any():
         res = tr.world_loss(rng, o[near], d[near], p0[near], world, edges, return_band_p=True, return_tail=msc_tail,
-                           return_band_len=band_spread or history)
+                           return_band_len=history)
         pw, xx0, ok, bxx0, bh, bp = res[:6]
         chic2, thn = res[6:8] if msc_tail else (None, None)
-        blen = res[-1] if band_spread else None
         blen_h = res[-1] if history else None
         p_msc = np.maximum(np.sqrt(p0[near] * np.maximum(pw, 1.0)), 1.0)   # geometric mean over the column
         on, dn, Ln = tr.msc_to_plane(rng, o[near], d[near], p_msc, y_pl, eloss.radiation_length_mm(materials.AIR),
                                      xx0, bxx0, bh, band_p=bp if sliced_msc else None,
-                                     band_chic2=chic2, band_thn=thn, tail_k=tail_k, band_len=blen)
+                                     band_chic2=chic2, band_thn=thn, tail_k=tail_k, band_len=None)
         if history:
             from trkfastsim.sim import ledger
             tw = np.full(len(mu), np.nan)
@@ -1217,7 +1159,7 @@ def _path_vertices(mu, sel, o, d, p_start, t_off, p0_all, kinks):
 
 def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=None, offaxis=None, sliced_msc=False,
                interior=None, near_margin=FOOTPRINT_MARGIN, interior_msc=True, msc_tail=True, tail_k=None,
-               kink_xx0=KINK_XX0, band_spread=False, interior_msc_cal=None, lever_moments=False, kink_sup_xx0=KINK_SUP_XX0,
+               kink_xx0=KINK_XX0, kink_sup_xx0=KINK_SUP_XX0,
                exit_scatter=True, all_muons=True, backend="numpy", history=False, scatter_in=False):
     """Return (sgsteps, particles) DataFrames for the primary muons in `gen`: every generated muon by default (muon i of
     an event has SimParticle key i, 1 = the first; CRY makes ~0.3 % multi-muon events, 42 of 6,719 G4 events with
@@ -1230,9 +1172,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     interior_msc: with interior, also scatter in it segment by segment (TrackerInterior.transport); False = the muon
     stays straight inside the tracker (loss only). msc_tail (default on): the single-scattering tail on the Gaussian core, in
     the world column above the plane (stage C) and in the interior; tail_k: tail threshold in units of theta0 (None =
-    where the tail density crosses the Gaussian); kink_xx0: x/X0 of straw material between in-tracker kinks;
-    interior_msc_cal: support-scattering calibration (TrackerInterior.transport msc_cal; None = off); lever_moments:
-    support lever arms from the material's own moments (TrackerInterior.transport; default midpoint); kink_sup_xx0:
+    where the tail density crosses the Gaussian); kink_xx0: x/X0 of straw material between in-tracker kinks; kink_sup_xx0:
     split thick support segments into kinks of at most this x/X0 (default KINK_SUP_XX0; None or <= 0: one kink per segment);
     exit_scatter (default on since 2026-10-24): scatter the material behind each muon's last straw into the path used for
     the tracker VD crossings (TrackerInterior.exit_scatter; StrawGasSteps unchanged).
@@ -1252,7 +1192,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
         raise ValueError(f"unknown backend: {backend}")
     if backend == "jax":
         from trkfastsim.sim import steps_jax
-        steps_jax.check_options(interior, interior_msc, interior_msc_cal=interior_msc_cal, lever_moments=lever_moments)
+        steps_jax.check_options(interior, interior_msc)
         if history:
             raise NotImplementedError("the segment history needs backend='numpy'")
     timing = make_steps.timing = {}
@@ -1262,7 +1202,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
     if stage == "C":
         plane_transport = steps_jax.to_plane if backend == "jax" else to_plane
         mu, o, d, p_start, t_off, alive = plane_transport(gen, geom, key if backend == "jax" else rng, world, sliced_msc=sliced_msc, near_margin=near_margin,
-                                                   msc_tail=msc_tail, tail_k=tail_k, band_spread=band_spread,
+                                                   msc_tail=msc_tail, tail_k=tail_k,
                                                    all_muons=all_muons, **({"history": True} if history else {}))
         p0 = np.sqrt(mu.px ** 2 + mu.py ** 2 + mu.pz ** 2).to_numpy()
     else:
@@ -1289,7 +1229,7 @@ def make_steps(gen, geom, rng, air_loss=True, stage="A", world=None, sampler=Non
                 key, o[sel], d[sel], p_start[sel], tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0, kink_sup_xx0=kink_sup_xx0)
         else:
             tr_ = interior.transport(rng, o[sel], d[sel], p_start[sel], geom, tail=msc_tail, tail_k=tail_k, kink_xx0=kink_xx0,
-                                     msc_cal=interior_msc_cal, lever_moments=lever_moments, kink_sup_xx0=kink_sup_xx0,
+                                     kink_sup_xx0=kink_sup_xx0,
                                      **({"scatter_in": True} if scatter_in else {}))
         timing["transport"] = time.perf_counter() - t1
         # integrated time at the interior start: world flight time to the plane (generated beta if it is unknown),

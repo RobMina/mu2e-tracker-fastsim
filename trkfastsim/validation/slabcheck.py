@@ -13,16 +13,12 @@ angle in one transverse plane.
 --model interior: the fast arm is the tracker-interior kink (steps.slab_group: the code path of TrackerInterior.transport
 for one support segment: Highland increment on the group's x/X0, lever arm at mid-segment, tail), on a slab of the NIST
 material of the G4 run (--material, default: the input's parent directory name, e.g. slab/G4_Cu/). Per point: the
-plane-projected exit angle (both planes pooled), width = half the 16-84 % range, q90 and q99 of |angle|, G4/fast ratios,
-with and without the calibration (--cal JSON: steps.INTERIOR_MSC_CAL form; default the built-in one). --fit writes the
-per-material fit s = c0 + c1 ln(x/X0) + c2 ln(p / 1 GeV) of the width ratio (interior_cal.json).
+plane-projected exit angle (both planes pooled), width = half the 16-84 % range, q90 and q99 of |angle|, G4/fast ratios.
 
-    slabcheck "slab/G4_Al/slab.*.root" "slab/G4_Cu/slab.*.root" --model interior --fit --outdir DIR
+    slabcheck "slab/G4_Al/slab.*.root" "slab/G4_Cu/slab.*.root" --model interior --outdir DIR
 
---kink-p-mean uses mean entry/exit momentum for the interior core and tail, keeping the calibration evaluated at
-exit momentum as in TrackerInterior.transport. The default remains exit momentum. This is a single unsplit group;
-it does not validate support-segment splitting, straw crossings, or production transport. Effective settings are
-recorded in slabcheck_interior.json. Reuse the same G4 inputs and seed with separate output directories for each arm.
+This is a single unsplit group at the exit momentum; it does not validate support-segment splitting, straw crossings,
+or production transport. Effective settings are recorded in slabcheck_interior.json.
 """
 import json
 import os
@@ -125,33 +121,8 @@ def _wq(th):
     return [float(0.5 * (q84 - q16)), float(q90), float(q99)]
 
 
-FIT_MIN_PEXIT = 0.6   # fit range: median exit |p| at least this fraction of the entry |p| (one kink at the exit |p| fails below)
-
-
-def fit_cal(rows, clip=(0.5, 1.2)):
-    """Least squares per material of the width ratio r = G4/fast (uncalibrated) on (1, ln x/X0, ln p/GeV), weights 1/err^2,
-    over the points with p_exit / p >= FIT_MIN_PEXIT."""
-    from mu2efastsim import eloss
-    out, fits = [], {}
-    for name in sorted({r["material"] for r in rows}):
-        rr = [r for r in rows if r["material"] == name and r["p_exit_frac"] >= FIT_MIN_PEXIT]
-        A = np.array([[1.0, np.log(r["xx0"]), np.log(r["p_MeV"] / 1000.0)] for r in rr])
-        y = np.array([r["ratio"][0] for r in rr])
-        e = np.array([r["ratio_err"] for r in rr])
-        c, *_ = np.linalg.lstsq(A / e[:, None], y / e, rcond=None)
-        res = y - A @ c
-        mat = materials.BY_NAME[name]
-        x0g = eloss.radiation_length_mm(mat) * mat.rho / 10.0
-        fits[name] = {"X0_g_cm2": x0g, "coef": [float(v) for v in c], "chi2": float(((res / e) ** 2).sum()),
-                      "ndf": int(len(y) - 3), "max_abs_resid": float(np.abs(res).max()), "rms_resid": float(np.sqrt((res ** 2).mean()))}
-        out.append((x0g, [float(v) for v in c]))
-    out.sort()
-    return {"points": out, "clip": list(clip)}, fits
-
-
-def run_interior(inputs, outdir, nmu=30000, seed=1, material=None, cal=None, fit=False, tail_k=None, kink_p_mean=False):
+def run_interior(inputs, outdir, nmu=30000, seed=1, material=None, tail_k=None):
     from trkfastsim.sim import steps as st
-    calib = st.INTERIOR_MSC_CAL if cal is None else json.load(open(cal))
     rows = []
     for path in T.expand(inputs):
         mt = _TAG.search(os.path.basename(path))
@@ -169,18 +140,13 @@ def run_interior(inputs, outdir, nmu=30000, seed=1, material=None, cal=None, fit
             continue
         row = {"material": name, "g_cm2": tg, "xx0": float(xx0), "p_MeV": pm, "n_g4": ng, "surv_g4": len(gp) / max(ng, 1)}
         row["g4"] = _wq(gth)
-        for lab, cc in (("fast", None), ("fast_cal", calib)):
-            if lab == "fast_cal" and cc is None:
-                continue
-            rng = np.random.default_rng([int(seed), int(round(tg * 1000)), pm])
-            ok, pk, dth, _ = st.slab_group(rng, mat, L, np.full(int(nmu), float(pm)), tail=True, tail_k=tail_k,
-                                          msc_cal=cc, kink_p_mean=kink_p_mean)
-            if ok.sum() < 1000:
-                break
-            row[lab] = _wq(dth[ok])
-            row[lab + "_surv"] = float(ok.mean())
+        rng = np.random.default_rng([int(seed), int(round(tg * 1000)), pm])
+        ok, pk, dth, _ = st.slab_group(rng, mat, L, np.full(int(nmu), float(pm)), tail=True, tail_k=tail_k)
+        if ok.sum() >= 1000:
+            row["fast"] = _wq(dth[ok])
+            row["fast_surv"] = float(ok.mean())
             row["p_exit_frac"] = float(np.median(pk[ok]) / pm)
-            row[lab + "_over_g4"] = [f / g for f, g in zip(row[lab], row["g4"])]
+            row["fast_over_g4"] = [f / g for f, g in zip(row["fast"], row["g4"])]
         if "fast" not in row:
             print(f"# {name} t{tg} p{pm}: fast muons stop in the slab, skipped")
             continue
@@ -190,38 +156,22 @@ def run_interior(inputs, outdir, nmu=30000, seed=1, material=None, cal=None, fit
         rows.append(row)
     rows.sort(key=lambda r: (r["material"], r["xx0"], r["p_MeV"]))
     os.makedirs(outdir, exist_ok=True)
-    out = {"rows": rows, "settings": {"model": "interior", "kink_p_mean": bool(kink_p_mean),
-            "scattering_momentum": "entry_exit_mean" if kink_p_mean else "exit",
-            "calibration_momentum": "exit", "segment_model": "single_unsplit_group",
-            "nmu": int(nmu), "seed": int(seed), "tail_k": tail_k, "calibration": calib}}
-    if fit:
-        c, fits = fit_cal(rows)
-        out["fit"], out["cal"] = fits, c
-        with open(os.path.join(outdir, "interior_cal.json"), "w") as fh:
-            json.dump(c, fh, indent=1)
+    out = {"rows": rows, "settings": {"model": "interior", "scattering_momentum": "exit",
+            "segment_model": "single_unsplit_group", "nmu": int(nmu), "seed": int(seed), "tail_k": tail_k}}
     with open(os.path.join(outdir, "slabcheck_interior.json"), "w") as fh:
         json.dump(out, fh, indent=1)
-    print("material x/X0 p | width q90 q99 G4 [mrad] | G4/fast width q90 q99 | fast_cal/G4 width q90 q99 | surv G4 fast")
+    print("material x/X0 p | width q90 q99 G4 [mrad] | G4/fast width q90 q99 | surv G4 fast")
     for r in rows:
-        fc = " ".join(f"{v:.3f}" for v in r.get("fast_cal_over_g4", [])) or "-"
         print(f"{r['material']:6s} {r['xx0']:5.2f} {r['p_MeV']:5d} | " + " ".join(f"{v:6.2f}" for v in r["g4"])
-              + " | " + " ".join(f"{v:.3f}" for v in r["ratio"]) + f" | {fc} | {r['surv_g4']:.3f} {r['fast_surv']:.3f} | pexit {r['p_exit_frac']:.2f}")
-    if fit:
-        for k, f in out["fit"].items():
-            print(f"fit {k}: X0 {f['X0_g_cm2']:.2f} g/cm2, s = {f['coef'][0]:.4f} + {f['coef'][1]:.4f} ln x + {f['coef'][2]:.4f} ln(p/GeV); "
-                  f"chi2/ndf {f['chi2']:.1f}/{f['ndf']}, rms resid {f['rms_resid']:.4f}, max {f['max_abs_resid']:.4f}")
+              + " | " + " ".join(f"{v:.3f}" for v in r["ratio"]) + f" | {r['surv_g4']:.3f} {r['fast_surv']:.3f} | pexit {r['p_exit_frac']:.2f}")
     print(f"wrote {os.path.join(outdir, 'slabcheck_interior.json')}")
     return out
 
 
-def run(inputs, outdir, nbands=4, nmu=100000, seed=1, model="world", material=None, cal=None, fit=False,
-        kink_p_mean=False, **kw):
+def run(inputs, outdir, nbands=4, nmu=100000, seed=1, model="world", material=None, **kw):
     outdir = outdir or "plots/slabcheck"
-    if kink_p_mean and model != "interior":
-        raise ValueError("--kink-p-mean requires --model interior")
     if model == "interior":
-        return run_interior(inputs, outdir, nmu=nmu, seed=seed, material=material, cal=cal, fit=fit,
-                            kink_p_mean=kink_p_mean)
+        return run_interior(inputs, outdir, nmu=nmu, seed=seed, material=material)
     os.makedirs(outdir, exist_ok=True)
     rows = []
     for path in T.expand(inputs):

@@ -120,6 +120,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | `park/tv3-rescoring` | the saved T-V3 secondary-bank replicas, response and summaries |
 | `park/tv3-rescoring-20261103` | the relocated saved-product validation (`secondary_tv3_site_rescore`, the shared Parquet environment installer and its check, `docs/saved-validation.md`); the source-event bank replicas (`bankreplica`) it described are on `park/tv3-rescoring` |
 | `park/offaxis-anchors-20261103` | the off-axis edge and donor-topology anchors (`steps --offaxis-edge-anchor`, `--offaxis-topology-anchor`, `buildlib --topology`, `selfpaste --anchor`), `sim.placement` and the anchor migration, replay and audit tools |
+| `park/interior-width-20261103` | the interior-width arms: `steps --interior-msc-cal` (`steps.INTERIOR_MSC_CAL`, `slabcheck --cal --fit`), `--lever-moments`, `--band-spread`, `kink_p_mean` (`seedcheck`, `slabcheck --kink-p-mean`, `slabcompare`) |
 | `park/offaxis-width-match` | the rejected width-matched off-axis donor key (`steps --offaxis-width-match`) |
 
 About 90 unreferenced one-off scripts were removed; they are in the history and on every park branch.

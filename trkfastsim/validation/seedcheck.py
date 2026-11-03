@@ -285,7 +285,7 @@ def count_table(df):
     return {"total": tot, "by_p_seed": rows}
 
 
-def run(inputs, outdir, crv=None, gdml=None, seed=1, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, kink_p_mean=False, **kw):
+def run(inputs, outdir, crv=None, gdml=None, seed=1, kink_sup_xx0=st.KINK_SUP_XX0, **kw):
     if not crv:
         raise SystemExit("seedcheck G4SGSTEPS --crv G4CRVSTEPS")
     from trkfastsim.sim.run import default_gdml
@@ -323,10 +323,7 @@ def run(inputs, outdir, crv=None, gdml=None, seed=1, lever_moments=False, kink_s
            "variants": {}}
     frames = []
     for i, (name, (e, o, u, p, start)) in enumerate(variants.items()):
-        tkw = {"lever_moments": True} if lever_moments else {}
-        tkw["kink_sup_xx0"] = kink_sup_xx0
-        if kink_p_mean:
-            tkw["kink_p_mean"] = True
+        tkw = {"kink_sup_xx0": kink_sup_xx0}
         n_seed, n_st, xx0, vf, xf, pmin = seeded(np.random.default_rng([int(seed), 77, i]), interior, geom, o, u, p, start, **tkw)
         df = ev.iloc[e][KEY + ["iev", "seeded_sp", "g4_pass", "crv_pass", "ngood_g4", "g4_any_pass",
                               "ngood_g4_any"]].reset_index(drop=True)

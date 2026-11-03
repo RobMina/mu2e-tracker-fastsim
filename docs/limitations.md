@@ -126,6 +126,9 @@ Options that were tried and not made the default are kept on branches, not on ma
 - `park/offaxis-anchors-20261103`: the off-axis edge and donor-topology anchors (`steps --offaxis-edge-anchor`,
   `--offaxis-topology-anchor`, `buildlib --topology`) and their migration and replay tools. The topology anchor fixed
   the same-plane excess but left the 1-2-plane and nearby-panel deficits and worsened the occupancy score.
+- `park/interior-width-20261103`: the interior-width arms (G4-slab support-width calibration, material lever-arm
+  moments, band-spread world scattering, mean entry/exit momentum in a kink). Each moved the tracker-term rate by at
+  most +0.4 % and left the reach deficit as it was ([rate-ledger.md](rate-ledger.md)).
 
 ## Inputs
 

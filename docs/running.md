@@ -154,39 +154,10 @@ python3 -m trkfastsim tv2compare "$TRKFS_PNFS/tv2p_fast/nts.*.root" --compare "$
 all their events). Expanding the pnfs globs above lists dCache: copy the outputs to the data area first, or pass the
 known file names.
 
-### Interior slab momentum diagnostic
+### Interior slab check
 
-`slabcheck --model interior --kink-p-mean` tests the arithmetic mean of group entry/exit momentum for the
-Highland core and single-scattering tail. Without the flag it retains exit momentum. The optional support
-calibration is evaluated at exit momentum in both modes, matching `TrackerInterior.transport`.
+`slabcheck --model interior` compares the tracker-interior kink of one support segment (`steps.slab_group`, exit
+momentum) with Geant4 slabs of a NIST material. It models one unsplit support group, not the production
+multi-kink traversal. The support-width calibration, the mean-momentum arm and the arm comparator `slabcompare` are on
+branch `park/interior-width-20261103`.
 
-Run the two arms against the **same existing G4 slab files**, seed and sample count, with different output
-directories. For example, from the umbrella environment:
-
-```bash
-python3 -m trkfastsim slabcheck "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
-    --model interior --seed 1 --nmu 100000 --outdir "$M2FS_DATA/trk_fastsim/slab/check_exit_TAG"
-python3 -m trkfastsim slabcheck "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
-    --model interior --kink-p-mean --seed 1 --nmu 100000 --outdir "$M2FS_DATA/trk_fastsim/slab/check_mean_TAG"
-```
-
-These are diagnostic entry points, not evidence that either comparison has run. Repeat for the Cu/Pb inputs.
-`slabcheck_interior.json` includes the effective momentum conventions, calibration, seed and sample count.
-The flag is rejected for `--model world` and is not exposed by production `steps`. This helper models **one
-unsplit support group**; it does not validate the production multi-kink traversal, straw losses, timing or rate.
-Do not promote a production default or refit the calibration solely from a synthetic unit-test pass.
-
-Summarize a candidate against a saved baseline without regenerating it:
-
-```bash
-python3 -m trkfastsim.validation.slabcompare BEFORE/slabcheck_interior.json AFTER/slabcheck_interior.json \
-    --references "$M2FS_DATA/trk_fastsim/slab/G4_Al/slab.*.root" \
-    "$M2FS_DATA/trk_fastsim/slab/G4_Cu/slab.*.root" "$M2FS_DATA/trk_fastsim/slab/G4_Pb/slab.*.root" \
-    --tracker-ref TRACKER_SHA --core-ref CORE_SHA --out AFTER/comparison.json
-```
-
-The comparator requires matching saved G4 observables, audits actual primary-muon events from the highest-cycle
-particle trees, records input JSON hashes, and refuses to overwrite its output. Per-material summaries use the
-common fit domain (median exit momentum at least 60% of entrance momentum). They are unweighted point summaries,
-not significance tests. Historical outputs without settings remain explicitly unidentified in that field; matching
-G4 observables does not establish matched random seeds or code for the historical fast arm.

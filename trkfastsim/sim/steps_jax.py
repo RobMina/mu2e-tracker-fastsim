@@ -1190,7 +1190,7 @@ class DeviceInterior:
     def transport(self, key, o, d, p, tail=True, tail_k=None, kink_xx0=st.KINK_XX0, kink_sup_xx0=st.KINK_SUP_XX0,
                   max_iter=400, lanes=None):
         """Straw crossings of muons scattered and slowed inside the tracker (TrackerInterior.transport with the default
-        gap, wire, lever arms and no msc_cal). Returns (rows dict as numpy's, last_stats, last_kinks, last_final);
+        gap, wire, lever arms). Returns (rows dict as numpy's, last_stats, last_kinks, last_final);
         muons are processed in chunks of `lanes` (the random streams do not depend on it, keys are per muon; the float
         rounding of the vectorised math can, so the outputs are bit-identical per seed for one device and lane count)."""
         n = len(p)
@@ -1482,7 +1482,7 @@ def sample_gas_eion(key, p, path, mu, chunk=1 << 16):
     return np.concatenate(out)
 
 
-UNSUPPORTED = {"interior_msc_cal": None, "lever_moments": False, "entry_ledger": "legacy", "capture_entry_ledger": False}
+UNSUPPORTED = {"entry_ledger": "legacy", "capture_entry_ledger": False}
 
 
 def check_options(interior, interior_msc, **kw):

@@ -104,10 +104,6 @@ def build_parser():
                             help="stage C: x/X0 of straw material between in-tracker kinks (default 1e-3)")
             sp.add_argument("--no-surfsteps", action="store_true",
                             help="do not write the surfsteps tree (tracker VD crossings of the primary muon)")
-            sp.add_argument("--interior-msc-cal", action=argparse.BooleanOptionalAction, default=False,
-                            help="stage C: G4-slab width calibration of the support-structure scattering (steps.INTERIOR_MSC_CAL)")
-            sp.add_argument("--lever-moments", action="store_true",
-                            help="stage C: interior kink lever arms from the support material's own moments (default: segment midpoint)")
             sp.add_argument("--no-calo", action="store_true",
                             help="stage C: leave the calorimeter disk out of the interior (diagnostic)")
             sp.add_argument("--exit-scatter", action=argparse.BooleanOptionalAction, default=True,
@@ -119,8 +115,6 @@ def build_parser():
             sp.add_argument("--scatter-in", action="store_true",
                             help="stage C, NumPy: support kinks also on lines that cross no further straw, so support scattering "
                                  "can move muons onto the straws (TrackerInterior.transport scatter_in; opt-in)")
-            sp.add_argument("--band-spread", action="store_true",
-                            help="stage C: spread each world height band's scattering along its path (default: at the band centre)")
             sp.add_argument("--backend", default="numpy", choices=["numpy", "jax"],
                             help="numpy (default, the reference) or jax: world/interior transport, crossings and gas eIon on the "
                                  "JAX device (CPU or GPU; different random streams; validate with jaxcheck)")
@@ -143,12 +137,8 @@ def build_parser():
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
             sp.add_argument("--crv", nargs="+", required=True, metavar="ROOT", help="G4 reference CrvStep tables (crvsteps.*.root)")
             sp.add_argument("--seed", type=int, default=1)
-            sp.add_argument("--lever-moments", action="store_true",
-                            help="interior kinks with the material's own lever-arm moments (TrackerInterior.transport lever_moments)")
             sp.add_argument("--kink-sup-xx0", type=float, default=0.25,
                             help="split support segments into kinks of at most this x/X0 (default 0.25 = steps.KINK_SUP_XX0; 0 = one kink per segment)")
-            sp.add_argument("--kink-p-mean", action="store_true",
-                            help="interior kinks scatter at the mean of the group's entry and exit |p| (default exit |p|)")
         if name == "fatecheck":
             sp.add_argument("--seed", type=int, default=1, help="base seed, as steps (file i uses (seed, i))")
         if name == "elosscheck":
@@ -167,10 +157,6 @@ def build_parser():
             sp.add_argument("--model", default="world", choices=["world", "interior"],
                             help="fast arm: stage C world transport (default) or the tracker-interior kink (TrackerInterior)")
             sp.add_argument("--material", default=None, help="interior: NIST slab material (default: input's directory name)")
-            sp.add_argument("--cal", default=None, metavar="JSON", help="interior: calibration to test (default: built-in)")
-            sp.add_argument("--fit", action="store_true", help="interior: fit the per-material width correction")
-            sp.add_argument("--kink-p-mean", action="store_true",
-                            help="interior only: scatter at mean entry/exit |p| (default exit |p|); diagnostic, not production validation")
         if name == "seccensus":
             sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="G4 reference sgsteps tables")
             sp.add_argument("--paired", action="store_true", help="same CRY primaries: match files by subrun, events selected in both arms")

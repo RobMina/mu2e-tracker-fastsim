@@ -217,8 +217,12 @@ def compare(g4, fast, ent, final, geom):
     for lo, hi in zip(P_EDGES[:-1], P_EDGES[1:]):
         k = (pent >= lo) & (pent < hi)
         if k.sum() >= 5:
+            drop_g, drop_f = pent[k] - pg.to_numpy()[k], pent[k] - pf.to_numpy()[k]
             bins.append({"p_lo": float(lo), "p_hi": float(hi), "dp_MeV": _mean_err(dp[k]),
-                         "g4_p_drop_MeV": _mean_err(pent[k] - pg.to_numpy()[k]),
+                         "g4_p_drop_MeV": _mean_err(drop_g), "fast_p_drop_MeV": _mean_err(drop_f),
+                         "drop_q10_q50_q90_q99": {"g4": [float(np.quantile(drop_g, q)) for q in (0.1, 0.5, 0.9, 0.99)],
+                                                  "fast": [float(np.quantile(drop_f, q)) for q in (0.1, 0.5, 0.9, 0.99)]},
+                         "entry_p_median": float(np.median(pent[k])),
                          "dexit_mm_median": float(np.median(dexit[k]))})
     out["last_straw"]["by_entry_p"] = bins
     # entry-to-first-straw time
@@ -243,7 +247,8 @@ def compare(g4, fast, ent, final, geom):
 
 
 def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=None, no_field=False, seed=1,
-        chord_mm=20.0, sagitta_mm=0.02, entry_vds=TRACKER_VDS, entry="vd", origin=None, interior=True, max_events=None, **kw):
+        chord_mm=20.0, sagitta_mm=0.02, entry_vds=TRACKER_VDS, entry="vd", origin=None, interior=True, max_events=None,
+        mu_radiative=False, **kw):
     import time
     os.makedirs(outdir, exist_ok=True)
     geom = geometry.from_gdml(gdml)
@@ -274,7 +279,7 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     inter = fs.interior(gdml, geom, env, origin=org) if interior else None
     bnom = ehelix.field_at(field if field is not None else np.zeros(3), org[None])[0]
     t0 = time.perf_counter()
-    eopt = dict(loss=fs.electron_loss, tail=False) if species == 11 else {}
+    eopt = dict(loss=fs.electron_loss, tail=False) if species == 11 else dict(radiative=mu_radiative)
     fast, final = fs.transport(np.random.default_rng(seed), ent, geom, field, inter, chord_mm=chord_mm,
                                sagitta_mm=sagitta_mm, envelope=env, origin=org, bnom=bnom, **eopt)
     wall = time.perf_counter() - t0
@@ -283,7 +288,7 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     res = {"inputs": len(inputs), "species": species, "census": census, "geometry_check": geo,
            "vd_counts_primary": vd.vdid.value_counts().sort_index().to_dict(), "origin_mm": org.tolist(), "bnom_T": bnom.tolist(),
            "field": "none" if field is None else (os.path.basename(field_map) if field_map else f"bz={bz}"),
-           "chord_mm": chord_mm, "sagitta_mm": sagitta_mm, "seed": seed, "entry_vds": list(entry_vds),
+           "chord_mm": chord_mm, "sagitta_mm": sagitta_mm, "seed": seed, "mu_radiative": bool(mu_radiative), "entry_vds": list(entry_vds),
            "entries": int(len(ent)), "entry_vd_counts": ent.vdid.value_counts().sort_index().to_dict(),
            "transport_s": wall, "transport_timing_s": getattr(fs.transport, "timing", None), "envelope": {"r": env.r, "z0": env.z0, "z1": env.z1},
            "interior_materials": sorted({str(m) for g in (inter.shells.coax.groups if inter is not None else [])
@@ -335,7 +340,8 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
         with open(os.path.join(outdir, "tracks.json"), "w") as fo:
             json.dump(dump, fo)
     if kw.get("write_tables"):
-        # primary-only step tables for the art injector (StrawGasStepsFromTable): fast, and G4 after the entry state
+        # primary-only step tables for the art injector (StrawGasStepsFromTable): fast, G4 after the entry state, and
+        # G4 first passage
         from mu2efastsim import tables as core_tables
         # keys renumbered 1..n per event (resampled-stage keys exceed 2^31, which the stock compression does not take)
         rk = ent[T.KEY + ["sp", "pdg"]].sort_values(T.KEY + ["sp"]).copy()
@@ -345,7 +351,12 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
         cols = T.KEY + ["nsgs", "sid", "plane", "panel", "straw", "upanel", "shape", "ion", "sp", "eion", "len",
                         "width", "t", "x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"]
         g4w = g4.assign(nsgs=g4.groupby(T.KEY).sid.transform("size"))
-        for name, df in (("fasttrk_field.root", fast), ("g4prim_field.root", g4w)):
+        # G4 first passage: steps up to the fast exit time (+ FIRST_PASS_NS) of tracks the fast transport took out
+        fx = final[T.KEY + ["sp", "t", "status"]].rename(columns={"t": "t_exit"})
+        g4f = g4.merge(fx, on=T.KEY + ["sp"])
+        g4f = g4f[(g4f.status != 0) | (g4f.t <= g4f.t_exit + FIRST_PASS_NS)].drop(columns=["t_exit", "status"])
+        g4f = g4f.assign(nsgs=g4f.groupby(T.KEY).sid.transform("size"))
+        for name, df in (("fasttrk_field.root", fast), ("g4prim_field.root", g4w), ("g4fp_field.root", g4f)):
             df = df.merge(rmap, on=T.KEY + ["sp"]).drop(columns="sp").rename(columns={"key": "sp"})
             core_tables.write(os.path.join(outdir, name), {"sgsteps": df[cols].reset_index(drop=True),
                                                            "particles": parts}, as_ttree=True)

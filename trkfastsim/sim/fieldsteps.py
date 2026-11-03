@@ -259,11 +259,13 @@ def _columns(n, parts):
 
 def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_mm=0.02, envelope=None,
               origin=geometry.DETECTOR_ORIGIN_EXTRACTED, bnom=None, max_path_mm=30000.0, max_chords=20000,
-              wire=True, tail=True, tail_k=None, msc=True, loss=None):
+              wire=True, tail=True, tail_k=None, msc=True, loss=None, radiative=False):
     """Field-on StrawGasSteps of the tracks in `start` (DataFrame: KEY columns, sp, pdg, x, y, z [mm, Mu2e frame],
     px, py, pz [MeV/c], t [ns]). field: constant 3-vector [T], a callable B(x) (ehelix.grid_field) or None (no field).
     bnom: nominal field vector at the tracker centre for the step width (default: field at the envelope centre).
     loss: None (muon slice sampler; muons only) or callable(rng, material, p, length, mass) -> MeV.
+    radiative: with the muon slice sampler, also bremsstrahlung, pair and photonuclear losses in the solids
+    (transport.slab_loss radiative=True; opt-in, the gas keeps its mean ionisation loss).
     Returns (steps DataFrame in the sgsteps layout, final DataFrame per track: x, y, z, px, py, pz, t, path, chords,
     status 0 = left the envelope, 1 = stopped, 2 = path/chord cap)."""
     n = len(start)
@@ -298,7 +300,11 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
     f_metal = min(max(geom.metal_t / max(r_out - r_in, 1e-9), 0.0), 1.0)
     rw = geom.wire_r if wire else 0.0
     rw_in = max(geom.wire_r - geom.wire_plate_t, 0.0) if wire else 0.0
-    loss_fn = loss if loss is not None else (lambda g, m, pp, ln, ms: tr.slab_loss(g, m, pp, ln))
+    if radiative and loss is not None:
+        raise ValueError("radiative applies to the muon slice sampler only (loss=None)")
+    loss_fn = loss if loss is not None else (
+        (lambda g, m, pp, ln, ms: tr.slab_loss(g, m, pp, ln, radiative=True)) if radiative else
+        (lambda g, m, pp, ln, ms: tr.slab_loss(g, m, pp, ln)))
     import time
     tm = transport.timing = {"field": 0.0, "straws": 0.0, "support": 0.0, "loss_msc": 0.0, "merge": 0.0,
                              "iterations": 0}

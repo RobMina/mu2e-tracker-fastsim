@@ -113,6 +113,22 @@ def test_muon_loss_and_scattering_change_the_state_and_are_seeded():
     assert (a[0].eion >= 0).all() and a[0].eion.mean() > 0
 
 
+def test_radiative_opt_in_default_unchanged():
+    geom = _geometry()
+    o, d = _lines(200, np.random.default_rng(16))
+    env = fs.Envelope(geom, pad_r=10.0, pad_z=10.0, axis_xy=(0.0, 0.0))
+    st = _start(o, d, 50_000.0)
+    kw = dict(envelope=env, origin=np.zeros(3))
+    a = fs.transport(np.random.default_rng(17), st, geom, np.array([0, 0, 1.0]), **kw)
+    b = fs.transport(np.random.default_rng(17), st, geom, np.array([0, 0, 1.0]), radiative=False, **kw)
+    pd.testing.assert_frame_equal(a[0], b[0])
+    pd.testing.assert_frame_equal(a[1], b[1])
+    c = fs.transport(np.random.default_rng(17), st, geom, np.array([0, 0, 1.0]), radiative=True, **kw)
+    assert len(c[0]) == len(a[0]) and (c[1].status == a[1].status).all()     # the loss itself: core slab_loss tests
+    with pytest.raises(ValueError):
+        fs.transport(np.random.default_rng(17), st, geom, None, radiative=True, loss=_no_loss, **kw)
+
+
 def test_refuses_electrons_without_a_loss_model():
     geom = _geometry()
     o, d = _lines(3, np.random.default_rng(8))

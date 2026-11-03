@@ -254,6 +254,8 @@ def build_parser():
             sp.add_argument("--interior", action=argparse.BooleanOptionalAction, default=True,
                             help="support structure from the GDML (default on)")
             sp.add_argument("--max-events", type=int, default=None, help="first N events with a primary (quick checks)")
+            sp.add_argument("--mu-radiative", action="store_true",
+                            help="muons: also bremsstrahlung, pair and photonuclear losses in the solids (opt-in)")
             sp.add_argument("--save-steps", action="store_true", help="also write the fast steps and final states (fast_steps.root)")
             sp.add_argument("--dump-tracks", type=int, default=0, metavar="N",
                             help="write tracks.json: the step lists of N tracks above 2 GeV/c per entry type, both arms")

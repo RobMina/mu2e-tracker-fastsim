@@ -82,20 +82,26 @@ def panel_hits(sh, backend, settings="mc"):
     return combo_jax.panel_hits(sh, settings)
 
 
-# JAX step-kernel settings of this chain (module attributes, set for the call and restored): fewer compiled shapes
-# (SHAPE_GROWTH; step floats differ from the steps --backend jax defaults at rounding level) and the loss sampler's
-# fixed-trip loops unrolled inside the slab loop (SAMPLER_UNROLL; same outputs, fewer device launches). SLICE_ROUNDS,
-# SLAB_UNROLL and world_jax.SYNC_FREE_PAIRS stay opt-in: slower on an MIG slice, with three times the compile time.
-DEVICE_STEP_SETTINGS = {"steps_jax.SHAPE_GROWTH": 8, "steps_jax.SAMPLER_UNROLL": True}
+# JAX settings of this chain (module attributes, set for the stage and restored): fewer compiled shapes (SHAPE_GROWTH;
+# step floats differ from the steps --backend jax defaults at rounding level), the loss sampler's fixed-trip loops
+# unrolled inside the slab loop (SAMPLER_UNROLL; same outputs, fewer device launches), the device-resident slab loss
+# (SLAB_KERNEL="device": mu2efastsim.slab_jax, one call per interior slab and per world chunk, the Triton kernel on
+# CUDA and the XLA while loop elsewhere; same keys and draws, values equal to rounding, counts statistically equal to
+# NumPy) and, for the JAX digitiser, the minion electron fill with 16 loop bodies per device iteration and
+# comparison-pass searches (same outputs). SLICE_ROUNDS, SLAB_UNROLL and world_jax.SYNC_FREE_PAIRS stay opt-in.
+DEVICE_STEP_SETTINGS = {"steps_jax.SHAPE_GROWTH": 8, "steps_jax.SAMPLER_UNROLL": True, "steps_jax.SLAB_KERNEL": "device",
+                        "digi_clusters_jax.MINION_UNROLL": 16, "digi_clusters_jax.SEARCH_METHOD": "compare_all"}
 DEVICE_SHAPE_GROWTH = DEVICE_STEP_SETTINGS["steps_jax.SHAPE_GROWTH"]
 
 
 class _module_settings:
-    """Set module attributes ("module.NAME" in trkfastsim.sim) for a block, then restore them."""
+    """Set module attributes ("module.NAME" in trkfastsim.sim, or trkfastsim.digi for digi* modules) for a block,
+    then restore them."""
 
     def __init__(self, settings):
         import importlib
-        self.items = [(importlib.import_module("trkfastsim.sim." + k.split(".")[0]), k.split(".")[1], v)
+        pkg = lambda m: "trkfastsim.digi." if m.startswith("digi") else "trkfastsim.sim."
+        self.items = [(importlib.import_module(pkg(k.split(".")[0]) + k.split(".")[0]), k.split(".")[1], v)
                       for k, v in settings.items()]
 
     def __enter__(self):
@@ -133,16 +139,24 @@ def run(gen, ctx, seed, backends=None, sync=None, digi_compact=None, shape_growt
         g = settings.get("steps_jax.SHAPE_GROWTH", 2)
         if g < 2 or g & (g - 1):
             raise ValueError("shape_growth must be a power of two >= 2")
+    digi_settings = {k: v for k, v in settings.items() if k.startswith("digi")} if b["digi"] == "jax" else {}
+    settings = {k: v for k, v in settings.items() if not k.startswith("digi")}
     with _module_settings(settings) as used:
         sgs, parts = steps_mod.make_steps(gen, ctx.geom, np.random.default_rng([seed, 0]), stage="C", world=ctx.world,
                                           interior=ctx.interior, sliced_msc=True, all_muons=True, backend=b["steps"])
+        if b["steps"] == "jax":
+            from trkfastsim.sim import steps_jax
+            used["slab_impl"] = steps_jax.slab_impl() if steps_jax.SLAB_KERNEL != "loop" else "loop"
     growth = used or None
     sync()
     timing["steps_s"] = time.perf_counter() - t
     sub = {f"steps.{k}_s": float(v) for k, v in getattr(steps_mod.make_steps, "timing", {}).items() if k != "total"}
     t = time.perf_counter()
-    _, digis, _ = fastdigi.digitize_steps(sgs, ctx.dc, digi_rng(seed, b["digi"]), keys=keys, chunk=1000,
-                                          backend=b["digi"], compact=compact)
+    with _module_settings(digi_settings) as used_digi:
+        _, digis, _ = fastdigi.digitize_steps(sgs, ctx.dc, digi_rng(seed, b["digi"]), keys=keys, chunk=1000,
+                                              backend=b["digi"], compact=compact)
+    if used_digi:
+        growth = dict(growth or {}, **used_digi)
     d = fastdigi.digis_as_read(keys, digis, ctx.dc.nADCSamples)
     sync()
     timing["digi_s"] = time.perf_counter() - t

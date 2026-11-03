@@ -137,3 +137,19 @@ def test_shape_growth_buckets(monkeypatch):
     assert sj._bucket(600, 32, 4097) == 2048 and sj._bucket(5000, 32, 4097) == 8192
     for n in range(1, 3000, 37):
         assert sj._bucket(n, 32, 3000) >= n
+
+
+def test_jax_digitiser_overflow_falls_back_to_numpy(cond, monkeypatch):
+    jr = pytest.importorskip("jax.random")
+
+    def overflow(*a, **k):
+        raise OverflowError("straw beyond capacity")
+
+    monkeypatch.setattr(fastdigi, "digitize_jax", overflow)
+    frame, keys, key = _frame(cond), _keys(), jr.key(3)
+    stats = {}
+    _, d, _ = fastdigi.digitize_steps(frame, cond, key, keys, chunk=1000, backend="jax", stats=stats)
+    seed = np.asarray(jr.key_data(jr.fold_in(key, 0))).astype(np.uint64).tolist()
+    _, ref, _ = fastdigi.digitize_steps(frame, cond, np.random.default_rng(seed), keys, chunk=1000)
+    assert stats["numpy_fallback_chunks"] == 1
+    assert d.keys() == ref.keys() and all(np.array_equal(d[k], ref[k]) for k in d)

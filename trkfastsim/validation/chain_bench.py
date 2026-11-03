@@ -190,7 +190,8 @@ def main(argv=None):
     if a.step_settings == "default":
         step_settings = {}
     elif a.step_settings:
-        step_settings = {k: (v.lower() == "true" if v.lower() in ("true", "false") else int(v))
+        step_settings = {k: (v.lower() == "true" if v.lower() in ("true", "false") else
+                             int(v) if v.lstrip("-").isdigit() else v)
                          for k, v in (x.split("=") for x in a.step_settings.split(","))}
     a.outdir.mkdir(parents=True, exist_ok=False)
     counter = CompileCounter() if a.log_compiles else None
@@ -204,6 +205,11 @@ def main(argv=None):
                    "device_kind": jax.devices()[0].device_kind, "x64": bool(jax.config.jax_enable_x64)}
         from mu2efastsim import precision
         runtime["precision"] = precision.provenance() if hasattr(precision, "provenance") else precision.NAME
+        try:
+            from mu2efastsim import slab_jax
+            runtime["slab"] = slab_jax.provenance()
+        except ImportError:
+            pass
     except Exception as e:                     # NumPy-only environments
         runtime = {"jax": None, "error": str(e)}
     report = {"backends": b, "seed": a.seed, "repeat": a.repeat, "prepare_s": prep_s, "runtime": runtime,

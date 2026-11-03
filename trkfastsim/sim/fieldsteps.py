@@ -30,6 +30,8 @@ Tracks stop when they leave the envelope (a padded cylinder about the tracker ax
 or reach `max_path_mm` / `max_chords`. Only muons are supported with the default loss model; electrons need an
 explicit `loss` callable (the muon slice sampler and tail are not electron physics).
 """
+import dataclasses
+
 import numpy as np
 import pandas as pd
 
@@ -47,6 +49,8 @@ MERGE_TOL_MM = 1e-6                       # continuation of a crossing on the ne
 SAG_PRMS = 1.0 / (12.0 * np.sqrt(5.0))    # MakeStrawGasSteps parabola rms factor (includes the 1/8 of the sagitta)
 CHARGE = {13: -1.0, -13: 1.0, 11: -1.0, -11: 1.0, 211: 1.0, -211: -1.0, 2212: 1.0, -2212: -1.0}
 MASS = {13: eloss.MMU, 11: eloss.ME, 211: 139.57039, 2212: 938.27208816}
+# the straw gas with Geant4's gas-state density-effect parameters (the GDML StrawGas is state="gas"); opt-in (gas=)
+STRAW_GAS_G4STATE = dataclasses.replace(st.STRAW_GAS, state="gas")
 
 
 class Envelope:
@@ -185,20 +189,21 @@ class ChordIndex:
         return r[np.lexsort((r[:, 2], r[:, 0]))]
 
 
-def electron_gas_eion(rng, p, length, tcut=None):
+def electron_gas_eion(rng, p, length, tcut=None, gas=None):
     """Restricted ionisation [MeV] of electrons in the straw gas over `length` [mm]: Moller mean below the tracker
     delta cut (eioni.dedx_restricted) with Urban fluctuations and the electron's largest transfer T/2, no Gaussian
     regime (as eioni.continuous_loss, without brem). The muon path uses eloss.sample_loss."""
     from mu2efastsim import eioni
     tcut = st.delta_cut_mev() if tcut is None else tcut
+    gas = st.STRAW_GAS if gas is None else gas
     p = np.asarray(p, float)
     T = np.sqrt(p ** 2 + eloss.ME ** 2) - eloss.ME
     length = np.asarray(length, float) * np.ones_like(T)
     tmax = 0.5 * T
     gam = 1.0 + T / eloss.ME
     beta2 = 1.0 - 1.0 / gam ** 2
-    mean = eioni.dedx_restricted(st.STRAW_GAS, T, tcut) * length
-    return eloss.fluctuate(rng, st.STRAW_GAS, mean, length, np.minimum(tcut, tmax), tmax, beta2, gam, gaussian=False)
+    mean = eioni.dedx_restricted(gas, T, tcut) * length
+    return eloss.fluctuate(rng, gas, mean, length, np.minimum(tcut, tmax), tmax, beta2, gam, gaussian=False)
 
 
 def _straw_pieces(x, c, L, geom, r_out, rw, rw_in, index=None):
@@ -259,13 +264,14 @@ def _columns(n, parts):
 
 def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_mm=0.02, envelope=None,
               origin=geometry.DETECTOR_ORIGIN_EXTRACTED, bnom=None, max_path_mm=30000.0, max_chords=20000,
-              wire=True, tail=True, tail_k=None, msc=True, loss=None, radiative=False):
+              wire=True, tail=True, tail_k=None, msc=True, loss=None, radiative=False, gas=None):
     """Field-on StrawGasSteps of the tracks in `start` (DataFrame: KEY columns, sp, pdg, x, y, z [mm, Mu2e frame],
     px, py, pz [MeV/c], t [ns]). field: constant 3-vector [T], a callable B(x) (ehelix.grid_field) or None (no field).
     bnom: nominal field vector at the tracker centre for the step width (default: field at the envelope centre).
     loss: None (muon slice sampler; muons only) or callable(rng, material, p, length, mass) -> MeV.
     radiative: with the muon slice sampler, also bremsstrahlung, pair and photonuclear losses in the solids
     (transport.slab_loss radiative=True; opt-in, the gas keeps its mean ionisation loss).
+    gas: the straw-gas Material (default steps.STRAW_GAS; STRAW_GAS_G4STATE for Geant4's gas density effect).
     Returns (steps DataFrame in the sgsteps layout, final DataFrame per track: x, y, z, px, py, pz, t, path, chords,
     status 0 = left the envelope, 1 = stopped, 2 = path/chord cap)."""
     n = len(start)
@@ -300,6 +306,7 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
     f_metal = min(max(geom.metal_t / max(r_out - r_in, 1e-9), 0.0), 1.0)
     rw = geom.wire_r if wire else 0.0
     rw_in = max(geom.wire_r - geom.wire_plate_t, 0.0) if wire else 0.0
+    gas = st.STRAW_GAS if gas is None else gas
     if radiative and loss is not None:
         raise ValueError("radiative applies to the muon slice sampler only (loss=None)")
     loss_fn = loss if loss is not None else (
@@ -340,14 +347,14 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
         parts = []
         if sp is not None:
             lane, js, s_in, s_out, wall, wr, pl = sp
-            gas = s_out - s_in
+            gas_len = s_out - s_in
             parts += [(materials.MYLAR, lane, wall * (1 - f_metal)), (materials.ALUMINIUM_6061, lane, wall * f_metal),
-                      (st.STRAW_GAS, lane, gas), (materials.TUNGSTEN, lane, wr), (materials.GOLD, lane, pl)]
+                      (gas, lane, gas_len), (materials.TUNGSTEN, lane, wr), (materials.GOLD, lane, pl)]
             s_mid = 0.5 * (s_in + s_out)
             pieces.append({"it": act[lane], "js": js, "g_in": path[act][lane] + s_in * arc[lane],
                            "g_out": path[act][lane] + s_out * arc[lane],
                            "pos0": xa[lane] + c[lane] * s_in[:, None], "pos1": xa[lane] + c[lane] * s_out[:, None],
-                           "dir": c[lane], "p": pa[lane], "len": gas,
+                           "dir": c[lane], "p": pa[lane], "len": gas_len,
                            "t": t[act][lane] + s_in * arc[lane] / (beta[lane] * C_MM_PER_NS)})
         thin = _columns(na, parts)
         c2 = time.perf_counter()
@@ -361,7 +368,7 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
             hh = np.flatnonzero(ln > 0)
             if not len(hh):
                 continue
-            if m is st.STRAW_GAS and loss is None:
+            if m is gas and loss is None:
                 lost[hh] += eloss.dedx_restricted(m, pa[hh], 1e9, ma[hh]) * ln[hh]
             else:
                 lost[hh] += loss_fn(rng, m, np.maximum(pa[hh], 1.0), ln[hh], ma[hh])
@@ -378,7 +385,7 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
             S2 = np.zeros(na)
             if sp is not None:
                 for m, ln in ((materials.MYLAR, wall * (1 - f_metal)), (materials.ALUMINIUM_6061, wall * f_metal),
-                              (st.STRAW_GAS, gas), (materials.TUNGSTEN, wr), (materials.GOLD, pl)):
+                              (gas, gas_len), (materials.TUNGSTEN, wr), (materials.GOLD, pl)):
                     xx = ln / eloss.radiation_length_mm(m)
                     hl = L[lane] - s_mid
                     np.add.at(X, lane, xx)
@@ -429,12 +436,12 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
     final["px"], final["py"], final["pz"] = (u * p[:, None]).T
     final["t"], final["path"], final["chords"], final["status"] = t, path, chords, status
     c5 = time.perf_counter()
-    steps = _merge_rows(rng, pieces, start, geom, mass, q, origin, bdir, bnomc)
+    steps = _merge_rows(rng, pieces, start, geom, mass, q, origin, bdir, bnomc, gas)
     tm["merge"] = time.perf_counter() - c5
     return steps, final
 
 
-def _merge_rows(rng, pieces, start, geom, mass, q, origin, bdir, bnomc):
+def _merge_rows(rng, pieces, start, geom, mass, q, origin, bdir, bnomc, gas=st.STRAW_GAS):
     cols = ["sid", "plane", "panel", "straw", "upanel", "shape", "ion", "sp", "eion", "len", "width", "t",
             "x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"]
     if not pieces:
@@ -463,9 +470,9 @@ def _merge_rows(rng, pieces, start, geom, mass, q, origin, bdir, bnomc):
     eion = np.empty(len(it))
     ele = ms == eloss.ME
     if (~ele).any():
-        eion[~ele] = eloss.sample_loss(rng, st.STRAW_GAS, p0[~ele], ln[~ele], st.delta_cut_mev(), ms[~ele])
+        eion[~ele] = eloss.sample_loss(rng, gas, p0[~ele], ln[~ele], st.delta_cut_mev(), ms[~ele])
     if ele.any():
-        eion[ele] = electron_gas_eion(rng, p0[ele], ln[ele])
+        eion[ele] = electron_gas_eion(rng, p0[ele], ln[ele], gas=gas)
     bg = p0 / ms
     ke = np.sqrt(p0 ** 2 + ms ** 2) - ms
     pstraw = bnomc * geom.radius

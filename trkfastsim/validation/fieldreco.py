@@ -275,6 +275,8 @@ def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=Fa
                 continue
             ev = d[(d[f"{n}_ntrk"].fillna(0) > 0) & (d[f"{ref}_ntrk"].fillna(0) > 0)][KEY]
             res["hits"][n] = hit_compare(hits[n], hits[ref], n, ref, ev)
+    if kw.get("dump_events"):
+        d.to_csv(os.path.join(outdir, "events.csv.gz"), index=False)
     with open(os.path.join(outdir, "fieldreco.json"), "w") as fo:
         json.dump(res, fo, indent=1, default=lambda o: o.item() if hasattr(o, "item") else str(o))
     return res

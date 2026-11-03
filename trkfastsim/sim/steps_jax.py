@@ -30,8 +30,9 @@ from jax import lax
 from mu2efastsim import eloss, eloss_jax, materials
 from mu2efastsim import transport as tr
 
-from trkfastsim import crossings, geometry
+from trkfastsim import crossings, devfloat as df, geometry
 from trkfastsim.sim import steps as st
+df.register(__name__)   # follows the core device float when TRKFASTSIM_DEVICE_FLOAT=core
 
 jax.config.update("jax_enable_x64", True)
 
@@ -113,7 +114,7 @@ def _tail_threshold(chic2, theta0, tail_k):
     th0 = jnp.maximum(theta0, 1e-12)
     if tail_k is not None:
         return tail_k * th0
-    r = jnp.maximum(chic2 / th0 ** 2, 1e-300)
+    r = jnp.maximum(chic2 / th0 ** 2, df.TINY)
     lr = jnp.log(2 * r)
 
     def body(_, u):
@@ -172,7 +173,7 @@ def _group_tail(T, key, L, p, a, tail_k):
     lam_n = jnp.clip(xn * (ia - bn), 0, None)
     lam_e = jnp.clip(che * (ia - be), 0, None)
     B = p.shape[0]
-    u = jax.vmap(lambda k: jax.random.uniform(k, (2 + 7 * N_TAIL,), jnp.float64))(key)
+    u = jax.vmap(lambda k: jax.random.uniform(k, (2 + 7 * N_TAIL,), df.FLOAT))(key)
     nn, ovn = _poisson_small(lam_n, u[:, 0], N_TAIL)
     ne, ove = _poisson_small(lam_e, u[:, 1], N_TAIL)
     r = u[:, 2:].reshape(B, 7, N_TAIL)
@@ -182,7 +183,7 @@ def _group_tail(T, key, L, p, a, tail_k):
     cx = jnp.cumsum(x2, 1)
     m = jnp.sum(r[:, 1][:, :, None] * xn[:, None, None] > cx[:, None, :], -1)
     m = jnp.minimum(m, x2.shape[1] - 1)
-    tn = (np.sqrt(20.0) * tr.HBARC_MEV_FM / (pc[:, None] * tr.R_NUCLEUS_FM)) / T["a13"][m]
+    tn = (float(np.sqrt(20.0) * tr.HBARC_MEV_FM) / (pc[:, None] * tr.R_NUCLEUS_FM)) / T["a13"][m]
     keep = (j < nn[:, None]) & (r[:, 2] < (1 + (th / tn) ** 2) ** -4)
     ph = r[:, 3] * TWO_PI
     tt = jnp.stack([jnp.sum(jnp.where(keep, th * jnp.cos(ph), 0.0), 1), jnp.sum(jnp.where(keep, th * jnp.sin(ph), 0.0), 1)], 1)
@@ -195,10 +196,10 @@ def _group_tail(T, key, L, p, a, tail_k):
     return tt, jnp.sum(ovn | ove)
 
 
-def _envelope_exit(o, d):
-    """steps._envelope_exit."""
+def _envelope_exit(o, d, frame=None):
+    """steps._envelope_exit (o in the kernel frame of origin `frame`)."""
     from trkfastsim.sim import surfaces as S
-    x = o - jnp.asarray(geometry.DETECTOR_ORIGIN_EXTRACTED)
+    x = o - jnp.asarray(geometry.DETECTOR_ORIGIN_EXTRACTED - frame if df.SINGLE else geometry.DETECTOR_ORIGIN_EXTRACTED)
     A = d[:, 0] ** 2 + d[:, 1] ** 2
     B = 2 * (x[:, 0] * d[:, 0] + x[:, 1] * d[:, 1])
     C = x[:, 0] ** 2 + x[:, 1] ** 2 - S.R_OUT ** 2
@@ -217,7 +218,7 @@ def _line_straws(T, cfg, o, d, P):
     """Straw candidates of each line in its P nearest panel boxes (by entry distance): js, s_in, s_out, keep [B, P * 96],
     panel count [B] and the cut [B]: the entry distance of the nearest box left out (inf if none), before which the
     candidates are complete (keep is False at and beyond it). P >= the panel count: every box, no cut."""
-    inv = 1.0 / jnp.where(d == 0.0, 1e-300, d)
+    inv = 1.0 / jnp.where(d == 0.0, df.TINY, d)
     t1 = (T["plo"][None] - o[:, None]) * inv[:, None]
     t2 = (T["phi"][None] - o[:, None]) * inv[:, None]
     tin = jnp.maximum(jnp.max(jnp.minimum(t1, t2), -1), 0.0)
@@ -241,13 +242,22 @@ def _line_straws(T, cfg, o, d, P):
     A = jnp.sum(u * u, -1)
     Bq = 2 * jnp.sum(u * v, -1)
     C = jnp.sum(v * v, -1) - cfg.r_in ** 2
-    disc = Bq * Bq - 4 * A * C
     par = A <= 1e-15
-    ok = jnp.where(par, C <= 0, disc > 0)
-    sq = jnp.sqrt(jnp.where(ok & ~par, disc, 0.0))
     A_ = jnp.where(par, 1.0, A)
-    s0 = jnp.where(par, -jnp.inf, (-Bq - sq) / (2 * A_))
-    s1 = jnp.where(par, jnp.inf, (-Bq + sq) / (2 * A_))
+    if df.SINGLE:   # float32: roots about the closest approach (Bq^2 - 4AC cancels for origins far from the straw)
+        sc = -0.5 * Bq / A_
+        vc = v + sc[..., None] * u
+        Cc = jnp.sum(vc * vc, -1) - cfg.r_in ** 2
+        ok = jnp.where(par, C <= 0, Cc < 0)
+        hw = jnp.sqrt(jnp.where(ok & ~par, -Cc / A_, 0.0))
+        s0 = jnp.where(par, -jnp.inf, sc - hw)
+        s1 = jnp.where(par, jnp.inf, sc + hw)
+    else:
+        disc = Bq * Bq - 4 * A * C
+        ok = jnp.where(par, C <= 0, disc > 0)
+        sq = jnp.sqrt(jnp.where(ok & ~par, disc, 0.0))
+        s0 = jnp.where(par, -jnp.inf, (-Bq - sq) / (2 * A_))
+        s1 = jnp.where(par, jnp.inf, (-Bq + sq) / (2 * A_))
     h = T["shalf"][js]
     nz = jnp.abs(da) > 1e-12
     das = jnp.where(nz, da, 1.0)
@@ -269,7 +279,7 @@ def _pad_candidates(js, s_in, s_out, keep, K, ns):
     return pad(js, ns), pad(s_in, 0.0), pad(s_out, 0.0), pad(keep, False)
 
 
-@partial(jax.jit, static_argnames=("cfg", "K"))
+@partial(df.jit, static_argnames=("cfg", "K"))
 def _crossings_all(T, cfg, o, d, K):
     js, s_in, s_out, keep, _, _ = _line_straws(T, cfg, o, d, cfg.npanel)
     js, s_in, s_out, keep = _pad_candidates(js, s_in, s_out, keep, K, cfg.ns)
@@ -285,7 +295,11 @@ def _point_straw(T, cfg, x):
     js = T["straws_of"][pan].reshape(x.shape[0], -1)
     w = x[:, None] - T["smid"][js]
     wa = jnp.sum(w * T["sdir"][js], -1)
-    r2 = jnp.sum(w * w, -1) - wa * wa
+    if df.SINGLE:   # float32: radius from the perpendicular vector (|w|^2 - wa^2 cancels along a long straw)
+        wp = w - wa[..., None] * T["sdir"][js]
+        r2 = jnp.sum(wp * wp, -1)
+    else:
+        r2 = jnp.sum(w * w, -1) - wa * wa
     ok = (r2 <= cfg.r_in ** 2) & (jnp.abs(wa) <= T["shalf"][js]) & (js < cfg.ns)
     last = jnp.argmax(jnp.where(ok, jnp.arange(js.shape[1])[None], -1), 1)
     return jnp.where(ok.any(1), js[jnp.arange(x.shape[0]), last], -1), jnp.sum(inbox.sum(1) > PT_CAP)
@@ -309,7 +323,7 @@ def _exit_gas_backwards(T, cfg, pos, d):
 
 # --------------------------------------------------------------------------- support column
 
-@partial(jax.jit, static_argnames=("cfg",))
+@partial(df.jit, static_argnames=("cfg",))
 def _coax_windows(T, cfg, o, d, L, valid):
     """Per (segment, shell group, annulus interval): the interval [s0, s1] and the window of z-intervals it can
     overlap (CoaxialShells.column: shells with z0 < zhi and z1 > zlo); also the calorimeter-box test."""
@@ -383,7 +397,7 @@ def _dot(x, w):
     return out
 
 
-@partial(jax.jit, static_argnames=("cfg", "TB", "moments"))
+@partial(df.jit, static_argnames=("cfg", "TB", "moments"))
 def _coax_items(T, cfg, win, TB, moments):
     """Coaxial-shell column per segment and support material from the flat (segment, group, interval, z-interval)
     work list: exact z clipping, phi sectors by the nsub-point sampling of CoaxialShells.column."""
@@ -411,7 +425,7 @@ def _coax_items(T, cfg, win, TB, moments):
     u0 = jnp.maximum(s0, jnp.minimum(t0, t1))
     u1 = jnp.minimum(s1, jnp.maximum(t0, t1))
     ln = jnp.where(over, jnp.clip(u1 - u0, 0, None), 0.0)
-    kk = (jnp.arange(cfg.nsub) + 0.5) / cfg.nsub
+    kk = ((jnp.arange(cfg.nsub) + 0.5) / cfg.nsub).astype(df.FLOAT)
     sm = u0[:, None] + ln[:, None] * kk[None]
     ph = jnp.arctan2(win["oy"][c][:, None] + win["dy"][c][:, None] * sm, win["ox"][c][:, None] + win["dx"][c][:, None] * sm)
     p0, dp, full, mat = T["P0"][g, j], T["DP"][g, j], T["FULL"][g, j], T["MAT"][g, j]     # [TB, S]
@@ -436,7 +450,7 @@ def _coax_items(T, cfg, win, TB, moments):
 
 
 def _box_hits(lo, hi, o, d, L, valid):
-    inv = 1.0 / jnp.where(d == 0, 1e-300, d)
+    inv = 1.0 / jnp.where(d == 0, df.TINY, d)
     t1 = (lo[None] - o[:, None]) * inv[:, None]
     t2 = (hi[None] - o[:, None]) * inv[:, None]
     tin = jnp.maximum(jnp.max(jnp.minimum(t1, t2), -1), 0.0)
@@ -444,7 +458,7 @@ def _box_hits(lo, hi, o, d, L, valid):
     return (tout > tin) & valid[:, None]
 
 
-@partial(jax.jit, static_argnames=("m_sup", "moments", "H"))
+@partial(df.jit, static_argnames=("m_sup", "moments", "H"))
 def _calo_set(lo, hi, P, mat, sign, o, d, L, valid, m_sup, moments, H):
     """One PieceSet of the calorimeter: signed column per support material of each segment (dense box test over the
     set's pieces, then plane clipping of the boxes hit, at most H per segment: the caller sizes H)."""
@@ -473,12 +487,12 @@ def _calo_set(lo, hi, P, mat, sign, o, d, L, valid, m_sup, moments, H):
     return (out, m1, m2), over
 
 
-@partial(jax.jit, static_argnames=("cfg", "TB", "moments"))
+@partial(df.jit, static_argnames=("cfg", "TB", "moments"))
 def _coax_column(T, cfg, win, TB, moments):
     return _dequant(_coax_items(T, cfg, win, TB, moments), moments)
 
 
-@partial(jax.jit, static_argnames=("CB",))
+@partial(df.jit, static_argnames=("CB",))
 def _calo_prep(boxes, o, d, L, near, CB):
     """Segments near the calorimeter, compacted, and the most boxes one of them meets in each piece set."""
     idx = jnp.nonzero(near, size=CB, fill_value=near.shape[0])[0]
@@ -488,17 +502,17 @@ def _calo_prep(boxes, o, d, L, near, CB):
     return idx, v, so, sd, sL, nh
 
 
-@jax.jit
+@df.jit
 def _tree_add(a, b):
     return jax.tree_util.tree_map(jnp.add, a, b)
 
 
-@partial(jax.jit, static_argnames=("C", "moments"))
+@partial(df.jit, static_argnames=("C", "moments"))
 def _merge_dequant(out, acc, idx, v, C, moments):
     return _dequant(_calo_merge(out, acc, idx, v, C, moments), moments)
 
 
-@partial(jax.jit, static_argnames=("n",))
+@partial(df.jit, static_argnames=("n",))
 def _bisect_start(seg, n):
     lo = jnp.zeros(seg.shape, jnp.int32)
     hi = jnp.full(seg.shape, n, jnp.int32)
@@ -506,7 +520,7 @@ def _bisect_start(seg, n):
     return lo, hi, mid, seg * mid / st.TrackerInterior.SPLIT_PROBES
 
 
-@jax.jit
+@df.jit
 def _bisect_step(lo, hi, mid, x, target, seg):
     ok = x >= target
     hi, lo = jnp.where(ok, mid, hi), jnp.where(ok, lo, mid)
@@ -514,7 +528,7 @@ def _bisect_step(lo, hi, mid, x, target, seg):
     return lo, hi, mid, seg * mid / st.TrackerInterior.SPLIT_PROBES
 
 
-@jax.jit
+@df.jit
 def _bisect_len(seg, hi):
     return seg * hi / st.TrackerInterior.SPLIT_PROBES
 
@@ -544,7 +558,7 @@ def _slab_one(key, c, p, L, rounds, carry):
     return lax.fori_loop(0, rounds, body, carry)
 
 
-@partial(jax.jit, static_argnames=("rounds",))
+@partial(df.jit, static_argnames=("rounds",))
 def _slab_rounds(MC, mat, p, L, keys, carry, rounds, valid=None):
     c = eloss_jax.MatConsts(*(f[mat] for f in MC))
     tk0 = jnp.sqrt(p * p + MMU * MMU) - MMU
@@ -564,7 +578,7 @@ def _slab_rounds(MC, mat, p, L, keys, carry, rounds, valid=None):
     return out, todo
 
 
-@jax.jit
+@df.jit
 def _slab_finish(MC, mat, p, carry):
     c = eloss_jax.MatConsts(*(f[mat] for f in MC))
     i, left, lost = carry
@@ -577,12 +591,12 @@ def _slab_finish(MC, mat, p, carry):
     return jnp.where(stopped, tk0, jnp.minimum(lost, tk0))
 
 
-@jax.jit
+@df.jit
 def _count_pos(col):
     return jnp.sum(col > 0)
 
 
-@partial(jax.jit, static_argnames=("C",))
+@partial(df.jit, static_argnames=("C",))
 def _slab_pairs(col, keys, p, C):
     """(row, material) pairs with support length, compacted: row, mat, length, per-pair key, valid, max(|p|, 1), the
     initial slice state (slices, length left, loss) and the work list."""
@@ -596,7 +610,7 @@ def _slab_pairs(col, keys, p, C):
     return row, mat, L, k, v, jnp.maximum(p[row], 1.0), (jnp.zeros(C, jnp.int32), L, jnp.zeros(C)), jnp.arange(C)
 
 
-@partial(jax.jit, static_argnames=("rounds",))
+@partial(df.jit, static_argnames=("rounds",))
 def _slab_iter(MC, mat, pp, L, k, carry, idx, rounds):
     """`rounds` slices of the work list idx (out-of-bounds padding: gathers clamp, writes dropped); pending count."""
     out, todo = _slab_rounds(MC, mat[idx], pp[idx], L[idx], k[idx], tuple(x[idx] for x in carry), rounds,
@@ -604,44 +618,44 @@ def _slab_iter(MC, mat, pp, L, k, carry, idx, rounds):
     return _carry_set(carry, idx, out), todo, jnp.sum(todo)
 
 
-@partial(jax.jit, static_argnames=("CB",))
+@partial(df.jit, static_argnames=("CB",))
 def _slab_next(idx, todo, CB):
     sel = jnp.nonzero(todo, size=CB, fill_value=todo.shape[0])[0]
     return _pad_oob(idx, sel, jnp.arange(CB) < jnp.sum(todo), _NBIG)
 
 
-@partial(jax.jit, static_argnames=("R", "M"))
+@partial(df.jit, static_argnames=("R", "M"))
 def _slab_done(MC, mat, pp, carry, row, v, R, M):
     return _slab_scatter(row, mat, _slab_finish(MC, mat, pp, carry), v, R, M)
 
 
-@partial(jax.jit, static_argnames=("R", "M"))
+@partial(df.jit, static_argnames=("R", "M"))
 def _slab_scatter(row, mat, loss, v, R, M):
     out = jnp.zeros((R, M)).at[jnp.where(v, row, R), mat].set(loss, mode="drop")
     return _dot(out, jnp.ones(M))
 
 
-@partial(jax.jit, static_argnames=("n",))
+@partial(df.jit, static_argnames=("n",))
 def _pad_oob(idx, sel, sv, n):
     """idx[sel] for the valid entries of a compaction, n (out of bounds) for the padding."""
     return jnp.where(sv, jnp.concatenate([idx, idx[:1]])[sel], n)
 
 
-@jax.jit
+@df.jit
 def _carry_set(carry, idx, out):
     """Write the slab-loop state of the entries idx back (out-of-bounds padding dropped; gathers clamp, so the padding
     lanes compute on a real entry's inputs and are discarded)."""
     return tuple(c.at[idx].set(x, mode="drop") for c, x in zip(carry, out))
 
 
-@jax.jit
+@df.jit
 def _xsup(col, invx0):
     return _dot(col, invx0)
 
 
 # --------------------------------------------------------------------------- transport pass
 
-@partial(jax.jit, static_argnames=("cfg", "K", "P"))
+@partial(df.jit, static_argnames=("cfg", "K", "P"))
 def _pass(T, cfg, S, lane, done, kink_xx0, K, P=P_CAP):
     """Straw rows of one pass for the active lanes: the first K crossings ahead (recorded straws skipped), the thin
     material per row, the thin-material trigger row and the rows that may hold support (candidates for the column).
@@ -699,7 +713,7 @@ def _pass(T, cfg, S, lane, done, kink_xx0, K, P=P_CAP):
     return rows, jnp.stack([jnp.sum(cand), jnp.sum(cutl)]), stats, cutl
 
 
-@partial(jax.jit, static_argnames=("CB",))
+@partial(df.jit, static_argnames=("CB",))
 def _cut_lanes(lane, cutl, dummy, CB):
     """Positions in the batch (padding: out of bounds) and lanes (padding: the dummy lane) of the cut lanes."""
     pos = jnp.nonzero(cutl, size=CB, fill_value=cutl.shape[0])[0]
@@ -707,14 +721,14 @@ def _cut_lanes(lane, cutl, dummy, CB):
     return pos, jnp.where(pv, lane[jnp.minimum(pos, cutl.shape[0] - 1)], dummy)
 
 
-@jax.jit
+@df.jit
 def _splice_rows(rows, sub, pos, stats, sub_stats):
     """Rows of the cut lanes from the every-box pass written over the nearest-box ones."""
     rows = {k: v.at[pos].set(sub[k], mode="drop") for k, v in rows.items()}
     return rows, jnp.sum(rows["cand"]), stats.at[0].add(sub_stats[0])
 
 
-@partial(jax.jit, static_argnames=("C", "K"))
+@partial(df.jit, static_argnames=("C", "K"))
 def _cand_segments(rows, Sd, lanes, C, K):
     flat = rows["cand"].reshape(-1)
     idx = jnp.nonzero(flat, size=C, fill_value=0)[0]
@@ -724,7 +738,7 @@ def _cand_segments(rows, Sd, lanes, C, K):
     return lane, row, rows["pa"][lane, row], d[lane], jnp.where(v, rows["seg"][lane, row], 0.0), v
 
 
-@partial(jax.jit, static_argnames=("B",))
+@partial(df.jit, static_argnames=("B",))
 def _first_support(lane, row, col, v, invx0, f_thin, nval, kink_sup_xx0, B):
     """First row holding support per lane (x/X0 > 1e-9), its column; the kink row fm = min(thin trigger, that row)."""
     x = _dot(col, invx0)
@@ -741,7 +755,7 @@ def _first_support(lane, row, col, v, invx0, f_thin, nval, kink_sup_xx0, B):
     return fm.astype(jnp.int32), has, col_fm, x_fm, cut, jnp.sum(cut)
 
 
-@partial(jax.jit, static_argnames=("cfg", "tail", "tail_k", "R", "KK"), donate_argnames=("S", "done", "rec", "kb"))
+@partial(df.jit, static_argnames=("cfg", "tail", "tail_k", "R", "KK"), donate_argnames=("S", "done", "rec", "kb"))
 def _kink_step(T, cfg, S, done, rec, kb, lane, rows, fm, has, cut, col_fm, x_fm, seg_fm, s_kink, lseg, it, tail,
                tail_k, R, KK):
     """Record the final rows of the pass, kink the group at row fm, update the lanes (TrackerInterior.transport)."""
@@ -790,7 +804,7 @@ def _kink_step(T, cfg, S, done, rec, kb, lane, rows, fm, has, cut, col_fm, x_fm,
     p_k = _p_of(tk0 - lost - lseg)
     V = _highland_var(p_k, xcum, xcum + X)
     ki = jax.vmap(jax.random.fold_in)(S["key"][lane], jnp.full(lane.shape, it, jnp.uint32))
-    z = jax.vmap(lambda kk: jax.random.normal(jax.random.fold_in(kk, KEY_CORE), (4,), jnp.float64))(ki)
+    z = jax.vmap(lambda kk: jax.random.normal(jax.random.fold_in(kk, KEY_CORE), (4,), df.FLOAT))(ki)
     dth, dy, a = _kink_core(z, V, w1, w2)
     ntail = jnp.zeros((), jnp.int32)
     tover = jnp.zeros((), jnp.int32)
@@ -832,7 +846,7 @@ def _kink_step(T, cfg, S, done, rec, kb, lane, rows, fm, has, cut, col_fm, x_fm,
     return S, done, rec, kb, stats, jnp.sum(S["active"])
 
 
-@partial(jax.jit, static_argnames=("B",))
+@partial(df.jit, static_argnames=("B",))
 def _fm_segments(rows, Sd, lanes, fm, B):
     """Segment origin, direction and length of row fm per lane."""
     i = jnp.arange(B)
@@ -840,25 +854,25 @@ def _fm_segments(rows, Sd, lanes, fm, B):
     return rows["pa"][i, f], Sd[lanes], rows["seg"][i, f], rows["prev"][i, f], rows["s_in"][i, f]
 
 
-@partial(jax.jit, static_argnames=("B",))
+@partial(df.jit, static_argnames=("B",))
 def _active_lanes(active, B):
     """The active lanes (the dummy lane excluded), padded with the dummy lane to B, and their validity."""
     a = active[:-1]
     return jnp.nonzero(a, size=B, fill_value=a.shape[0])[0], jnp.arange(B) < jnp.sum(a)
 
 
-@partial(jax.jit, static_argnames=("B", "m_sup"))
+@partial(df.jit, static_argnames=("B", "m_sup"))
 def _no_support(f_thin, B, m_sup):
     return f_thin.astype(jnp.int32), jnp.zeros(B, bool), jnp.zeros((B, m_sup)), jnp.zeros(B), jnp.zeros(B, bool), \
         jnp.zeros((), jnp.int32)
 
 
-@partial(jax.jit, static_argnames=("ksx",))
+@partial(df.jit, static_argnames=("ksx",))
 def _cut_target(x_fm, ksx):
     return x_fm / jnp.ceil(x_fm / ksx)
 
 
-@jax.jit
+@df.jit
 def _cut_apply(cut, cc, col_fm, x_fm, seg_fm, prev_fm, seg_c, s_kink, invx0):
     return (jnp.where(cut[:, None], cc, col_fm), jnp.where(cut, _dot(cc, invx0), x_fm), jnp.where(cut, seg_c, seg_fm),
             jnp.where(cut, prev_fm + seg_c, s_kink))
@@ -868,7 +882,7 @@ def _iter_keys(S, lane, it):
     return jax.vmap(jax.random.fold_in)(S["key"][lane], jnp.full(lane.shape, it, jnp.uint32))
 
 
-@jax.jit
+@df.jit
 def _slab_inputs(S, lane, it, has, col_fm):
     """Support column, |p| and slab keys of the kink row (per lane, pass `it`)."""
     ki = _iter_keys(S, lane, it)
@@ -876,18 +890,18 @@ def _slab_inputs(S, lane, it, has, col_fm):
             jax.vmap(lambda kk: jax.random.fold_in(kk, KEY_SLAB))(ki))
 
 
-@jax.jit
+@df.jit
 def _exit_inputs(S, lane):
     return S["o"][lane], S["d"][lane], S["length"][lane] - S["trav"][lane]
 
 
-@jax.jit
+@df.jit
 def _exit_go(col, invx0, v):
     x = _dot(col, invx0)
     return v & (x > 1e-6), jnp.minimum(x, st.KINK_SUP_XX0)
 
 
-@jax.jit
+@df.jit
 def _exit_slab_inputs(S, lane, it, go, col):
     ki = _iter_keys(S, lane, it)
     return jnp.where(go[:, None], col, 0.0), S["p"][lane], jax.vmap(lambda kk: jax.random.fold_in(kk, KEY_SLAB))(ki)
@@ -895,7 +909,7 @@ def _exit_slab_inputs(S, lane, it, go, col):
 
 # --------------------------------------------------------------------------- exit scatter kink
 
-@partial(jax.jit, static_argnames=("cfg", "tail", "tail_k", "KX"), donate_argnames=("S", "kb"))
+@partial(df.jit, static_argnames=("cfg", "tail", "tail_k", "KX"), donate_argnames=("S", "kb"))
 def _exit_step(T, cfg, S, kb, lane, go, seg, col, m1, m2, lost, it, tail, tail_k, KX):
     """One exit_scatter kink of the lanes `lane` (TrackerInterior.exit_scatter after the support column and loss)."""
     N = S["o"].shape[0] - 1
@@ -912,7 +926,7 @@ def _exit_step(T, cfg, S, kb, lane, go, seg, col, m1, m2, lost, it, tail, tail_k
     w1 = jnp.clip(seg - sm1 / Xs, 0.0, seg)
     w2 = jnp.clip(seg ** 2 - 2 * seg * sm1 / Xs + sm2 / Xs, w1 ** 2, seg ** 2)
     ki = jax.vmap(jax.random.fold_in)(S["key"][lane], jnp.full(lane.shape, it, jnp.uint32))
-    z = jax.vmap(lambda kk: jax.random.normal(jax.random.fold_in(kk, KEY_CORE), (4,), jnp.float64))(ki)
+    z = jax.vmap(lambda kk: jax.random.normal(jax.random.fold_in(kk, KEY_CORE), (4,), df.FLOAT))(ki)
     dth, dy, a = _kink_core(z, V, w1, w2)
     tover = jnp.zeros((), jnp.int32)
     if tail:
@@ -979,7 +993,8 @@ class DeviceInterior:
         mc = [eloss_jax.consts(m) for m in mats]
         T = {"invx0": 1.0 / x0, "coef_nuc": np.array([coef(m, False) for m in mats]),
              "coef_el": np.array([coef(m, True) - coef(m, False) for m in mats]), "a13": a13}
-        self.MC = eloss_jax.MatConsts(*(jnp.asarray(np.array([getattr(c, f) for c in mc])) for f in eloss_jax.MatConsts._fields))
+        self.MC = df.dev(eloss_jax.MatConsts(*(jnp.asarray(np.array([getattr(c, f) for c in mc]))
+                                               for f in eloss_jax.MatConsts._fields)))   # device float once, not per call
         # straws (+ one dummy straw that no line crosses) and panel boxes (+ one dummy panel)
         ns = len(geom.mid)
         T["smid"] = np.r_[geom.mid, [[1e12, 1e12, 1e12]]]
@@ -1032,10 +1047,16 @@ class DeviceInterior:
             for sign, ps in calo.sets:
                 gm = np.array([mi[str(ps.mats[q])] for q in ps.mat], np.int32)
                 self.calo_sets.append(tuple(jnp.asarray(x) for x in (ps.lo, ps.hi, ps.P, gm)) + (float(sign),))
-        self.calo_boxes = tuple((lo_, hi_) for lo_, hi_, _, _, _ in self.calo_sets)
-        self.calo_arrays = tuple((lo_, hi_, P_, gm_) for lo_, hi_, P_, gm_, _ in self.calo_sets)
+        self.frame = df.frame_of(geom.mid)
+        if df.SINGLE:   # float32: straws, panels, shells and calorimeter in the frame centred on the straws
+            T = _shift_tables(T, self.frame)
+            self.calo_sets = [(lo_ - self.frame, hi_ - self.frame, _shift_planes(P_, self.frame), gm_, sg)
+                              for lo_, hi_, P_, gm_, sg in self.calo_sets]
+        self.calo_boxes = df.dev(tuple((jnp.asarray(lo_), jnp.asarray(hi_)) for lo_, hi_, _, _, _ in self.calo_sets))
+        self.calo_arrays = df.dev(tuple(tuple(jnp.asarray(x) for x in (lo_, hi_, P_, gm_))
+                                        for lo_, hi_, P_, gm_, _ in self.calo_sets))
         self.calo_signs = tuple(int(sg) for *_, sg in self.calo_sets)
-        self.T = {k: jnp.asarray(v) for k, v in T.items()}
+        self.T = df.dev({k: jnp.asarray(v) for k, v in T.items()})
         self.cfg = Cfg(ns=ns, npanel=lo.shape[0], m_sup=M_sup, m_all=M, ngroup=G, nsub=int(interior.nsub) if interior is not None else 8,
                        rflag2=float(rflag) ** 2, r_in=float(r_in), r_out=float(r_out), f_metal=float(f_metal),
                        rw=float(rw), rw_in=float(rw_in), has_calo=calo is not None)
@@ -1108,6 +1129,7 @@ class DeviceInterior:
         n = len(p)
         lanes = lanes or LANES
         self._stats = {}
+        o = o - self.frame if df.SINGLE else o
         parts = [self._transport_chunk(key, o[s:s + lanes], d[s:s + lanes], p[s:s + lanes], s, tail, tail_k, kink_xx0,
                                        kink_sup_xx0, max_iter) for s in range(0, max(n, 1), lanes)] if n else []
         st_ = {"kinks": 0, "tail_scatters": 0, "stopped": 0, "iterations": 0, "capped": 0, "wire_hits": 0,
@@ -1125,9 +1147,9 @@ class DeviceInterior:
             kinks = {"it": np.zeros(0, np.int64), "end": z3, "pos": z3, "dir": z3, "path": np.zeros(0), "p": np.zeros(0)}
             final = {"o": z3, "d": z3, "p": np.zeros(0), "path": np.zeros(0), "xcum": np.zeros(0)}
             return rows, st_, kinks, final
-        rows = {k_: cat(k_, 0) for k_ in parts[0][0]}
-        kinks = {k_: cat(k_, 2) for k_ in parts[0][2]}
-        final = {k_: cat(k_, 3) for k_ in parts[0][3]}
+        rows = _to_host({k_: cat(k_, 0) for k_ in parts[0][0]}, ("pos0", "pos1"), self.frame)
+        kinks = _to_host({k_: cat(k_, 2) for k_ in parts[0][2]}, ("end", "pos"), self.frame)
+        final = _to_host({k_: cat(k_, 3) for k_ in parts[0][3]}, ("o",), self.frame)
         order = np.lexsort((rows["path"], rows["it"]))
         return {k_: v[order] for k_, v in rows.items()}, st_, kinks, final
 
@@ -1228,20 +1250,21 @@ class DeviceInterior:
         n = len(p)
         lanes = lanes or LANES
         self._stats = {}
+        o = o - self.frame if df.SINGLE else o
         parts = [self._exit_chunk(key, o[s:s + lanes], d[s:s + lanes], p[s:s + lanes], xcum[s:s + lanes], s, length,
                                   tail, tail_k) for s in range(0, n, lanes)]
         self.last_exit_stats = {name: int(sum(int(x) for x in jax.device_get(xs))) for name, xs in self._stats.items()}
         z3 = np.zeros((0, 3))
         if not parts:
             return {"it": np.zeros(0, np.int64), "end": z3, "pos": z3, "dir": z3, "path": np.zeros(0), "p": np.zeros(0)}
-        return {k_: np.concatenate([q[k_] for q in parts]) for k_ in parts[0]}
+        return _to_host({k_: np.concatenate([q[k_] for q in parts]) for k_ in parts[0]}, ("end", "pos"), self.frame)
 
     def _exit_chunk(self, key, o, d, p, xcum, base, length, tail, tail_k):
         cfg, T = self.cfg, self.T
         N = len(p)
         pad = lambda x, v=0.0: jnp.asarray(np.concatenate([x, np.full((1,) + x.shape[1:], v, x.dtype)]))
         oj, dj = pad(o), jnp.asarray(np.r_[d, [[0.0, -1.0, 0.0]]])
-        L = jnp.minimum(jnp.full(N + 1, float(length)), _envelope_exit(oj, dj) + st.ENVELOPE_PAD_MM)
+        L = jnp.minimum(jnp.full(N + 1, float(length)), _envelope_exit(oj, dj, self.frame) + st.ENVELOPE_PAD_MM)
         kt = jax.random.fold_in(key, KEY_EXIT)
         S = {"o": oj, "d": dj, "p": pad(p), "xc": pad(xcum), "trav": jnp.zeros(N + 1), "length": L,
              "nk": jnp.zeros(N + 1, jnp.int32),
@@ -1276,7 +1299,7 @@ class DeviceInterior:
                 **{k_: np.asarray(h[k_][:N])[mk] for k_ in ("end", "pos", "dir", "path", "p")}}
 
 
-@partial(jax.jit, static_argnames=("C", "moments"))
+@partial(df.jit, static_argnames=("C", "moments"))
 def _calo_merge(out, acc, idx, v, C, moments):
     """Clip the signed calorimeter column (SignedPieceSet: length > 1e-9 mm, else 0) and add it to the coaxial one at the
     near segments (integer fixed point)."""
@@ -1289,11 +1312,39 @@ def _calo_merge(out, acc, idx, v, C, moments):
     return out.at[tgt].add(acc, mode="drop")
 
 
-@partial(jax.jit, static_argnames=("moments",))
+@partial(df.jit, static_argnames=("moments",))
 def _dequant(q, moments):
     if moments:
-        return tuple(x.astype(jnp.float64) / QSCALE[k] for k, x in enumerate(q))
-    return q.astype(jnp.float64) / QSCALE[0]
+        return tuple(x.astype(df.FLOAT) / QSCALE[k] for k, x in enumerate(q))
+    return q.astype(df.FLOAT) / QSCALE[0]
+
+
+def _shift_planes(P, origin):
+    """Planes (n, offset) with n.x = offset, in a frame translated by origin."""
+    P = np.array(P, np.float64)
+    P[..., 3] = P[..., 3] - P[..., :3] @ origin
+    return P
+
+
+def _shift_tables(T, origin):
+    """Device tables in the frame centred on origin (float32 mode); the dummy straw stays far away."""
+    T = dict(T)
+    T["smid"] = np.r_[T["smid"][:-1] - origin, T["smid"][-1:]]
+    T["plo"], T["phi"] = T["plo"] - origin, T["phi"] - origin
+    T["c"] = np.asarray(T["c"], np.float64) - origin
+    if "calo_lo" in T:
+        T["calo_lo"], T["calo_hi"] = T["calo_lo"] - origin, T["calo_hi"] - origin
+    return T
+
+
+def _to_host(out, positions, frame):
+    """Host float64 (float32 mode: widened, positions back in the Mu2e frame); unchanged in float64 mode."""
+    if not df.SINGLE:
+        return out
+    out = {k: df.host(v) for k, v in out.items()}
+    for k in positions:
+        out[k] = out[k] + frame
+    return out
 
 
 def device_interior(interior, geom):
@@ -1315,7 +1366,7 @@ def straw_crossings(geom, o, d, chunk=None):
     chunk = chunk or max(LANES // 8, 64)   # every panel box per line: [chunk, all straws] candidates
     out = []
     for s in range(0, len(o), chunk):
-        oc, dc = o[s:s + chunk], d[s:s + chunk]
+        oc, dc = (o[s:s + chunk] - dev.frame if df.SINGLE else o[s:s + chunk]), d[s:s + chunk]
         B = _bucket(len(oc), 64)
         op = np.r_[oc, np.zeros((B - len(oc), 3))]
         dp_ = np.r_[dc, np.tile([[0.0, -1.0, 0.0]], (B - len(oc), 1))]
@@ -1334,7 +1385,7 @@ def straw_crossings(geom, o, d, chunk=None):
     return r[np.lexsort((r[:, 2], r[:, 0]))]
 
 
-@jax.jit
+@df.jit
 def _gas_eion(key, mu, rank, p, path, c):
     def one(m, r, pp, ll):
         return eloss_jax._sample(jax.random.fold_in(jax.random.fold_in(key, m), r), c, pp, ll, st.delta_cut_mev(), MMU)
@@ -1349,14 +1400,14 @@ def sample_gas_eion(key, p, path, mu, chunk=1 << 16):
     first = np.r_[True, mu[1:] != mu[:-1]]
     start = np.flatnonzero(first)
     rank = np.arange(n) - np.repeat(start, np.diff(np.r_[start, n]))
-    c = eloss_jax.consts(st.STRAW_GAS)
+    c = df.dev(eloss_jax.consts(st.STRAW_GAS))
     ke = jax.random.fold_in(key, KEY_EION)
     out = []
     for s in range(0, n, chunk):
         m = min(chunk, n - s)
         B = _bucket(m, 256)
         padf = lambda x, v: np.r_[x[s:s + m], np.full(B - m, v)]
-        out.append(np.asarray(_gas_eion(ke, jnp.asarray(padf(mu, 0).astype(np.uint32)),
+        out.append(df.host(_gas_eion(ke, jnp.asarray(padf(mu, 0).astype(np.uint32)),
                                         jnp.asarray(padf(rank, 0).astype(np.uint32)), jnp.asarray(padf(p, 1000.0)),
                                         jnp.asarray(padf(path, 0.0)), c))[:m])
     return np.concatenate(out)

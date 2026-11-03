@@ -1152,6 +1152,34 @@ def _edge_anchor(mu, MK, f, i, k, dpl, pmin, pmax):
     return out
 
 
+def _distance_anchor(mu, MK, f, i, k, dpl):
+    """Opt-in anchor (sampler.distance_anchor) for off-axis steps with dpl != 0: the fast muon's step nearest in rank to
+    k whose plane + dpl lies on the planes at plane distance |dpl| from the nearest plane the fast muon crosses. The donor's
+    anchor is its muon's plane nearest the step, so the step keeps its distance to the muon. No such step: k kept."""
+    out = np.asarray(k).copy()
+    r = np.flatnonzero(dpl != 0)
+    if not len(r):
+        return out
+    im = pd.MultiIndex.from_frame(f[MK]).get_indexer(pd.MultiIndex.from_frame(mu[MK]))
+    bits = np.zeros(len(f), np.int64)
+    np.bitwise_or.at(bits, im, np.left_shift(1, mu.plane.to_numpy(np.int64)))
+    t = np.arange(NPLANES_)
+    dist = np.full((len(f), NPLANES_), 99, np.int64)       # plane distance from plane t to muon i's nearest plane
+    for d in range(NPLANES_):
+        lo, hi = t - d, t + d
+        hit = (((bits[:, None] >> np.clip(lo, 0, 35)) & 1) & (lo >= 0)) | (((bits[:, None] >> np.clip(hi, 0, 35)) & 1) & (hi <= 35))
+        dist = np.where((dist == 99) & (hit == 1), d, dist)
+    q = pd.DataFrame({"row": r, "mi": i[r], "k0": out[r], "d": dpl[r]})
+    c = q.merge(pd.DataFrame({"mi": im, "kc": mu.k.to_numpy(), "plane": mu.plane.to_numpy(np.int64)}), on="mi")
+    tgt = c.plane.to_numpy() + c.d.to_numpy()
+    ok = (tgt >= 0) & (tgt < NPLANES_)
+    ok &= dist[c.mi.to_numpy(), np.clip(tgt, 0, NPLANES_ - 1)] == np.abs(c.d.to_numpy())
+    c = c[ok].assign(dk=lambda x: (x.kc - x.k0).abs())
+    best = c.sort_values(["row", "dk", "kc"], kind="stable").groupby("row", sort=False).first()
+    out[best.index.to_numpy()] = best.kc.to_numpy()
+    return out
+
+
 def add_offaxis_secondaries(steps, parts, sampler, geom):
     """Append library off-axis secondary steps (decision T2, off-axis component) around each fast muon.
 
@@ -1194,6 +1222,14 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     else:
         k = st.k.to_numpy()
     k = np.clip(k, 0, nk[i] - 1)
+    dpl = st.dpl.to_numpy()
+    if getattr(sampler, "plane_sign", False):
+        # donor and recipient travelling opposite ways along the planes: mirror the plane offset, so a step behind
+        # (ahead of) the donor's muon stays behind (ahead of) the recipient's
+        uz_d = sampler.ev.uz.to_numpy()[st.ei.to_numpy()]
+        dpl = np.where(np.sign(uz_d) * np.sign((f.pz.to_numpy() / p)[i]) < 0, -dpl, dpl)
+    if getattr(sampler, "distance_anchor", False):
+        k = _distance_anchor(mu, MK, f, i, k, dpl)
     if getattr(sampler, "edge_anchor", False):
         k = _edge_anchor(mu, MK, f, i, k, st.dpl.to_numpy(), pl["min"].to_numpy(), pl["max"].to_numpy())
     if getattr(sampler, "topology_anchor", False):
@@ -1203,12 +1239,6 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     acols = ["x0", "y0", "z0", "x1", "y1", "z1", "px", "py", "pz"] if v2 else []
     anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in MK}, "k": k}).merge(
         mu[MK + ["k", "plane", "panel", "straw", "t"] + acols], on=MK + ["k"], how="left")
-    dpl = st.dpl.to_numpy()
-    if getattr(sampler, "plane_sign", False):
-        # donor and recipient travelling opposite ways along the planes: mirror the plane offset, so a step behind
-        # (ahead of) the donor's muon stays behind (ahead of) the recipient's
-        uz_d = sampler.ev.uz.to_numpy()[st.ei.to_numpy()]
-        dpl = np.where(np.sign(uz_d) * np.sign((f.pz.to_numpy() / p)[i]) < 0, -dpl, dpl)
     plane0 = anc.plane.to_numpy() + dpl
     panel = (anc.panel.to_numpy() + st.dpa.to_numpy()) % NPANELS_
     straw0 = anc.straw.to_numpy() + st.dst.to_numpy()

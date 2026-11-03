@@ -335,3 +335,37 @@ def test_radial_match_prefers_donors_crossing_the_same_innermost_straws():
     assert set(s.ev.event.to_numpy()[e1]) == {2} and (s.last_level == -1).all() and set(st.dst) == {2}
     e2, _ = s.draw(np.full(n, 3000.0), np.full(n, -0.99), np.full(n, 4), np.full(n, 5), straw_min=np.full(n, 50))
     assert 0.4 < (e2 == 0).mean() < 0.6 and (s.last_level == 0).all()      # no donor at 48-71: plain key
+
+
+def test_distance_anchor_keeps_the_plane_distance_to_the_muon():
+    """Fast muon on planes 4, 5, 6, 9, 10 (ranks 0-4); a donor step one plane after its anchor (k = 1, nstraw_mu = 5):
+    the rank anchor (plane 5) puts it on plane 6, which the muon crosses; the distance anchor moves it to rank 2 (plane
+    6 -> 7, one plane from the muon). A step two planes before rank 4 (plane 10 -> 8, one plane from 9) moves to the only
+    crossing two planes from free space in that direction, rank 0 (plane 4 -> 2)."""
+    from trkfastsim import geometry as G
+    from trkfastsim.sim import steps as S
+    n = 36 * 6 * 96
+    up = np.repeat(np.arange(36 * 6), 96)
+    g = G.StrawGeometry(plane=up // 6, panel=up % 6, straw=np.tile(np.arange(96), 216), mid=np.zeros((n, 3)),
+                        dir=np.tile([1.0, 0, 0], (n, 1)), halflen=np.full(n, 500.0), radius=2.5085,
+                        panel_R=np.tile(np.eye(3), (216, 1, 1)), panel_t=np.zeros((216, 3)),
+                        plane_R=np.tile(np.eye(3), (36, 1, 1)), plane_t=np.zeros((36, 3)))
+    planes = [4, 5, 6, 9, 10]
+    steps = pd.DataFrame([{"run": 1400, "subrun": 1, "event": 1, "nsgs": 5, "sid": int(G.straw_id(pl, 2, 50)),
+                           "plane": pl, "panel": 2, "straw": 50, "upanel": pl * 6 + 2, "shape": 0, "ion": 0, "sp": 1,
+                           "eion": 1e-3, "len": 4.0, "width": 0.0, "t": 10.0 + j, "x0": 0.0, "y0": 0.0, "z0": 0.0,
+                           "x1": 0.0, "y1": 0.0, "z1": 0.0, "px": 0.0, "py": -3000.0, "pz": 0.0}
+                          for j, pl in enumerate(planes)])
+    parts = pd.DataFrame({"run": [1400], "subrun": [1], "event": [1], "key": [1], "parent": [-1], "pdg": [13],
+                          "isprim": [1], "ismcprim": [1]})
+    ev = pd.DataFrame({"run": [1400], "subrun": [1], "event": [7], "p": [3000.0], "ux": [0.0], "uy": [-1.0], "uz": [0.0],
+                       "plane_min": [4], "plane_max": [10], "nstraw_mu": [5]})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": 1400, "subrun": 1, "event": [7, 7], "eion": 2e-3, "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": 11, "sp": [9, 10], "k": [1, 4], "dpl": [1, -2], "dpa": 0, "dst": 5, "dt": [0.5, 0.6]})
+    lib = {"events": ev, "offaxis": off}
+    out_d, _, _ = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler(lib, np.random.default_rng(1)), g)
+    out_a, _, _ = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler(lib, np.random.default_rng(1),
+                                                                           distance_anchor=True), g)
+    assert sorted(out_d[out_d.sp != 1].plane.tolist()) == [6, 8]
+    assert sorted(out_a[out_a.sp != 1].plane.tolist()) == [2, 7]

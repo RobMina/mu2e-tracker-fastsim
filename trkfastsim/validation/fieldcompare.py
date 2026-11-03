@@ -208,12 +208,23 @@ def big_drops(g4, fast, ent, p_min=1000.0):
         my = 0.5 * (s.y1.to_numpy()[:-1] + s.y0.to_numpy()[1:])
         mz = 0.5 * (s.z1.to_numpy()[:-1] + s.z0.to_numpy()[1:])
         r, z = np.r_[np.nan, np.hypot(mx, my)], np.r_[np.nan, mz]
+        gx = s.x0.to_numpy()[1:] - s.x1.to_numpy()[:-1]
+        gy = s.y0.to_numpy()[1:] - s.y1.to_numpy()[:-1]
+        gz = s.z0.to_numpy()[1:] - s.z1.to_numpy()[:-1]
+        gap = np.r_[np.nan, np.sqrt(gx ** 2 + gy ** 2 + gz ** 2)]
         ntrk = int(len(s[key].drop_duplicates()))
         tb = s[big][key].drop_duplicates()
         h, _, _ = np.histogram2d(r[big], z[big], [DROP_R_EDGES, DROP_Z_EDGES])
         out[name] = {"tracks": ntrk, "tracks_with_drop": int(len(tb)), "fraction": float(len(tb) / max(ntrk, 1)),
                      "drops": int(big.sum()), "summed_drop_MeV_per_track": float(dp[big].sum() / max(ntrk, 1)),
-                     "cells_r_by_z": h.astype(int).tolist()}
+                     "cells_r_by_z": h.astype(int).tolist(),
+                     "gap_mm_q10_q50_q90_drops": [float(np.quantile(gap[big], q)) for q in (0.1, 0.5, 0.9)] if big.any() else [],
+                     "gap_mm_q50_q90_all": [float(np.nanquantile(gap[same], q)) for q in (0.5, 0.9)] if same.any() else [],
+                     "drop_MeV_q50_q90_q99": [float(np.quantile(dp[big], q)) for q in (0.5, 0.9, 0.99)] if big.any() else [],
+                     "by_gap": [{"gap_lo": lo, "gap_hi": hi, "drops": int((big & (gap >= lo) & (gap < hi)).sum()),
+                                 "summed_drop_MeV_per_track": float(dp[big & (gap >= lo) & (gap < hi)].sum() / max(ntrk, 1)),
+                                 "steps": int((same & (gap >= lo) & (gap < hi)).sum())}
+                                for lo, hi in ((0.0, 3.0), (3.0, 20.0), (20.0, 100.0), (100.0, 1e9))]}
     return out
 
 

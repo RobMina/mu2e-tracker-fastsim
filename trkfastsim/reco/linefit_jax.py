@@ -275,6 +275,12 @@ def _fit_own_states(x0, h, d, niter, use_tot, use_long, schedule):
 SCHEDULE = ((20.0, 1.0, 3.0), (10.0, 1.0, 3.0), (5.0, 1.0, 3.0), (5.0, 1.0, 3.0))   # (maxdoca, nullsig, cons) per pass
 
 
+def track_bucket(n, chunk, lo=64):
+    """Padded track count of a fit call: next power of two (>= lo, <= chunk), so a stream of inputs compiles a few
+    shapes; the padding repeats the last track and is trimmed (tracks are fitted independently)."""
+    return min(chunk, max(lo, 1 << int(np.ceil(np.log2(max(n, 1))))))
+
+
 def fit_own_states(x0, H, drift, niter=4, use_tot=True, use_long=True, schedule=SCHEDULE, n_pad=None, chunk=32768):
     """Fit with hit states decided by the fast reco itself (starting from all hits of the seed); returns linefit keys +
     active, lr."""
@@ -287,7 +293,7 @@ def fit_own_states(x0, H, drift, niter=4, use_tot=True, use_long=True, schedule=
     T = x0.shape[0]
     for t0 in range(0, T, chunk):
         n = min(chunk, T - t0)
-        cpad = chunk if T > chunk else n
+        cpad = chunk if T > chunk else track_bucket(n, chunk)
         sl = slice(t0, t0 + n)
         hx = {k: np.concatenate([v[sl], np.repeat(v[sl][-1:], cpad - n, 0)]) if cpad > n else v[sl] for k, v in Hp.items()}
         xx = np.concatenate([x0[sl], np.repeat(x0[sl][-1:], cpad - n, 0)]) if cpad > n else x0[sl]

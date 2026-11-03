@@ -91,6 +91,24 @@ def write_digis(path, keys, d, nsamp):
         f["trkdump/events"].extend(cols)
 
 
+def digis_as_read(keys, d, nsamp):
+    """What hitreco.read_digis returns for write_digis(path, keys, d, nsamp), without the file (same dtypes)."""
+    E = len(keys)
+    nd = np.bincount(d["ev"], minlength=E) if len(d["ev"]) else np.zeros(E, np.int64)
+    i32 = lambda a: np.asarray(a, np.int32)
+    return {"ev": np.repeat(np.arange(E), nd), "sid": i32(d["sid"]), "tdc0": i32(d["tdc"][:, 0]),
+            "tdc1": i32(d["tdc"][:, 1]), "tot0": i32(d["tot"][:, 0]), "tot1": i32(d["tot"][:, 1]),
+            "nadc": np.full(len(d["sid"]), nsamp, np.int32), "adc": i32(d["adc"]).ravel(),
+            "pbt": np.zeros(E, np.float32), "evkey": np.asarray(keys).astype(np.uint32)}
+
+
+def events_as_read(keys):
+    """What tracktable._events returns for a write_digis file of these event keys."""
+    k = np.asarray(keys)
+    return {"run": k[:, 0].astype(np.uint32).astype(np.int64), "subrun": k[:, 1].astype(np.uint32).astype(np.int64),
+            "event": k[:, 2].astype(np.uint32).astype(np.int64), "pbt": np.zeros(len(k), np.float32)}
+
+
 def validate_backend(backend):
     if backend not in ("numpy", "jax"):
         raise ValueError(f"unsupported digitizer backend {backend!r}; expected 'numpy' or 'jax'")
@@ -109,9 +127,18 @@ def digitize_table(path, cond, rng, keys=None, chunk=1000, stats=None, backend="
     JAX folds in each chunk's event offset; reproducibility requires the same chunk size.
     """
     validate_backend(backend)
+    return digitize_steps(load_steps(path), cond, rng, keys, chunk, stats, backend)
+
+
+def digitize_steps(s, cond, rng, keys=None, chunk=1000, stats=None, backend="numpy", compact=False):
+    """digitize_table on an in-memory StrawGasStep DataFrame (STEP_COLS); same outputs as after a table round trip.
+    compact (opt-in): chunk over the events that have steps only, so a sparse population (most generated events
+    have no tracker step) takes a few large calls instead of one per `chunk` generated events. Digis and their event
+    indices are those of the full key list; the random streams differ from compact=False (another chunking)."""
+    validate_backend(backend)
     if backend == "jax":
         from jax import random as jr
-    s = load_steps(path)
+    s = s[STEP_COLS].reset_index(drop=True)
     sk = s[["run", "subrun", "event"]].to_numpy(np.int64)
     if keys is None:
         f = tables.trk_filter(s)
@@ -130,23 +157,29 @@ def digitize_table(path, cond, rng, keys=None, chunk=1000, stats=None, backend="
     st = {k: s[k].to_numpy() for k in ("shape", "ion", "eion", "len", "width", "t", "x0", "y0", "z0", "x1", "y1", "z1")}
     st["sid"] = geometry_sid(s)
     st["ev"] = ev
+    nkeys, evmap = len(keys), None
+    if compact and len(ev):     # without steps the plain loop gives the empty layout
+        evmap, st["ev"] = np.unique(ev, return_inverse=True)
+        ev, nkeys = st["ev"], len(evmap)
     outs = []
-    for e0 in range(0, len(keys), chunk):
+    for e0 in range(0, nkeys, chunk):
         m = (ev >= e0) & (ev < e0 + chunk)
         idx = np.nonzero(m)[0]
         sub = {k: v[idx] for k, v in st.items()}
         sub["ev"] = sub["ev"] - e0
         t0 = time.perf_counter()
         if backend == "numpy":
-            d = D.digitize(sub, min(chunk, len(keys) - e0), cond, rng, stats)
+            d = D.digitize(sub, min(chunk, nkeys - e0), cond, rng, stats)
         else:
-            d = digitize_jax(sub, min(chunk, len(keys) - e0), cond, jr.fold_in(rng, e0), stats)
+            d = digitize_jax(sub, min(chunk, nkeys - e0), cond, jr.fold_in(rng, e0), stats)
         if stats is not None:
             stats["digitize_s"] = stats.get("digitize_s", 0.0) + time.perf_counter() - t0
         d["ev"] = d["ev"] + e0
         d["step"] = row_in_table[idx[d["step"]]] if len(d["step"]) else d["step"]
         outs.append(d)
     out = {k: np.concatenate([o[k] for o in outs]) for k in outs[0]} if outs else None
+    if evmap is not None:
+        out["ev"] = evmap[out["ev"]].astype(out["ev"].dtype)
     return keys, out, len(st["sid"])
 
 

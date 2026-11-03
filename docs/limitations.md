@@ -80,6 +80,15 @@ restart first regenerates the stock dump and the baseline arms from those 3,000 
 - Ordered stored-material navigation (`steps --navigation ordered-*`) passes its contract tests; the full-geometry
   gate refuses at cross-material overlaps ([ordered-stored-path.md](ordered-stored-path.md)).
 - `steps --backend jax`: validate each geometry and configuration with `jaxcheck` ([device-world.md](device-world.md)).
+- **NumPy output across host CPU types.** The NumPy chain repeats byte for byte per seed on one host CPU type, not
+  across types: for the same seed and shards the steps (and everything after them) from an AMD EPYC 7742 host differ
+  from those of an Intel Xeon Gold 6248 host, while an AMD EPYC 9575F host agrees with the Xeon (4 of 4 shards each).
+  The likely cause is NumPy's CPU-feature dispatch of its vectorised math (the two agreeing hosts have AVX-512);
+  distributions agree. A saved NumPy reference is reproducible only on a host of the same kind.
+- **Device chain identity** ([device-chain.md](device-chain.md)): JAX steps and digis are other random streams
+  (compared as distributions); the hit and combo twins equal NumPy byte for byte on CPU but not on a GPU (contracted
+  multiply-adds); line seeds and F2 differ between CPU and GPU in the last bits; the step-kernel settings of the
+  device chain move step floats at the 1e-6 mm level against the `steps --backend jax` defaults.
 - Performance goals T-P1 (3 ms per accepted event on one core; about 5 ms) and T-P2 (50x on one A100; 4.9-5.7x) are
   not met.
 - **Accumulated path after a gas-exit move.** A kink restart point that lies inside a straw's gas is moved back along

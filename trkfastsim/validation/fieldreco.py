@@ -205,6 +205,15 @@ def compare(d, ref, arm):
                      "residual_diff_MeV": _me((ra - rr)[sel]),
                      "rel_residual_robust": {arm: _robust((ra / ta)[sel]), ref: _robust((rr / tr)[sel])}})
     out["by_true_p"] = bins
+    if "first_plane" in d:
+        fp = d.first_plane.to_numpy()
+        cls = {"end_planes": (fp <= 1) | (fp >= 34), "inner_planes": (fp > 1) & (fp < 34)}
+        out["by_first_plane"] = {}
+        for name, k in cls.items():
+            sel = np.isin(same.index, d.index[k])
+            out["by_first_plane"][name] = {"events": int(k.sum()), "yield_diff": _me((ia.astype(float) - ir)[k]),
+                                           "rel_residual_robust": {arm: _robust((ra / ta)[sel]), ref: _robust((rr / tr)[sel])},
+                                           "p_reco_rel_diff_robust": _robust((ra / ta - rr / tr)[sel])}
     return out
 
 
@@ -226,10 +235,12 @@ def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=Fa
                      .arrays(KEY, library="pd").drop_duplicates() for s in common]).drop_duplicates()
     n_file_events = int(len(den))
     if events:
-        inj = uproot.open(events)["dump/sgsteps"].arrays(KEY + ["t", "px", "py", "pz"], library="pd")
+        inj = uproot.open(events)["dump/sgsteps"].arrays(KEY + ["t", "px", "py", "pz", "plane"], library="pd")
         inj = inj.sort_values(KEY + ["t"]).groupby(KEY, sort=False).first().reset_index()
         inj["p_first"] = np.sqrt(inj.px ** 2 + inj.py ** 2 + inj.pz ** 2)
-        den = den.merge(inj[KEY + ["p_first"]], on=KEY)
+        # entry class from the first straw's plane: an end plane pair (0-1, 34-35) or the side (through the support)
+        inj["first_plane"] = inj.plane
+        den = den.merge(inj[KEY + ["p_first", "first_plane"]], on=KEY)
         if self_pass:
             from trkfastsim.validation import fieldcompare as fc
             st_ = uproot.open(events)["dump/sgsteps"].arrays(KEY + ["sp", "plane", "px", "py", "pz"], library="pd")

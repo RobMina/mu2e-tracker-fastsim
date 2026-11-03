@@ -237,7 +237,8 @@ def build_parser():
             sp.add_argument("--detail", nargs="+", default=None, metavar="KEY", help="per-bin ratio and pull of these keys")
             sp.add_argument("--detail-min-pull", type=float, default=0.0, help="print only bins with |pull| >= this")
         if name == "field-reco":
-            sp.add_argument("--events", default=None, help="injector table (sgsteps tree) whose events are the denominator")
+            sp.add_argument("--events", default=None, help="injector table (dump/sgsteps) whose events restrict the denominator")
+            sp.add_argument("--file-tables", default=None, help="directory of the per-file dumper tables sgsteps.<stem>.root")
             sp.add_argument("--ref", default="g4", help="reference arm name")
         if name == "field-compare":
             sp.add_argument("--gdml", required=True, help="GDML world export of the sample's geometry (straws, support)")

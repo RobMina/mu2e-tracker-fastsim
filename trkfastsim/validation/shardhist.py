@@ -25,7 +25,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from trkfastsim import tables as T
+from trkfastsim import geometry, tables as T
 
 NWIDTH = 12                               # plane-extent widths 0..10, 11 = 11 or more
 KEV_STEP = np.linspace(0.0, 10.0, 101)
@@ -47,6 +47,8 @@ EDGES = {
     "straw/eion_muonly_keV": KEV_STRAW, "straw/nsteps": np.arange(1, 22) - 0.5,
     "straw/occupancy": np.arange(216 * 96 + 1) - 0.5,
     "straw/len_muonly_mm": LEN, "straw/eion_per_mm_muonly": np.linspace(0.0, 2.0, 101),
+    "mu/bfrac": np.linspace(0.0, 1.0, 51), "mu/bfrac_short": np.linspace(0.0, 1.0, 51), "mu/ufrac": np.linspace(0.0, 1.0, 51),
+    "mu/ufrac_short": np.linspace(0.0, 1.0, 51),
     "fit/fits_per_event": np.arange(0, 7) - 0.5, "fit/nactive": np.arange(0, 81) - 0.5,
     "fit/chi2ndf": np.linspace(0.0, 10.0, 101),
 }
@@ -141,7 +143,21 @@ def _place(s):
     return place, np.where(inmu, -1, dmin)
 
 
-def steps_arm(paths, arm, outdir, batches=1):
+SHORT_CHORD_MM = 1.25   # chords below this: the short-chord population of mu/bfrac_short, mu/ufrac_short
+
+
+def _chord_geometry(mu, geom):
+    """Per primary-muon step: chord midpoint's distance from the wire over the gas radius (b/R) and its along-wire
+    offset from the straw centre over the half length (|u|/h)."""
+    js = (mu.upanel.to_numpy() * 96 + mu.straw.to_numpy()).astype(np.int64)
+    m = 0.5 * (geometry.to_mu2e(mu[["x0", "y0", "z0"]].to_numpy(float)) + geometry.to_mu2e(mu[["x1", "y1", "z1"]].to_numpy(float)))
+    r = m - geom.mid[js]
+    u = (r * geom.dir[js]).sum(1)
+    b = np.linalg.norm(r - u[:, None] * geom.dir[js], axis=1)
+    return b / geom.radius, np.abs(u) / geom.halflen[js]
+
+
+def steps_arm(paths, arm, outdir, batches=1, geom=None):
     paths = T.expand(paths)
     shards = _shards_of(paths, batches)
     H = Hists(shards)
@@ -172,6 +188,13 @@ def steps_arm(paths, arm, outdir, batches=1):
         H.fill("mu/plane", mu.si, mu.plane)
         H.fill("mu/upanel", mu.si, mu.upanel)
         H.fill("mu/straw", mu.si, mu.straw)
+        if geom is not None:
+            bf, uf = _chord_geometry(mu, geom)
+            short = mu.len.to_numpy() < SHORT_CHORD_MM
+            H.fill("mu/bfrac", mu.si, np.minimum(bf, 1 - 1e-9))
+            H.fill("mu/ufrac", mu.si, np.minimum(uf, 1 - 1e-9))
+            H.fill("mu/bfrac_short", mu.si[short], np.minimum(bf[short], 1 - 1e-9))
+            H.fill("mu/ufrac_short", mu.si[short], np.minimum(uf[short], 1 - 1e-9))
         sec = s[~m]
         place, dmin = _place(s)
         H.fill("sec/eion_keV", sec.si, e[~m])
@@ -390,11 +413,11 @@ def digis_arm(paths, arm, outdir, select_steps, hit_cond, stock_hits=False, f2=F
 
 
 def run(inputs, outdir, arm=None, kind="steps", select_steps=None, hit_cond=None, stock_hits=False, f2=False,
-        drift_source=None, kkline=None, batches=1, **kw):
+        drift_source=None, kkline=None, batches=1, gdml=None, **kw):
     if not arm:
         raise ValueError("--arm is required")
     if kind == "steps":
-        info = steps_arm(inputs, arm, outdir, batches)
+        info = steps_arm(inputs, arm, outdir, batches, geometry.from_gdml(gdml) if gdml else None)
     else:
         if not select_steps:
             raise ValueError("digis need --select-steps")

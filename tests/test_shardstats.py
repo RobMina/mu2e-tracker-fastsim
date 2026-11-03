@@ -172,3 +172,18 @@ def test_run_shard_range(tmp_path):
     res = SS.run([str(p)], str(tmp_path / "o"), pairs=["r:c"], shard_range=[21, 40], nflip=200)
     m = res["comparisons"]["c_vs_r"]["meta"]
     assert m["N"] == 20 and m["shard_range"] == [21, 40]
+
+
+def test_chord_geometry_impact_and_along_wire():
+    from trkfastsim import geometry as G
+    n = 216 * 96
+    g = G.StrawGeometry(plane=np.zeros(n, int), panel=np.zeros(n, int), straw=np.zeros(n, int), mid=np.zeros((n, 3)),
+                        dir=np.tile([1.0, 0, 0], (n, 1)), halflen=np.full(n, 500.0), radius=2.5,
+                        panel_R=np.tile(np.eye(3), (216, 1, 1)), panel_t=np.zeros((216, 3)),
+                        plane_R=np.tile(np.eye(3), (36, 1, 1)), plane_t=np.zeros((36, 3)))
+    p0 = G.to_detector(np.array([[250.0, 2.0, -1.0], [-400.0, 0.0, -2.0]]))
+    p1 = G.to_detector(np.array([[250.0, 2.0, 1.0], [-400.0, 0.0, 2.0]]))
+    mu = pd.DataFrame({"upanel": [0, 0], "straw": [0, 0], "x0": p0[:, 0], "y0": p0[:, 1], "z0": p0[:, 2],
+                       "x1": p1[:, 0], "y1": p1[:, 1], "z1": p1[:, 2]})
+    b, u = SH._chord_geometry(mu, g)
+    assert np.allclose(b, [0.8, 0.0]) and np.allclose(u, [0.5, 0.8])

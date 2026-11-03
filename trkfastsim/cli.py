@@ -63,7 +63,7 @@ def build_parser():
                             formatter_class=argparse.RawDescriptionHelpFormatter)
         sp.add_argument("inputs", nargs="+", help="input files (globs allowed, quote them)")
         sp.add_argument("--outdir", default=None, help="output dir (default plots/<cmd>)")
-        if name in ("v0check", "steps", "buildlib", "worldcheck", "msccheck", "stepcheck", "fatecheck", "seccensus", "selfpaste", "hybridpaste"):
+        if name in ("v0check", "steps", "buildlib", "worldcheck", "msccheck", "stepcheck", "fatecheck", "seccensus", "selfpaste", "hybridpaste", "shardhist"):
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")

@@ -71,6 +71,27 @@ def primaries(paths, species):
     return p.reset_index(drop=True), s.reset_index(drop=True), v.reset_index(drop=True), u.reset_index(drop=True), census
 
 
+# CosmicSignal selection (CosmicMixingFilter SignalFilter / CalibFilter of the production job): per SimParticle, straw
+# steps with |p| in the window, a minimum count and (signal) a minimum plane span; counted over every particle
+SELF_FILTERS = {"signal": dict(p=(30.0, 250.0), n=15, span=16), "calib": dict(p=(1000.0, 1e6), n=20, span=0)}
+
+
+def self_pass(sgs):
+    """Per track (KEY, sp) of `sgs`: whether its own steps pass the sample's SignalFilter or CalibFilter windows (impact,
+    time and edep cuts not applied). A track that fails both was kept through another particle's steps (a delta
+    electron, a decay electron)."""
+    key = T.KEY + ["sp"]
+    p = np.sqrt(sgs.px ** 2 + sgs.py ** 2 + sgs.pz ** 2)
+    out = sgs[key].drop_duplicates().reset_index(drop=True)
+    for name, c in SELF_FILTERS.items():
+        g = sgs[(p > c["p"][0]) & (p < c["p"][1])].groupby(key).plane.agg(["size", "min", "max"]).reset_index()
+        g[name] = (g["size"] >= c["n"]) & ((g["max"] - g["min"]).abs() >= c["span"])
+        out = out.merge(g[key + [name]], on=key, how="left")
+        out[name] = out[name].fillna(False).astype(bool)
+    out["self"] = out.signal | out.calib
+    return out
+
+
 def entry_states(vd, vds=TRACKER_VDS):
     """First crossing (in time) of each primary with the given VDs: KEY, sp, pdg, x, y, z, px, py, pz, t, vdid."""
     v = vd[vd.vdid.isin(vds)].sort_values("t")
@@ -420,6 +441,10 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
         ent = pd.concat([entry_states(vd, entry_vds).reindex(columns=cols),
                          entry_states_surface(surf, org).reindex(columns=cols)]).sort_values("t")
         ent = ent.groupby(T.KEY + ["sp"], sort=False).first().reset_index()
+    if kw.get("self_pass_only"):
+        sp_ = self_pass(sgs)
+        census["self_pass"] = {k: int(sp_[k].sum()) for k in ("signal", "calib", "self")} | {"tracks": int(len(sp_))}
+        ent = ent.merge(sp_[sp_.self][T.KEY + ["sp"]], on=T.KEY + ["sp"])
     if no_field:
         field = None
     elif field_map:

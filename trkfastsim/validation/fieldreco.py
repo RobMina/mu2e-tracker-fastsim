@@ -168,7 +168,7 @@ def compare(d, ref, arm):
     return out
 
 
-def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", **kw):
+def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=False, **kw):
     """inputs: NAME=DIR per arm. Denominator: the events of the per-file dumper tables `file_tables`/sgsteps.<stem>.root
     (dump/particles keys) of the stems every arm has (a dts file spans several subruns), intersected with the events of
     the injector table `events` (dump/sgsteps keys) when given."""
@@ -190,6 +190,12 @@ def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", **kw):
         inj = inj.sort_values(KEY + ["t"]).groupby(KEY, sort=False).first().reset_index()
         inj["p_first"] = np.sqrt(inj.px ** 2 + inj.py ** 2 + inj.pz ** 2)
         den = den.merge(inj[KEY + ["p_first"]], on=KEY)
+        if self_pass:
+            from trkfastsim.validation import fieldcompare as fc
+            st_ = uproot.open(events)["dump/sgsteps"].arrays(KEY + ["sp", "plane", "px", "py", "pz"], library="pd")
+            sp_ = fc.self_pass(st_)
+            ok = sp_.groupby(KEY).self.any().reset_index()
+            den = den.merge(ok[ok.self][KEY], on=KEY)
     den = den.sort_values(KEY).reset_index(drop=True)
     frames = {n: read_arm([files[n][s] for s in common]) for n in arms}
     d = den.copy()
@@ -197,7 +203,7 @@ def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", **kw):
         f = f.drop_duplicates(KEY)
         d = d.merge(f.rename(columns={c: f"{n}_{c}" for c in f.columns if c not in KEY}), on=KEY, how="left")
     res = {"arms": {n: os.path.basename(os.path.normpath(p)) for n, p in arms.items()}, "ref": ref,
-           "files": len(common), "file_events": n_file_events, "events": int(len(d)),
+           "files": len(common), "file_events": n_file_events, "events": int(len(d)), "self_pass": bool(self_pass),
            "ntuple_events": {n: int(len(f)) for n, f in frames.items()},
            "ntuple_events_outside_denominator": {n: int(len(f.merge(den, on=KEY, how="left", indicator=True)
                                                            .query("_merge == 'left_only'"))) for n, f in frames.items()},

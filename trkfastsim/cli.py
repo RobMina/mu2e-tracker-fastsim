@@ -240,6 +240,8 @@ def build_parser():
             sp.add_argument("--events", default=None, help="injector table (dump/sgsteps) whose events restrict the denominator")
             sp.add_argument("--file-tables", default=None, help="directory of the per-file dumper tables sgsteps.<stem>.root")
             sp.add_argument("--ref", default="g4", help="reference arm name")
+            sp.add_argument("--self-pass", action="store_true",
+                            help="denominator: only events whose primary passes the Signal/Calib windows on its own (--events steps)")
         if name == "field-compare":
             sp.add_argument("--gdml", required=True, help="GDML world export of the sample's geometry (straws, support)")
             sp.add_argument("--species", type=int, default=13, choices=[11, 13], help="MC primary |pdg| (13 muons, 11 electrons)")
@@ -259,6 +261,8 @@ def build_parser():
             sp.add_argument("--interior", action=argparse.BooleanOptionalAction, default=True,
                             help="support structure from the GDML (default on)")
             sp.add_argument("--max-events", type=int, default=None, help="first N events with a primary (quick checks)")
+            sp.add_argument("--self-pass-only", action="store_true",
+                            help="only tracks whose own G4 steps pass the sample's Signal/Calib filter windows")
             sp.add_argument("--matched-straws", action="store_true",
                             help="fast - G4 step time, wire DOCA and length on the straws both arms cross, per |p| bin")
             sp.add_argument("--delta-census", action="store_true",

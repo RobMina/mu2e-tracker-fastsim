@@ -33,3 +33,12 @@ def test_paired_yield_and_hits():
     r = c["p_reco_same_surface"]
     assert r["truth"] == "p_first" and abs(r["residual_MeV"]["diff"][0]) < 1e-9
     assert sum(b["events"] for b in c["by_true_p"]) <= len(d)
+
+
+def test_self_pass_windows():
+    from trkfastsim.validation import fieldcompare as fc
+    n = 30
+    d = pd.DataFrame({"run": 1, "subrun": 0, "event": np.repeat([1, 2, 3], n), "sp": 1, "plane": np.tile(np.arange(n), 3),
+                      "px": 0.0, "py": 0.0, "pz": np.r_[np.full(n, 100.0), np.full(n, 5000.0), np.full(n, 500.0)]})
+    s = fc.self_pass(d).set_index("event")
+    assert s.loc[1, "signal"] and s.loc[2, "calib"] and not s.loc[3, "self"]

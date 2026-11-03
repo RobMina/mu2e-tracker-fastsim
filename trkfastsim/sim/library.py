@@ -46,6 +46,7 @@ from trkfastsim.geometry import NSTRAWS, to_mu2e
 
 P_BINS = np.array([0.0, 300.0, 600.0, 1000.0, 2000.0, 4000.0, 10000.0, 1e9])        # MeV/c
 LEN_BINS = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 4.5, 5.0, 6.0, 8.0, 1e9])             # mm, path in one straw
+LEN_BINS_FINE = np.array([0.0, 1.0, 2.0, 3.0, 4.0, 4.5, 5.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0, 30.0, 1e9])  # opt-in
 PLANE_BIN = 6                                                                         # planes per plane-extent bin
 FORMAT_VERSION = 2
 LOCAL_COLS = ["du0", "r0", "phi0", "du1", "r1", "phi1"]
@@ -425,11 +426,14 @@ class OffAxisSampler:
 class InStrawSampler:
     """Draw secondary in-straw content for fast muon straw crossings from the library, by (|p| bin, path bin)."""
 
-    def __init__(self, lib, rng, drop_muons=False):
+    def __init__(self, lib, rng, drop_muons=False, fine_length=False):
         ins = lib["instraw"]
         self.rng = rng
         self.drop_muons = bool(drop_muons)     # opt-in, as OffAxisSampler
-        key = ins.pbin.to_numpy() * len(LEN_BINS) + ins.lbin.to_numpy()
+        # opt-in: path key on LEN_BINS_FINE (long chords along the wire keyed beyond 8 mm), recomputed from mu_len
+        self.len_bins = LEN_BINS_FINE if fine_length else LEN_BINS
+        lbin = np.digitize(ins.mu_len.to_numpy(), LEN_BINS_FINE) - 1 if fine_length else ins.lbin.to_numpy()
+        key = ins.pbin.to_numpy() * len(self.len_bins) + lbin
         order = np.argsort(key, kind="stable")
         self.key_sorted = key[order]
         self.xing_sorted = ins.xing.to_numpy()[order]
@@ -448,16 +452,17 @@ class InStrawSampler:
     def draw(self, p, length):
         """For arrays (|p|, path) of fast muon crossings: (crossing index of each draw, step table of the secondaries
         with a column `i` = index into the input arrays)."""
+        lbins = self.len_bins
         pb = np.clip(np.digitize(p, P_BINS) - 1, 0, len(P_BINS) - 2)
-        lb = np.clip(np.digitize(length, LEN_BINS) - 1, 0, len(LEN_BINS) - 2)
-        key = pb * len(LEN_BINS) + lb
+        lb = np.clip(np.digitize(length, lbins) - 1, 0, len(lbins) - 2)
+        key = pb * len(lbins) + lb
         # empty bins (rare): move to the nearest populated key of the same |p| bin, vectorised over a few shifts
         lo, hi = self._ranges(key)
         for dl in (1, -1, 2, -2, 3, -3, 4, -4):
             e = hi <= lo
             if not e.any():
                 break
-            k2 = pb[e] * len(LEN_BINS) + np.clip(lb[e] + dl, 0, len(LEN_BINS) - 2)
+            k2 = pb[e] * len(lbins) + np.clip(lb[e] + dl, 0, len(lbins) - 2)
             l2, h2 = self._ranges(k2)
             lo[e], hi[e] = l2, h2
         idx = lo + (self.rng.random(len(key)) * np.maximum(hi - lo, 1)).astype(np.int64)

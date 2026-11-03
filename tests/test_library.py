@@ -267,3 +267,18 @@ def test_shift_from_muon_moves_a_colliding_step_to_the_next_free_straw():
                                                                               shift_from_muon=True), g)
     assert st_d["in_muon_straw"] == 1 and (out_d.sp != 1).sum() == 0 and "shifted_from_muon_straw" not in st_d
     assert st_s["shifted_from_muon_straw"] == 1 and out_s[out_s.sp != 1].straw.tolist() == [53]
+
+
+def test_instraw_fine_length_keys_long_chords_apart():
+    ins = pd.DataFrame({"xing": [0, 1], "p": 3000.0, "mu_len": [9.0, 25.0], "nsec": [0, 3]})
+    ins["pbin"] = np.digitize(ins.p, L.P_BINS) - 1
+    ins["lbin"] = np.digitize(ins.mu_len, L.LEN_BINS) - 1
+    st = pd.DataFrame({"xing": [1, 1, 1], "eion": 1e-3, "len": 1.0, "ion": 1, "shape": 0, "pdg": 11})
+    lib = {"instraw": ins, "instraw_steps": st}
+    n = 2000
+    x0, _ = L.InStrawSampler(lib, np.random.default_rng(2)).draw(np.full(n, 3000.0), np.full(n, 25.0))
+    x1, s1 = L.InStrawSampler(lib, np.random.default_rng(2), fine_length=True).draw(np.full(n, 3000.0), np.full(n, 25.0))
+    assert set(np.unique(x0)) == {0, 1}                    # default: one key above 8 mm
+    assert set(np.unique(x1)) == {1} and len(s1) == 3 * n
+    x2, _ = L.InStrawSampler(lib, np.random.default_rng(2), fine_length=True).draw(np.array([3000.0]), np.array([9.5]))
+    assert x2[0] == 0

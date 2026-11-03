@@ -317,7 +317,8 @@ class OffAxisSampler:
     COS_BINS = np.array([0.0, 0.5, 0.7, 0.85, 0.95, 1.01])
 
     def __init__(self, lib, rng, plane_bin_width=PLANE_BIN, edge_anchor=False, topology_anchor=False, drop_muons=False,
-                 width_match=False, plane_sign=False, shift_from_muon=False, no_plane_mirror=False, no_straw_mirror=False):
+                 width_match=False, plane_sign=False, shift_from_muon=False, no_plane_mirror=False, no_straw_mirror=False,
+                 radial_match=False):
         self.shift_from_muon = bool(shift_from_muon)   # opt-in: move steps landing in a fast muon straw, not drop them
         self.no_plane_mirror = bool(no_plane_mirror)   # opt-in: drop steps beyond the first/last plane, not mirror them
         self.no_straw_mirror = bool(no_straw_mirror)   # opt-in: drop steps beyond the first/last straw, not mirror them
@@ -366,11 +367,18 @@ class OffAxisSampler:
         self.first = np.searchsorted(ei, np.arange(len(ek)), "left")
         self.count = np.searchsorted(ei, np.arange(len(ek)), "right") - self.first
         self.last_level = None
+        self.radial_match = bool(radial_match)  # opt-in: exact key also matches the muon's innermost straw (RADIAL_EDGES)
+        if self.radial_match:
+            if "instraw" not in lib:
+                raise ValueError("radial match needs the library's muon crossings (instraw)")
+            rb = radial_bin(innermost_straw(lib["instraw"], self.ev))
+            self.order_r = np.lexsort((rb, self.full_sorted))
+            self.full_r_sorted = self.full_sorted[self.order_r] * (len(RADIAL_EDGES) - 1) + rb[self.order_r]
 
     def _range(self, arr, key):
         return np.searchsorted(arr, key, "left"), np.searchsorted(arr, key, "right")
 
-    def draw(self, p, uy, plane_min=None, plane_max=None):
+    def draw(self, p, uy, plane_min=None, plane_max=None, straw_min=None):
         """For fast muons (|p| and direction y component at the first straw, plane extent): (library event index per
         muon, step table with column `i` = muon index). `last_level` records the fallback level used per muon
         (0 = exact key, 1 = neighbouring plane-extent bin, 2 = any plane extent, 3 = neighbouring angle bin)."""
@@ -414,8 +422,18 @@ class OffAxisSampler:
                 got = h2 > l2
                 idx = np.flatnonzero(e)[got]
                 lo[idx], hi[idx], level[idx] = l2[got], h2[got], lev
+        u = self.rng.random(n)
+        ev = np.minimum(lo + (u * np.maximum(hi - lo, 1)).astype(np.int64), len(self.ev) - 1)
+        if self.radial_match and straw_min is not None and plane_min is not None and not self.width_match:
+            # exact (|p|, angle, plane extent, innermost straw) key first; the levels above where it is empty (level -1 here)
+            nb = 36 // self.pbw + 1
+            pbk = (np.asarray(plane_min) // self.pbw) * nb + np.asarray(plane_max) // self.pbw
+            kr = (pa * self.npb + pbk) * (len(RADIAL_EDGES) - 1) + radial_bin(straw_min)
+            l2, h2 = self._range(self.full_r_sorted, kr)
+            got = h2 > l2
+            ev[got] = self.order_r[np.minimum(l2[got] + (u[got] * (h2[got] - l2[got])).astype(np.int64), len(self.ev) - 1)]
+            level = np.where(got, -1, level)
         self.last_level = level
-        ev = np.minimum(lo + (self.rng.random(n) * np.maximum(hi - lo, 1)).astype(np.int64), len(self.ev) - 1)
         cnt = self.count[ev]
         i = np.repeat(np.arange(n), cnt)
         src = np.repeat(self.first[ev], cnt) + (np.arange(cnt.sum()) - np.repeat(np.cumsum(cnt) - cnt, cnt))
@@ -423,6 +441,22 @@ class OffAxisSampler:
         st["i"] = i
         self.last_concentration = draw_concentration(ev, self.count)
         return ev, drop_muon_rows(st) if self.drop_muons else st
+
+
+RADIAL_EDGES = np.array([0, 24, 48, 72, 96])   # innermost straw crossed by the muon (opt-in radial match), quarter panels
+
+
+def radial_bin(straw_min):
+    return np.clip(np.digitize(np.asarray(straw_min), RADIAL_EDGES) - 1, 0, len(RADIAL_EDGES) - 2)
+
+
+def innermost_straw(instraw, ev):
+    """Per library event (rows of `ev`): the smallest straw number (within its panel) among the muon's crossings."""
+    m = instraw[T.KEY].assign(straw=instraw.sid.to_numpy().astype(np.int64) & 127).groupby(T.KEY).straw.min()
+    out = m.reindex(pd.MultiIndex.from_frame(ev[T.KEY])).to_numpy()
+    if np.isnan(out).any():
+        raise ValueError("library events without muon crossings")
+    return out.astype(np.int64)
 
 
 class InStrawSampler:

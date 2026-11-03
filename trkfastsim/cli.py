@@ -96,6 +96,9 @@ def build_parser():
             sp.add_argument("--offaxis-no-straw-mirror", action="store_true",
                             help="off-axis paste: a step whose straw offset leads beyond the first or last straw of the panel "
                                  "is dropped instead of mirrored (opt-in)")
+            sp.add_argument("--offaxis-radial-match", action="store_true",
+                            help="off-axis draw: the exact key also matches the innermost straw the muon crosses (quarter "
+                                 "panels), so straw offsets come from donors crossing the same radii (opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
             sp.add_argument("--first-muon-only", action="store_true",
@@ -254,7 +257,7 @@ def build_parser():
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i, 1) and (seed, i, 2) as steps")
             sp.add_argument("--no-offaxis", action="store_true", help="in-straw secondaries only")
             for opt in ("--library-drop-muons", "--offaxis-plane-sign", "--offaxis-shift-from-muon", "--instraw-fine-length",
-                        "--offaxis-no-plane-mirror", "--offaxis-no-straw-mirror"):
+                        "--offaxis-no-plane-mirror", "--offaxis-no-straw-mirror", "--offaxis-radial-match"):
                 sp.add_argument(opt, action="store_true", help=f"as steps {opt} (opt-in)")
         if name == "selfpaste":
             sp.add_argument("--anchor", default="default", choices=["default", "edge", "topology"])

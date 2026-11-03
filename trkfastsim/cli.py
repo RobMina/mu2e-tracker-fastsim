@@ -259,6 +259,8 @@ def build_parser():
             sp.add_argument("--interior", action=argparse.BooleanOptionalAction, default=True,
                             help="support structure from the GDML (default on)")
             sp.add_argument("--max-events", type=int, default=None, help="first N events with a primary (quick checks)")
+            sp.add_argument("--matched-straws", action="store_true",
+                            help="fast - G4 step time, wire DOCA and length on the straws both arms cross, per |p| bin")
             sp.add_argument("--delta-census", action="store_true",
                             help="G4 e+- daughters of the primaries above 10 MeV: in straw gas, wall or elsewhere, per crossing")
             sp.add_argument("--offset-bound", action="store_true",

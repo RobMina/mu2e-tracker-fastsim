@@ -251,7 +251,10 @@ def compare(g4, fast, ent, final, geom):
         k = (pent >= lo) & (pent < hi)
         if k.sum() >= 5:
             drop_g, drop_f = pent[k] - pg.to_numpy()[k], pent[k] - pf.to_numpy()[k]
+            dtl = (m.t_f - m.t_g).to_numpy()[k]
             bins.append({"p_lo": float(lo), "p_hi": float(hi), "dp_MeV": _mean_err(dp[k]),
+                         "dt_ns_mean_median": [float(np.mean(dtl)), float(np.median(dtl))],
+                         "dexit_mm_q50_q90": [float(np.median(dexit[k])), float(np.quantile(dexit[k], 0.9))],
                          "g4_p_drop_MeV": _mean_err(drop_g), "fast_p_drop_MeV": _mean_err(drop_f),
                          "drop_q10_q50_q90_q99": {"g4": [float(np.quantile(drop_g, q)) for q in (0.1, 0.5, 0.9, 0.99)],
                                                   "fast": [float(np.quantile(drop_f, q)) for q in (0.1, 0.5, 0.9, 0.99)]},
@@ -277,6 +280,47 @@ def compare(g4, fast, ent, final, geom):
             int(v): [int(k.sum()), float(np.median(dd[k])), float(np.quantile(dd[k], 0.9))]
             for v in np.unique(fx.vdid) for k in [hp & (fx.vdid == v).to_numpy()] if k.sum() >= 5}
     out["final_status"] = final.status.value_counts().sort_index().to_dict()
+    return out
+
+
+def matched_straws(g4, fast, ent, geom, origin):
+    """Per straw crossed by both arms (same track, same straw, first crossing in time): fast - G4 differences of the
+    step time, of the distance of closest approach of the step chord to the wire (the drift distance the digitiser
+    sees) and of the step length, per entry |p| bin: median and IQR/1.349, and the mean with its error."""
+    key = T.KEY + ["sp"]
+    cols = key + ["sid", "t", "x0", "y0", "z0", "x1", "y1", "z1", "len"]
+    a = g4[cols].sort_values("t").groupby(key + ["sid"], sort=False).first().reset_index()
+    b = fast[cols].sort_values("t").groupby(key + ["sid"], sort=False).first().reset_index()
+    m = a.merge(b, on=key + ["sid"], suffixes=("_g", "_f"))
+    pe = ent[key + ["px", "py", "pz"]].assign(pent=lambda d: np.sqrt(d.px ** 2 + d.py ** 2 + d.pz ** 2))[key + ["pent"]]
+    m = m.merge(pe, on=key)
+    si = _straw_index(m, geom)
+    w0, wd = geom.mid[si], geom.dir[si]
+
+    def doca(sfx):
+        p0 = geometry.to_mu2e(m[[f"x0{sfx}", f"y0{sfx}", f"z0{sfx}"]].to_numpy(), origin)
+        p1 = geometry.to_mu2e(m[[f"x1{sfx}", f"y1{sfx}", f"z1{sfx}"]].to_numpy(), origin)
+        u = p1 - p0
+        n = np.cross(u, wd)
+        nn = np.linalg.norm(n, axis=1)
+        return np.abs(((p0 - w0) * n).sum(1)) / np.maximum(nn, 1e-12)
+
+    dd = doca("_f") - doca("_g")
+    dt = (m.t_f - m.t_g).to_numpy()
+    dl = (m.len_f - m.len_g).to_numpy()
+    pent = m.pent.to_numpy()
+
+    def summ(x):
+        if len(x) < 5:
+            return {}
+        q = np.quantile(x, [0.25, 0.5, 0.75])
+        return {"median": float(q[1]), "iqr_sigma": float((q[2] - q[0]) / 1.349), "mean": _mean_err(x)}
+    out = []
+    for lo, hi in zip(P_EDGES[:-1], P_EDGES[1:]):
+        k = (pent >= lo) & (pent < hi)
+        if k.sum() >= 5:
+            out.append({"p_lo": float(lo), "p_hi": float(hi), "straws": int(k.sum()), "dt_ns": summ(dt[k]),
+                        "ddoca_mm": summ(dd[k]), "dlen_mm": summ(dl[k])})
     return out
 
 
@@ -408,6 +452,8 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     g1 = g1[g1.t <= g1.t_exit + FIRST_PASS_NS].drop(columns="t_exit")
     f1 = fast.merge(out_t[T.KEY + ["sp"]], on=T.KEY + ["sp"])
     res["first_pass"] = compare(g1, f1, ent.merge(out_t[T.KEY + ["sp"]], on=T.KEY + ["sp"]), final, geom)
+    if kw.get("matched_straws"):
+        res["matched_straws_first_pass"] = matched_straws(g1, f1, ent, geom, org)
     res = json.loads(json.dumps(res, default=lambda o: o.item() if hasattr(o, "item") else str(o)))
     with open(os.path.join(outdir, "fieldcompare.json"), "w") as f:
         json.dump(res, f, indent=1)

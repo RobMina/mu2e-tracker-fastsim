@@ -369,3 +369,8 @@ def test_distance_anchor_keeps_the_plane_distance_to_the_muon():
                                                                            distance_anchor=True), g)
     assert sorted(out_d[out_d.sp != 1].plane.tolist()) == [6, 8]
     assert sorted(out_a[out_a.sp != 1].plane.tolist()) == [2, 7]
+    out_p, _, _ = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler(lib, np.random.default_rng(1),
+                                                                           distance_plane=True), g)
+    # anchors kept (planes 5 and 10): +1 -> 6 is crossed, nearest free plane at distance 1 is 7; -2 -> 8 is one plane
+    # from 9; planes at distance 2 from every crossed plane: 2 and 12; 2 is on the offset's side of the anchor
+    assert sorted(out_p[out_p.sp != 1].plane.tolist()) == [2, 7]

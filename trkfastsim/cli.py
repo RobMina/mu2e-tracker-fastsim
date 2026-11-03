@@ -103,6 +103,9 @@ def build_parser():
             sp.add_argument("--offaxis-distance-anchor", action="store_true",
                             help="off-axis paste: a step with a plane offset anchors on the fast muon's crossing nearest in rank "
                                  "whose plane + offset is that many planes from every plane the muon crosses (opt-in)")
+            sp.add_argument("--offaxis-distance-plane", action="store_true",
+                            help="off-axis paste: a step with a plane offset keeps its anchor and goes to the plane nearest "
+                                 "anchor + offset that lies that many planes from every plane the muon crosses (opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
             sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
             sp.add_argument("--first-muon-only", action="store_true",
@@ -268,7 +271,7 @@ def build_parser():
             sp.add_argument("--no-offaxis", action="store_true", help="in-straw secondaries only")
             for opt in ("--library-drop-muons", "--offaxis-plane-sign", "--offaxis-shift-from-muon", "--instraw-fine-length",
                         "--offaxis-no-plane-mirror", "--offaxis-no-straw-mirror", "--offaxis-radial-match",
-                        "--offaxis-distance-anchor"):
+                        "--offaxis-distance-anchor", "--offaxis-distance-plane"):
                 sp.add_argument(opt, action="store_true", help=f"as steps {opt} (opt-in)")
         if name == "selfpaste":
             sp.add_argument("--anchor", default="default", choices=["default", "edge", "topology"])

@@ -1177,7 +1177,11 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     nk = nmu.reindex(pd.MultiIndex.from_frame(f[MK])).to_numpy()
     p = np.sqrt(f.px ** 2 + f.py ** 2 + f.pz ** 2).to_numpy()
     pl = mu.groupby(MK, sort=False).plane.agg(["min", "max"]).reindex(pd.MultiIndex.from_frame(f[MK]))
-    _, st = sampler.draw(p, (f.py / p).to_numpy(), pl["min"].to_numpy(), pl["max"].to_numpy())
+    if getattr(sampler, "radial_match", False):
+        smin = mu.groupby(MK, sort=False).straw.min().reindex(pd.MultiIndex.from_frame(f[MK])).to_numpy()
+        _, st = sampler.draw(p, (f.py / p).to_numpy(), pl["min"].to_numpy(), pl["max"].to_numpy(), straw_min=smin)
+    else:
+        _, st = sampler.draw(p, (f.py / p).to_numpy(), pl["min"].to_numpy(), pl["max"].to_numpy())
     stats = {"drawn": int(len(st))}
     if not len(st):
         stats["placed"] = 0
@@ -1240,6 +1244,7 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     stats.update({"reflected": int((reflected & ok).sum()), "off_lattice": int((~ok).sum()),
                   "reflected_plane": int(((plane != plane0) & ok).sum()), "reflected_straw": int(((straw != straw0) & ok).sum()),
                   "in_muon_straw": int(in_mu.sum()), "placed": int(keep.sum()),
+                  **({"radial_matched": int((sampler.last_level < 0).sum())} if getattr(sampler, "radial_match", False) else {}),
                   "draw_level_counts": np.bincount(np.maximum(sampler.last_level, 0), minlength=4).tolist()
                   if getattr(sampler, "last_level", None) is not None else [],
                   **getattr(sampler, "last_concentration", {})})

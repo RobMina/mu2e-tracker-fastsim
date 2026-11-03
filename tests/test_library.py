@@ -315,3 +315,23 @@ def test_no_mirror_drops_steps_beyond_the_lattice():
         out, _, st = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler(lib, np.random.default_rng(1), **kw), g)
         assert out[out.sp != 1][["plane", "straw"]].values.tolist() == left
         assert st["off_lattice"] == 2 - len(left)
+
+
+def test_radial_match_prefers_donors_crossing_the_same_innermost_straws():
+    from trkfastsim import geometry as G
+    ev = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1, 2], "p": 3000.0, "ux": 0.0, "uy": -1.0, "uz": 0.0,
+                       "plane_min": 4, "plane_max": 5, "nstraw_mu": 1})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    ins = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1, 1, 2], "sid": G.straw_id(4, 0, np.array([10, 30, 80]))})
+    off = pd.DataFrame({"run": 1400, "subrun": 1, "event": [1, 2], "eion": 1e-3, "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": 11, "sp": [5, 6], "k": 0, "dpl": 0, "dpa": 0, "dst": [1, 2], "dt": 0.1})
+    lib = {"events": ev, "offaxis": off, "instraw": ins}
+    n = 2000
+    plain = L.OffAxisSampler(lib, np.random.default_rng(5))
+    e0, _ = plain.draw(np.full(n, 3000.0), np.full(n, -0.99), np.full(n, 4), np.full(n, 5))
+    assert 0.4 < (e0 == 0).mean() < 0.6
+    s = L.OffAxisSampler(lib, np.random.default_rng(5), radial_match=True)
+    e1, st = s.draw(np.full(n, 3000.0), np.full(n, -0.99), np.full(n, 4), np.full(n, 5), straw_min=np.full(n, 75))
+    assert set(s.ev.event.to_numpy()[e1]) == {2} and (s.last_level == -1).all() and set(st.dst) == {2}
+    e2, _ = s.draw(np.full(n, 3000.0), np.full(n, -0.99), np.full(n, 4), np.full(n, 5), straw_min=np.full(n, 50))
+    assert 0.4 < (e2 == 0).mean() < 0.6 and (s.last_level == 0).all()      # no donor at 48-71: plain key

@@ -33,7 +33,7 @@ cp site.env.example site.env        # fill M2FS_INPUTS (verified input release),
 source site.env
 python3 -m pytest -q -p no:cacheprovider tracker/tests      # JAX tests skip without JAX
 python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v2_tables/gen.001400_00000022.root" \
-    --gdml "$CRVFS_DATA/geometry/mu2e_extracted_v04.gdml" --stage C --sliced-msc --seed 22 --outdir "$M2FS_DATA/tracker-smoke"
+    --gdml "$CRVFS_DATA/geometry/mu2e_extracted_v04.gdml" --seed 22 --outdir "$M2FS_DATA/tracker-smoke"
 ```
 
 Digitisation, reconstruction and the validation campaigns: [`docs/running.md`](docs/running.md). The inputs are

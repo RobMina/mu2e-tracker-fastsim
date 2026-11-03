@@ -28,7 +28,7 @@ for ((i = 0; i < ${#GEN[@]}; i += GROUP)); do
 done
 if [ "${SKIP_STEPS:-0}" != 1 ]; then
   /usr/bin/time -f "%e s %M kB" python3 -m trkfastsim steps "$GD/gen.grp.*.root" --outdir $F --seed 1 \
-    --stage C --sliced-msc --library "$LIB" ${STEPS_FLAGS:-} > $F/steps.log 2>&1 || { tail -20 $F/steps.log; exit 1; }
+    --library "$LIB" ${STEPS_FLAGS:-} > $F/steps.log 2>&1 || { tail -20 $F/steps.log; exit 1; }
   tail -1 $F/steps.log
 fi
 /usr/bin/time -f "%e s %M kB" python3 -m trkfastsim seccensus "$F/fasttrk*.root" --compare "$M2FS_DATA/trk_fastsim/${REF}_tables/sgsteps.*.root" \

@@ -65,8 +65,8 @@ def build_parser():
             sp.add_argument("--gdml", default=None, help="GDML world export (default $M2FS_DATA/crv_fastsim/geometry/...)")
         if name == "steps":
             sp.add_argument("--seed", type=int, default=1, help="base seed; file i uses (seed, i)")
-            sp.add_argument("--stage", default="A", choices=["A", "C"],
-                            help="A: straight from the vertex; C: GDML world material + MSC down to the tracker")
+            sp.add_argument("--stage", default="C", choices=["A", "C"],
+                            help="C (default): GDML world material + MSC down to the tracker; A: straight from the vertex")
             sp.add_argument("--library", default=None, metavar="ROOT", help="G4 secondary library (buildlib) to paste secondaries")
             sp.add_argument("--no-offaxis", action="store_true", help="with --library: in-straw secondaries only")
             sp.add_argument("--offaxis-plane-bin", type=int, default=6,
@@ -87,7 +87,8 @@ def build_parser():
                             help="off-axis paste: a step that lands in a fast muon straw moves up to 3 straws along its straw "
                                  "offset instead of being dropped (opt-in)")
             sp.add_argument("--tag", default="", help="suffix of the output file prefix (fasttrk<stage>L<tag>.)")
-            sp.add_argument("--sliced-msc", action="store_true", help="stage C: per-band |p| in the Highland scattering")
+            sp.add_argument("--sliced-msc", action=argparse.BooleanOptionalAction, default=True,
+                            help="stage C: per-band |p| in the Highland scattering (default on; --no-sliced-msc: one |p| for the column)")
             sp.add_argument("--first-muon-only", action="store_true",
                             help="transport only the first generated muon of each event (before 2026-10-24; default: all)")
             sp.add_argument("--near-margin", type=float, default=1500.0,

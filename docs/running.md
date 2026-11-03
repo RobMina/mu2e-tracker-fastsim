@@ -24,8 +24,11 @@ tests skip). One job per GPVM; outputs in your data area, never in the app area.
 ```bash
 python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v2_tables/gen.001400_00000022.root" \
     --gdml "$CRVFS_DATA/geometry/mu2e_extracted_v04.gdml" \
-    --stage C --sliced-msc --seed 22 --outdir "$M2FS_DATA/tracker-smoke"
+    --seed 22 --outdir "$M2FS_DATA/tracker-smoke"
 ```
+
+The defaults are stage C with sliced MSC (since 2026-11-03; the output equals the earlier explicit
+`--stage C --sliced-msc`). `--stage A` gives the straight-line transport from the vertex, the earlier CLI default.
 
 `fasttrkC.*.root` holds the `sgsteps`, `particles`, `gen`, `subruns` and `surfsteps` trees with the same keys as the
 Geant4 tables; the log prints the support-structure census and the in-tracker transport counters. Pass `--gdml`
@@ -55,7 +58,7 @@ python3 tracker/scripts/stagec_msc_ab_summary.py $M2FS_DATA/trk_fastsim c1SIsD
 ```
 
 `steps` takes about 70 s for the 20 shards on an idle GPVM; the three comparisons add a few minutes.
-`stagec_msc_ab.sh ARM [ARM ...]` runs `steps` on the 20 gen shards (seed 1, `--stage C --sliced-msc` plus the arm's
+`stagec_msc_ab.sh ARM [ARM ...]` runs `steps` on the 20 gen shards (seed 1, the default stage C with sliced MSC, plus the arm's
 flags), then `v1compare`, `worldcheck` and `msccheck` against the G4 tables. Outputs, for arm tag `TAG`:
 
 | output | content |
@@ -110,7 +113,7 @@ GDML, `trkfastsim/sim/surfaces.py`), in the columns of `StrawGasStepTableDumper`
 muon's own StrawGasSteps (no random numbers: `sgsteps` is bit-identical with and without it). Check against G4:
 
 ```bash
-python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v1_tables/gen.001400_*.root" --outdir $D/fast_c1SIsDss --seed 1 --stage C --sliced-msc
+python3 -m trkfastsim steps "$CRVFS_DATA/g4ref_v1_tables/gen.001400_*.root" --outdir $D/fast_c1SIsDss --seed 1
 python3 -m trkfastsim surfcheck "$D/fast_c1SIsDss/fasttrkC.*.root" --compare "$D/g4ref_v1_tables/sgsteps.*.root" --outdir $D/plots/surfcheck_c1SIsDss
 ```
 

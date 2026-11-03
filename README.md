@@ -97,7 +97,6 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | float32 step and digitiser kernels (`TRKFASTSIM_DEVICE_FLOAT=core`: follow the core device float) | [device-precision.md](docs/device-precision.md) |
 | leave other primary muons out of the library draws (`steps --library-drop-muons`) | [limitations.md](docs/limitations.md) |
 | off-axis plane offsets follow the muon direction, colliding off-axis steps shifted, in-straw draw keyed on long paths (`steps --offaxis-plane-sign --offaxis-shift-from-muon --instraw-fine-length`) | [secondary-validation.md](docs/secondary-validation.md#opt-in-placement-and-in-straw-options-paired-per-shard) |
-| relocated saved-product validation | [saved-validation.md](docs/saved-validation.md) |
 | kit task `tracker_point` | [kit-task.md](docs/kit-task.md) |
 | field-on transport from the tracker envelope in a field map (`sim.fieldsteps`, `field-compare`) | [field-on.md](docs/field-on.md) |
 
@@ -119,6 +118,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 | `park/rate-ledger-20261103` | the transport-ledger arms (`steps --ledger-arms`, `make_steps(arms)`: energy or no writer debit, thin-material loss, integrated step time), the entry-ledger and transport-capture diagnostics, the physical-segment contract (`transportledger`, `flighttime`), `ledgercheck`, the capture audits, the T3 limit tests, the arm campaign drivers and the rate-residual summary; `ratearms` (default transport, `--scatter-in`) and the segment history stay on main |
 | `park/rate-diagnostics` | the earlier rate-deficit diagnostics `geomcheck`, `interiorcensus`, `tubecheck`, `arrivalcheck`, `slowcheck`, `survivalcheck`, `rangecheck`, `secdiag`, `libplacecheck` (untested CLIs, superseded by `ratearms`) |
 | `park/tv3-rescoring` | the saved T-V3 secondary-bank replicas, response and summaries |
+| `park/tv3-rescoring-20261103` | the relocated saved-product validation (`secondary_tv3_site_rescore`, the shared Parquet environment installer and its check, `docs/saved-validation.md`); the source-event bank replicas (`bankreplica`) it described are on `park/tv3-rescoring` |
 | `park/offaxis-width-match` | the rejected width-matched off-axis donor key (`steps --offaxis-width-match`) |
 
 About 90 unreferenced one-off scripts were removed; they are in the history and on every park branch.

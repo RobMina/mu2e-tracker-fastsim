@@ -121,6 +121,8 @@ Options that were tried and not made the default are kept on branches, not on ma
   loss, integrated step time), the entry-ledger and transport-capture diagnostics, the physical-segment contract and
   the T3 limit tests. No arm changed the rate on 11 M events ([rate-ledger.md](rate-ledger.md)); T3 (one energy,
   deposition and time ledger) stays open. `ratearms` and `make_steps(history=True)` stay on main.
+- `park/tv3-rescoring-20261103`: the rescoring of saved T-V3 products after a site relocation and its shared Parquet
+  environment. It rescored historical products, not current transport; the bank replicas are on `park/tv3-rescoring`.
 
 ## Inputs
 

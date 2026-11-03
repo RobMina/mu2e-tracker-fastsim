@@ -40,7 +40,8 @@ EDGES = {
     "mu/eion_keV": KEV_STEP, "mu/len_mm": LEN, "mu/p_MeV": PMOM, "mu/t_ns": TIME,
     "mu/plane": np.arange(37) - 0.5, "mu/upanel": np.arange(217) - 0.5, "mu/straw": np.arange(97) - 0.5,
     "sec/eion_keV": KEV_STEP, "sec/len_mm": LEN, "sec/species": np.arange(5) - 0.5,
-    "sec/place": np.arange(6) - 0.5, "sec/dplane": np.arange(37) - 0.5,
+    "sec/place": np.arange(6) - 0.5, "sec/dplane": np.arange(37) - 0.5, "sec/plane": np.arange(37) - 0.5,
+    "sec/straw": np.arange(97) - 0.5,
     "ev/mu_plane_width": np.arange(37) - 0.5, "sec/place_by_width": np.arange(5 * NWIDTH + 1) - 0.5,
     "straw/eion_keV": KEV_STRAW, "straw/eion_mu_keV": KEV_STRAW, "straw/eion_seconly_keV": KEV_STRAW,
     "straw/eion_muonly_keV": KEV_STRAW, "straw/nsteps": np.arange(1, 22) - 0.5,
@@ -178,6 +179,8 @@ def steps_arm(paths, arm, outdir, batches=1):
         H.fill("sec/species", sec.si, pd.Series(sec.pdg.to_numpy()).map(SPECIES).fillna(3).to_numpy())
         H.fill("sec/place", sec.si, place)
         H.fill("sec/dplane", sec.si, np.where(dmin >= 0, np.minimum(dmin, 35), np.nan))
+        H.fill("sec/plane", sec.si, sec.plane)
+        H.fill("sec/straw", sec.si, sec.straw)
         # plane extent (last - first plane) of the event's primary-muon steps
         w = (mu.groupby(T.KEY, sort=False).plane.agg(["min", "max"]).pipe(lambda b: b["max"] - b["min"]))
         H.fill("ev/mu_plane_width", mu.groupby(T.KEY, sort=False).si.first(), w.to_numpy())

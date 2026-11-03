@@ -1233,6 +1233,7 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
             shifted += int(free.sum())
     keep = ok & ~in_mu
     stats.update({"reflected": int((reflected & ok).sum()), "off_lattice": int((~ok).sum()),
+                  "reflected_plane": int(((plane != plane0) & ok).sum()), "reflected_straw": int(((straw != straw0) & ok).sum()),
                   "in_muon_straw": int(in_mu.sum()), "placed": int(keep.sum()),
                   "draw_level_counts": np.bincount(np.maximum(sampler.last_level, 0), minlength=4).tolist()
                   if getattr(sampler, "last_level", None) is not None else [],

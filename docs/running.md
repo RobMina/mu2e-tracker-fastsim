@@ -39,7 +39,7 @@ the tracker-term rate residual ([limitations.md](limitations.md)).
 ```bash
 python3 -m trkfastsim digi-cond -h        # conditions (.npz) from the stock job's fhicl-dump, DbService CSVs and the GDML
 python3 -m trkfastsim digi -h             # StrawGasStep tables -> StrawHitTableDumper-layout digis (NumPy; --backend jax opt-in)
-python3 -m trkfastsim reco-ntuple -h      # EventNtuple-compatible output (--fit stock | f2 | f1), docs/eventntuple.md
+python3 -m trkfastsim reco-ntuple -h      # EventNtuple-compatible output (--fit stock | f2), docs/eventntuple.md
 ```
 
 These need matched digitisation and reco conditions ([fast-digi.md](fast-digi.md)); the kit task `tracker_point`

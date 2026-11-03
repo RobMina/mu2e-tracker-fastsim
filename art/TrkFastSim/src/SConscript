@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 # TrkFastSim: art modules for mu2e-tracker-fastsim (StrawGasStepTableDumper, StrawGasStepsFromTable, StrawHitTableDumper,
-# KinematicLineFitTrace: the plugins share one library list, so the Mu2eKinKal/KinKal libraries are linked into all of them).
+# StrawDigiTableDumper, StrawDigisFromTable, TrackerRecoPayloadDumper: the plugins share one library list, so the
+# Mu2eKinKal/KinKal libraries are linked into all of them).
 Import('env')
 Import('mu2e_helper')
 helper = mu2e_helper(env)

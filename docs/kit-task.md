@@ -74,27 +74,9 @@ The endpoint task instead fixes these selectors in `kit_task.py`. `scripts/kit_p
 one-shard check using `M2FS_DATA`, `M2FS_CORE`, `PY_JAX`, and an otherwise free single-core host. Outputs must be in
 a data area. `scripts/kit_inputs_audit.py` reports persisted generator keys and drift-domain diagnostics.
 
-## Local F1 companion: not an evaluator
-
-`python3 -m trkfastsim.kit.kitf1` is a deliberately separate, **stock-conditioned diagnostic**. It reuses a saved
-`reco-vr2f1 --own-states --save-tracks` result where available, or runs the existing harness on a bounded stock
-candidate population. It cannot take the new fast digis as F1 candidates and does not write kit `metrics.json`:
-
-```bash
-python3 -m trkfastsim.kit.kitf1 --dump STOCK_DUMP.root --conditions cond_mc.json \
-  --tracks EXISTING_F1/f1_tracks.npz --outdir NEW_F1_OUTPUT --workdir /tmp
-```
-
-Without `--tracks`, `--max-tracks` defaults to 1000 and bounds the diagnostic; with saved fits their coverage takes
-precedence. The saved source path must match and be own-state; existing `from_f1` also checks the reconstructed
-candidate event indices. Legacy saved fits have no historical input-content binding; current hashes must not be
-presented as proof of the inputs originally fitted. No stock reference rerun is required. Output:
-`EventNtuple_F1_stock_conditioned.root` and `f1_diagnostic.json`, labelled with stock seed/hit/crossing conditioning
-and the covered event population. There is no generated-event efficiency or endpoint F1 task.
-
 ## Verification
 
 Synthetic tests exercise real digi/empty-F2/writer paths, zero-step/non-muon/multi-muon denominators, persisted
-multi-track counts, source-change failure, drift domain, retention, stage errors, separate F1 guards, typed endpoint
+multi-track counts, source-change failure, drift domain, retention, stage errors, typed endpoint
 admission, shell construction, cached-input digests, durable retry bindings, cleanup and concurrent recovery.
 Existing reconstruction/writer/digitiser tests remain applicable. These are integration tests, not physics closure.

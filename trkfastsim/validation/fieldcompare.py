@@ -92,6 +92,17 @@ def self_pass(sgs):
     return out
 
 
+def secondary_selected(paths, part):
+    """Events (KEY) in which a particle other than the primaries `part` passes the sample's Signal or Calib window on its
+    own steps: such an event may have been kept because of that particle (a hard delta electron), so its primary is
+    not an unbiased muon. The Calib path is also prescaled (1/100), so high-p primaries are mostly kept this way."""
+    s = T.read_many(paths, "sgsteps", T.KEY + ["sp", "plane", "px", "py", "pz"])
+    sp_ = self_pass(s)
+    sp_ = sp_.merge(part[T.KEY + ["sp"]].assign(prim=True), on=T.KEY + ["sp"], how="left")
+    sec = sp_[sp_.prim.isna() & sp_.self]
+    return sec[T.KEY].drop_duplicates()
+
+
 def entry_states(vd, vds=TRACKER_VDS):
     """First crossing (in time) of each primary with the given VDs: KEY, sp, pdg, x, y, z, px, py, pz, t, vdid."""
     v = vd[vd.vdid.isin(vds)].sort_values("t")
@@ -452,6 +463,12 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
         ent = pd.concat([entry_states(vd, entry_vds).reindex(columns=cols),
                          entry_states_surface(surf, org).reindex(columns=cols)]).sort_values("t")
         ent = ent.groupby(T.KEY + ["sp"], sort=False).first().reset_index()
+    if kw.get("unbiased_only"):
+        bad = secondary_selected(inputs, part)
+        n0 = int(len(ent))
+        ent = ent.merge(bad.assign(_b=1), on=T.KEY, how="left")
+        ent = ent[ent._b.isna()].drop(columns="_b")
+        census["unbiased"] = {"tracks": n0, "kept": int(len(ent)), "events_secondary_selected": int(len(bad))}
     if kw.get("self_pass_only"):
         sp_ = self_pass(sgs)
         census["self_pass"] = {k: int(sp_[k].sum()) for k in ("signal", "calib", "self")} | {"tracks": int(len(sp_))}

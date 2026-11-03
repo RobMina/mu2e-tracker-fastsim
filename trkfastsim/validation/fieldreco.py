@@ -217,7 +217,7 @@ def compare(d, ref, arm):
     return out
 
 
-def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=False, **kw):
+def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=False, unbiased=False, **kw):
     """inputs: NAME=DIR per arm. Denominator: the events of the per-file dumper tables `file_tables`/sgsteps.<stem>.root
     (dump/particles keys) of the stems every arm has (a dts file spans several subruns), intersected with the events of
     the injector table `events` (dump/sgsteps keys) when given."""
@@ -247,6 +247,14 @@ def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=Fa
             sp_ = fc.self_pass(st_)
             ok = sp_.groupby(KEY).self.any().reset_index()
             den = den.merge(ok[ok.self][KEY], on=KEY)
+    if unbiased:
+        from trkfastsim.validation import fieldcompare as fc
+        paths = [os.path.join(file_tables, f"sgsteps.{s}.root") for s in common]
+        # primaries of the reference sample: the dumper's MC primary and its same-species continuation
+        part, _, _, _, _ = fc.primaries(paths, 13)
+        bad = fc.secondary_selected(paths, part)
+        den = den.merge(bad.assign(_b=1), on=KEY, how="left")
+        den = den[den._b.isna()].drop(columns="_b")
     den = den.sort_values(KEY).reset_index(drop=True)
     frames = {n: read_arm([files[n][s] for s in common]) for n in arms}
     d = den.copy()
@@ -254,7 +262,7 @@ def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=Fa
         f = f.drop_duplicates(KEY)
         d = d.merge(f.rename(columns={c: f"{n}_{c}" for c in f.columns if c not in KEY}), on=KEY, how="left")
     res = {"arms": {n: os.path.basename(os.path.normpath(p)) for n, p in arms.items()}, "ref": ref,
-           "files": len(common), "file_events": n_file_events, "events": int(len(d)), "self_pass": bool(self_pass),
+           "files": len(common), "file_events": n_file_events, "events": int(len(d)), "self_pass": bool(self_pass), "unbiased": bool(unbiased),
            "ntuple_events": {n: int(len(f)) for n, f in frames.items()},
            "ntuple_events_outside_denominator": {n: int(len(f.merge(den, on=KEY, how="left", indicator=True)
                                                            .query("_merge == 'left_only'"))) for n, f in frames.items()},

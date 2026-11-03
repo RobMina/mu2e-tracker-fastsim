@@ -241,6 +241,8 @@ def build_parser():
             sp.add_argument("--file-tables", default=None, help="directory of the per-file dumper tables sgsteps.<stem>.root")
             sp.add_argument("--ref", default="g4", help="reference arm name")
             sp.add_argument("--hits", action="store_true", help="also hit-level comparison (trkhits, same straw on both first tracks)")
+            sp.add_argument("--unbiased", action="store_true",
+                            help="denominator: drop events in which a non-primary particle passes the Signal/Calib windows")
             sp.add_argument("--self-pass", action="store_true",
                             help="denominator: only events whose primary passes the Signal/Calib windows on its own (--events steps)")
         if name == "field-compare":
@@ -262,6 +264,8 @@ def build_parser():
             sp.add_argument("--interior", action=argparse.BooleanOptionalAction, default=True,
                             help="support structure from the GDML (default on)")
             sp.add_argument("--max-events", type=int, default=None, help="first N events with a primary (quick checks)")
+            sp.add_argument("--unbiased-only", action="store_true",
+                            help="drop events in which a non-primary particle passes the sample's Signal/Calib windows")
             sp.add_argument("--self-pass-only", action="store_true",
                             help="only tracks whose own G4 steps pass the sample's Signal/Calib filter windows")
             sp.add_argument("--matched-straws", action="store_true",

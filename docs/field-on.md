@@ -98,7 +98,8 @@ per arm). The EventNtuple configuration needs the CentralHelix fit under `trk.fi
 | reco momentum - own first-straw momentum, median (sigma from the IQR) | 1-2 GeV/c +0.3 % (1.1 %) vs -0.1 % (1.1 %); 2-5 GeV/c +0.05 % (1.8 %) vs -0.2 % (1.8 %); > 5 GeV/c -0.3 % (6.2 %) vs -0.7 % (7.3 %) |
 
 On the same straws, hit edep is +2.2 % higher in the fast arm (mean; TOT +0.7 %), as the solid-branch density
-effect predicts for these mostly > 5 GeV/c tracks (`--gas-state gas` removes it at the step level); the steps differ by
+effect predicts for these mostly > 5 GeV/c tracks (the gas branch lowers the restricted loss by 1.5-2 % above 10
+GeV/c); the steps differ by
 35 um in wire DOCA (2-5 GeV/c, IQR) and below 1 ps in time. Geant4 all passages against first passage: yield -0.03 +- 0.03 %, hits
 -0.13 +- 0.07.
 

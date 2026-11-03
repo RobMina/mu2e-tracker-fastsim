@@ -12,7 +12,9 @@ import numpy as np
 from jax import lax
 
 from mu2efastsim import eloss, eloss_jax, materials, transport as tr
+from trkfastsim import devfloat as df
 from trkfastsim.sim import steps as st, steps_jax as sj
+df.register(__name__)   # follows the core device float when TRKFASTSIM_DEVICE_FLOAT=core
 
 WORLD_LANES = 16384
 KEY_WORLD = 17
@@ -28,7 +30,7 @@ def _p_after(p, loss):
     return jnp.sqrt(jnp.maximum((jnp.maximum(tk, 0) + eloss.MMU) ** 2 - eloss.MMU ** 2, 0))
 
 
-@jax.jit
+@df.jit
 def _band_segment(o, d, y_top, y_bot, y_plane, valid):
     L = (o[:, 1] - y_plane) / -d[:, 1]
     top = jnp.clip((o[:, 1] - y_top) / -d[:, 1], 0, L)
@@ -37,12 +39,12 @@ def _band_segment(o, d, y_top, y_bot, y_plane, valid):
     return o + d * top[:, None], seg, L - 0.5 * (top + bot)
 
 
-@jax.jit
+@df.jit
 def _max_hits(lo, hi, o, d, L, valid):
     return jnp.max(sj._box_hits(lo, hi, o, d, L, valid).sum(1), initial=0)
 
 
-@partial(jax.jit, static_argnames=("nm",))
+@partial(df.jit, static_argnames=("nm",))
 def _tiled_column(lo, hi, planes, mat, o, d, length, valid, nm):
     """Clip every piece in bounded tiles; int64 column sums are exact across tile boundaries."""
     ntiles = lo.shape[0]
@@ -64,12 +66,12 @@ def _tiled_column(lo, hi, planes, mat, o, d, length, valid, nm):
     return lax.fori_loop(0, ntiles, tile, jnp.zeros((len(o), nm), jnp.int64))
 
 
-@jax.jit
+@df.jit
 def _count_material(col, m):
     return jnp.sum(col[:, m] > 0)
 
 
-@partial(jax.jit, static_argnames=("C",))
+@partial(df.jit, static_argnames=("C",))
 def _material_pairs(col, m, p, lost, keys, C):
     hit = col[:, m] > 0
     idx = jnp.nonzero(hit, size=C, fill_value=0)[0]
@@ -78,12 +80,12 @@ def _material_pairs(col, m, p, lost, keys, C):
     return idx, valid, length, _p_after(p[idx], lost[idx]), _fold(keys[idx], m)
 
 
-@jax.jit
+@df.jit
 def _material_add(lost, idx, valid, dl):
     return lost.at[jnp.where(valid, idx, len(lost))].add(dl, mode="drop")
 
 
-@jax.jit
+@df.jit
 def _band_finish(MC, coeff, col, seg, p, before, lost):
     air = jnp.maximum(seg - col.sum(1), 0.0)
     ca = eloss_jax.MatConsts(*(f[-1] for f in MC))
@@ -96,7 +98,7 @@ def _band_finish(MC, coeff, col, seg, p, before, lost):
     x2 = columns * coeff[1] / pb2[:, None]
     chi = x2.sum(1)
     thw = (x2 * coeff[2] / pm[:, None]).sum(1)
-    thn = jnp.where(chi > 0, thw / jnp.maximum(chi, 1e-300), 1.0)
+    thn = jnp.where(chi > 0, thw / jnp.maximum(chi, df.TINY), 1.0)
     return lost, xx0, bp, chi, thn
 
 
@@ -134,7 +136,7 @@ def _compact_band_loss(MC, coeff, col, seg, p, lost, keys):
     return _band_finish(MC, coeff, col, seg, p, before, lost)
 
 
-@jax.jit
+@df.jit
 def _band_loss(MC, coeff, col, seg, p, lost, keys):
     """Sequential material loss, then mean air loss; no change to the core stop or slice policy."""
     before = lost
@@ -172,7 +174,7 @@ def _band_loss(MC, coeff, col, seg, p, lost, keys):
     x2 = columns * coeff[1] / pb2[:, None]
     chi = x2.sum(1)
     thw = (x2 * coeff[2] / pm[:, None]).sum(1)
-    thn = jnp.where(chi > 0, thw / jnp.maximum(chi, 1e-300), 1.0)
+    thn = jnp.where(chi > 0, thw / jnp.maximum(chi, df.TINY), 1.0)
     return lost, xx0, bp, chi, thn
 
 
@@ -186,7 +188,7 @@ def _tail(keys, chi, thmin, thn):
     maxcount = count.max(initial=0)
 
     def body(i, out):
-        u = jax.vmap(lambda k: jax.random.uniform(jax.random.fold_in(k, i + 1), (3,), jnp.float64))(keys)
+        u = jax.vmap(lambda k: jax.random.uniform(jax.random.fold_in(k, i + 1), (3,), df.FLOAT))(keys)
         th = 1 / jnp.sqrt(a - u[:, 0] * (a - b))
         keep = (i < count) & (u[:, 1] < (1 + (th / thn) ** 2) ** -4)
         ph = 2 * np.pi * u[:, 2]
@@ -195,7 +197,7 @@ def _tail(keys, chi, thmin, thn):
     return lax.fori_loop(0, maxcount, body, jnp.zeros((len(chi), 2)))
 
 
-@partial(jax.jit, static_argnames=("sliced", "spread", "tail", "tail_k"))
+@partial(df.jit, static_argnames=("sliced", "spread", "tail", "tail_k"))
 def _scatter(o, d, p0, lost, xx0, bh, bp, chi, thn, blen, keys, plane, sliced, spread, tail, tail_k):
     pw = _p_after(p0, lost)
     pm = jnp.maximum(jnp.sqrt(p0 * jnp.maximum(pw, 1.0)), 1.0)
@@ -221,7 +223,7 @@ def _scatter(o, d, p0, lost, xx0, bh, bp, chi, thn, blen, keys, plane, sliced, s
         syy = syy + stt * (w * blen ** 2).sum(1) / 12
     a = jnp.sqrt(stt)
     b = jnp.sqrt(jnp.maximum(syy - syt ** 2 / jnp.maximum(stt, 1e-30), 0))
-    z = jax.vmap(lambda k: jax.random.normal(k, (4,), jnp.float64))(_fold(keys, 0))
+    z = jax.vmap(lambda k: jax.random.normal(k, (4,), df.FLOAT))(_fold(keys, 0))
     dth = z[:, :2] * a[:, None]
     dy = z[:, :2] * (syt / jnp.maximum(a, 1e-30))[:, None] + z[:, 2:] * b[:, None]
     if tail:
@@ -242,16 +244,20 @@ def _scatter(o, d, p0, lost, xx0, bh, bp, chi, thn, blen, keys, plane, sliced, s
 class DeviceWorld:
     """Immutable packed BandedWorld with bounded dense box tests and exact convex clipping."""
 
-    def __init__(self, world, edges):
+    def __init__(self, world, edges, frame=None):
         self.edges = np.asarray(edges, float)
+        self.frame = np.zeros(3) if frame is None else np.asarray(frame, np.float64)   # kernel frame (float32 mode)
         if not isinstance(world, tr.BandedWorld):
             raise NotImplementedError("jax world transport requires a packed BandedWorld to preserve material order")
         if not np.array_equal(world.edges, self.edges):
             raise ValueError("world band edges do not match tracker plane")
+        self.kedges = self.edges - self.frame[1] if df.SINGLE else self.edges   # band edges in the kernel frame
         self.bands = []
         self.tiles = []
         for k, (top, bot) in enumerate(zip(self.edges[:-1], self.edges[1:])):
             ps = world.band(k)
+            plo, phi, pP = ((ps.lo - self.frame, ps.hi - self.frame, sj._shift_planes(ps.P, self.frame)) if df.SINGLE
+                            else (ps.lo, ps.hi, ps.P))
             mats = [materials.BY_NAME.get(m, materials.CONCRETE_MARS) for m in ps.mats] + [materials.AIR]
             cs = [eloss_jax.consts(m) for m in mats]
             mc = eloss_jax.MatConsts(*(jnp.asarray([getattr(c, f) for c in cs]) for f in eloss_jax.MatConsts._fields))
@@ -259,22 +265,22 @@ class DeviceWorld:
             coeff = jnp.asarray([1 / np.array([eloss.radiation_length_mm(m) for m in mats]),
                                  [0.157 * tr._zz_over_a(m, False) * m.rho * 0.1 for m in mats],
                                  np.sqrt(20) * tr.HBARC_MEV_FM / (tr.R_NUCLEUS_FM * a13)])
-            arrays = tuple(jnp.asarray(x) for x in (ps.lo, ps.hi, ps.P, ps.mat))
-            self.bands.append((arrays, mc, coeff, len(ps.mats)))
+            arrays = tuple(jnp.asarray(x) for x in (plo, phi, pP, ps.mat))
+            self.bands.append(df.dev((arrays, mc, coeff, len(ps.mats))))   # device float once, not per call
             padded = (len(ps) + PIECE_TILE - 1) // PIECE_TILE * PIECE_TILE
             pad = padded - len(ps)
-            lo = np.pad(ps.lo, ((0, pad), (0, 0)), constant_values=1e30)
-            hi = np.pad(ps.hi, ((0, pad), (0, 0)), constant_values=1e30)
-            planes = np.pad(ps.P, ((0, pad), (0, 0), (0, 0)))
+            lo = np.pad(plo, ((0, pad), (0, 0)), constant_values=1e30)
+            hi = np.pad(phi, ((0, pad), (0, 0)), constant_values=1e30)
+            planes = np.pad(pP, ((0, pad), (0, 0), (0, 0)))
             mi = np.pad(ps.mat, (0, pad), constant_values=len(ps.mats))
-            self.tiles.append(tuple(jnp.asarray(v.reshape((padded // PIECE_TILE, PIECE_TILE) + v.shape[1:]))
-                                    for v in (lo, hi, planes, mi)))
+            self.tiles.append(df.dev(tuple(jnp.asarray(v.reshape((padded // PIECE_TILE, PIECE_TILE) + v.shape[1:]))
+                                           for v in (lo, hi, planes, mi))))
 
     def column(self, k, o, d, L, valid):
         _, _, _, nm = self.bands[k]
         if not nm:
             return jnp.zeros((len(o), 0))
-        return _tiled_column(*self.tiles[k], o, d, L, valid, nm) / sj.QSCALE[0]
+        return (_tiled_column(*self.tiles[k], o, d, L, valid, nm) / sj.QSCALE[0]).astype(df.FLOAT)
 
     def transport(self, key, o, d, p, indices=None, sliced=True, spread=False, tail=True, tail_k=None, lanes=None):
         lanes = lanes or min(sj.LANES, WORLD_LANES)
@@ -283,30 +289,32 @@ class DeviceWorld:
             raise ValueError("one world key index is required per muon")
         if not len(p):
             return o.copy(), d.copy(), p.copy(), np.zeros(0), np.zeros(0, bool)
+        o = o - self.frame if df.SINGLE else o
         outputs = []
         for start in range(0, len(p), lanes):
             n = min(lanes, len(p) - start)
             B = sj._bucket(n, 64, lanes)
             sl = slice(start, start + n)
-            oo = jnp.asarray(np.pad(o[sl], ((0, B - n), (0, 0))))
-            dd = jnp.asarray(np.vstack([d[sl], np.tile([0.0, -1.0, 0.0], (B - n, 1))]))
-            pp = jnp.asarray(np.pad(p[sl], (0, B - n), constant_values=1000.0))
+            oo = jnp.asarray(df.dev(np.pad(o[sl], ((0, B - n), (0, 0)))))      # device float on the host, once
+            dd = jnp.asarray(df.dev(np.vstack([d[sl], np.tile([0.0, -1.0, 0.0], (B - n, 1))])))
+            pp = jnp.asarray(df.dev(np.pad(p[sl], (0, B - n), constant_values=1000.0)))
             valid = jnp.arange(B) < n
             ix = jnp.asarray(np.pad(indices[sl], (0, B - n)).astype(np.uint32))
             keys = jax.vmap(lambda i: jax.random.fold_in(jax.random.fold_in(key, KEY_WORLD), i))(ix)
-            lost = jnp.zeros(B)
+            lost = jnp.zeros(B, df.FLOAT)
             bands = []
-            for k, (top, bot) in enumerate(zip(self.edges[:-1], self.edges[1:])):
-                origin, length, height = _band_segment(oo, dd, top, bot, self.edges[-1], valid)
+            for k, (top, bot) in enumerate(zip(self.kedges[:-1], self.kedges[1:])):
+                origin, length, height = _band_segment(oo, dd, top, bot, self.kedges[-1], valid)
                 col = self.column(k, origin, dd, length, valid)
                 _, mc, coeff, _ = self.bands[k]
                 lost, xx0, bp, chi, thn = _compact_band_loss(mc, coeff, col, length, pp, lost, _fold(keys, k))
                 bands.append((xx0, height, bp, chi, thn, length))
             arrays = [jnp.stack([b[i] for b in bands], 1) for i in range(6)]
-            result = _scatter(oo, dd, pp, lost, *arrays, _fold(keys, len(bands)), self.edges[-1],
+            result = _scatter(oo, dd, pp, lost, *arrays, _fold(keys, len(bands)), self.kedges[-1],
                               sliced, spread, tail, tail_k)
-            outputs.append(tuple(np.asarray(v)[:n] for v in result))
-        return tuple(np.concatenate([v[i] for v in outputs]) for i in range(5))
+            outputs.append(tuple(df.host(v)[:n] for v in result))
+        out = tuple(np.concatenate([v[i] for v in outputs]) for i in range(5))
+        return (out[0] + self.frame,) + out[1:] if df.SINGLE else out
 
 
 def to_plane(gen, geom, key, world, sliced_msc=False, near_margin=st.FOOTPRINT_MARGIN, msc_tail=True,
@@ -324,7 +332,7 @@ def to_plane(gen, geom, key, world, sliced_msc=False, near_margin=st.FOOTPRINT_M
     if near.any():
         dev = getattr(world, "_tracker_jax_world", None)
         if dev is None:
-            dev = DeviceWorld(world, edges)
+            dev = DeviceWorld(world, edges, df.frame_of(geom.mid))
             if hasattr(world, "__dict__"):
                 world._tracker_jax_world = dev
         if not np.array_equal(dev.edges, edges):

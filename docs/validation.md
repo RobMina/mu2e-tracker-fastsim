@@ -54,6 +54,22 @@ Samples: `g4ref_v1` = the Geant4 reference of the extracted (KPP) configuration 
 The paired per-shard rows use one rule for every histogram: the variance of the per-subrun difference, a sign-flip
 null and a family-wise 1 % limit per comparison ([shard-statistics.md](shard-statistics.md)).
 
+## Device precision
+
+float32 opt-in (`TRKFASTSIM_DEVICE_FLOAT=core`, [device-precision.md](device-precision.md)) against the float64
+default. JAX steps and digis on the CPU; `g4ref_v2`-generation even shards 22-220 (5 M generated events, 20 subruns, 100
+event-number shards); digis of every arm on the same float64 JAX steps; paired per-shard statistic, family-wise 1 %.
+"Arithmetic only" draws the digitiser's random numbers in float64 and rounds them (`TRKFASTSIM_DRAW64=1`).
+
+| Check | Reference | Metric | Result | Null (float64 seed 2 vs seed 1) | Verdict | Date | Commit |
+|---|---|---|---|---|---|---|---|
+| default unchanged | the code before the setting | JAX steps (CLI), JAX digis (CLI), device-chain stage digests | identical, under core float32 and core float64 | | pass | 2026-11-02 | `8351848` |
+| steps, float32 | float64 JAX steps | 17 step histograms; rate; primary-muon steps | 0 flagged; +0.09 +- 1.15 %; +0.08 +- 1.24 % | 0 flagged; -0.75 +- 1.08 % | pass | 2026-11-02 | `8351848` |
+| digis, float32 | float64 JAX digis, same steps | 19 digi, hit and F2 histograms; digis per event; F2 fits per event | 0 flagged; +0.08 +- 0.08 %; +0.15 +- 0.24 % | 0 flagged; +0.27 +- 0.11 %; -0.04 +- 0.30 % | pass | 2026-11-02 | `8351848` |
+| digis, float32, arithmetic only | as above, same seed | as above; digis with another TDC / ADC sample | 0 flagged; +0.013 +- 0.013 %; -0.04 +- 0.03 %; TDC 0.8-1.2 % of digis (at most 4 counts), ADC 0.01-0.02 % of samples (1 count) | | pass | 2026-11-02 | `8351848` |
+| hits, combos, seeds, F2 | | precision | unchanged: stock precision (hits, combos, seeds), float64 (F2) at both settings | | by construction | 2026-11-02 | `8351848` |
+| JAX float64 vs NumPy (for scale) | float64 JAX | steps rate; digis per event | +1.19 +- 1.14 %; +0.26 +- 0.12 % (0 flagged each) | | | 2026-11-02 | `8351848` |
+
 ## Performance
 
 | Goal | Target | Result |

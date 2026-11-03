@@ -45,6 +45,7 @@ EDGES = {
     "straw/eion_keV": KEV_STRAW, "straw/eion_mu_keV": KEV_STRAW, "straw/eion_seconly_keV": KEV_STRAW,
     "straw/eion_muonly_keV": KEV_STRAW, "straw/nsteps": np.arange(1, 22) - 0.5,
     "straw/occupancy": np.arange(216 * 96 + 1) - 0.5,
+    "straw/len_muonly_mm": LEN, "straw/eion_per_mm_muonly": np.linspace(0.0, 2.0, 101),
     "fit/fits_per_event": np.arange(0, 7) - 0.5, "fit/nactive": np.arange(0, 81) - 0.5,
     "fit/chi2ndf": np.linspace(0.0, 10.0, 101),
 }
@@ -183,9 +184,9 @@ def steps_arm(paths, arm, outdir, batches=1):
         ws = sec[T.KEY].merge(w.rename("w").reset_index(), on=T.KEY, how="left").w.to_numpy()
         ws = np.where(np.isnan(ws), NWIDTH - 1, np.minimum(ws, NWIDTH - 1))
         H.fill("sec/place_by_width", sec.si, place * NWIDTH + ws)
-        st = s.groupby(T.KEY + ["sid"], sort=False).agg(si=("si", "first"), e=("eion", "sum"), n=("mu", "size"),
-                                                        nmu=("mu", "sum"), upanel=("upanel", "first"),
-                                                        straw=("straw", "first"))
+        st = s.assign(mulen=np.where(m, s.len.to_numpy(), 0.0)).groupby(T.KEY + ["sid"], sort=False).agg(
+            si=("si", "first"), e=("eion", "sum"), n=("mu", "size"), nmu=("mu", "sum"), upanel=("upanel", "first"),
+            straw=("straw", "first"), mulen=("mulen", "sum"))
         ek = 1e3 * st.e.to_numpy()
         hasmu = st.nmu.to_numpy() > 0
         H.fill("straw/eion_keV", st.si, ek)
@@ -193,6 +194,10 @@ def steps_arm(paths, arm, outdir, batches=1):
         H.fill("straw/eion_seconly_keV", st.si[~hasmu], ek[~hasmu])
         only = hasmu & (st.n.to_numpy() == st.nmu.to_numpy())
         H.fill("straw/eion_muonly_keV", st.si[only], ek[only])
+        # muon-only straws: muon path length in the straw and eIon per mm (chord vs energy-loss draw)
+        ln = st.mulen.to_numpy()
+        H.fill("straw/len_muonly_mm", st.si[only], ln[only])
+        H.fill("straw/eion_per_mm_muonly", st.si[only], ek[only] / np.maximum(ln[only], 1e-6))
         H.fill("straw/nsteps", st.si, st.n)
         H.fill("straw/occupancy", st.si, st.upanel.to_numpy() * 96 + st.straw.to_numpy())
     return H.save(outdir, arm, {"kind": "steps", "inputs": [os.path.basename(p) for p in paths], "selected_events": nsel,

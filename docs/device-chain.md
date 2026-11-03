@@ -88,12 +88,20 @@ Repeat passes are byte-identical on every device.
 |---|---:|---:|
 | one Xeon Gold 6248 core, all NumPy | 3,030 | 16.5 s (steps 12.4, digis 2.2, seeds 1.6, F2 0.3) |
 | 40-core Xeon Gold 6248 node, 40 NumPy processes | 111,500 | |
-| A100-SXM4-80GB, device chain | 14,270 | 3.5 s (steps 2.9, digis 0.5) |
-| RTX PRO 6000 MIG 1g.24gb slice, device chain | 22,160 | 2.3 s (steps 1.8, digis 0.5) |
+| A100-SXM4-80GB, device chain before the unrolled sampler | 14,270 | 3.5 s (steps 2.9, digis 0.5) |
+| RTX PRO 6000 MIG 1g.24gb slice, before the unrolled sampler | 22,160 | 2.3 s (steps 1.8, digis 0.5) |
+| RTX PRO 6000 MIG 1g.24gb slice, device chain | 29,150 | 1.7 s (steps 1.2, digis 0.46) |
 
-The first table costs 490 s on the A100 and 223 s on the MIG slice (compilation; a persistent JAX compilation cache
-keeps it for the next process of the same code on the same device kind); later tables add 0-19 small compilations.
-Device memory peaks at 1.9 GB; host RSS 4-6 GB.
+On the MIG slice the stream of 20 new tables (every pass after the first, compiled kernels loaded from a persistent
+cache) runs at 22,000 events/s: tables with new kernel shapes add 1-8 s of compilation. The first table costs 490 s
+on the A100 and 223 s on the slice before the unrolled sampler, 667 s on the slice with it (compilation, paid once per
+code and device kind with a persistent JAX compilation cache). Device memory peaks at 2.0 GB; host RSS 5-7 GB.
+
+**Device work per table** (MIG slice, profiler trace of one warm pass): before the unrolled sampler 612 k device
+events (540 k kernels), the device busy 1.6 s of a 3.0 s pass and 3.5 s of host time in XLA `while` thunks; with it
+210 k device events (151 k kernels), busy 1.2 s of 2.0 s, 1.3 s in `while` thunks. Copies per table: about 6.8 k
+device-to-host (nearly all of at most 64 bytes: loop predicates and work-list counts), 1.3 k host-to-device, 51 k
+device-to-device.
 
 ## Limits
 

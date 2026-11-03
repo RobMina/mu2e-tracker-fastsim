@@ -14,7 +14,7 @@ from trkfastsim.validation import digicmp
 from trkfastsim.digi import fastdigi
 from trkfastsim.validation import seccensus
 from trkfastsim.validation import shardhist, shardstats
-from trkfastsim.validation import fieldcompare
+from trkfastsim.validation import fieldcompare, fieldreco
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -35,6 +35,7 @@ ANALYSES = {
     "jaxcheck": (jaxcheck.run, "steps --backend jax against numpy on the same primaries: statistics, paired PrimaryFilter, reproducibility, timing"),
     "digi-cond": (fastdigi.run_cond, "fast digitisation conditions (.npz) from the stock job's fhicl-dump, DB CSVs and the GDML"),
     "digi": (fastdigi.run_digi, "fast digitisation (port of StrawDigisFromStrawGasSteps): step tables -> StrawHitTableDumper-layout digi tables"),
+    "field-reco": (fieldreco.run, "stock KKCHmu reco on injected field-on steps: arms (NAME=DIR of nts files) paired per event against --ref (yield, hits, fit quality, momentum)"),
     "field-compare": (fieldcompare.run, "field-on primary StrawGasSteps: fast chord transport (sim.fieldsteps) vs G4, restarted from the G4 tracker-VD entry state"),
     "digicmp": (digicmp.run, "fast vs stock digis on the same steps: digis/event, occupancy, TDC/TOT/PMP, dt, hit reco and combo hits, with a reseeded stock floor"),
     "shardhist": (shardhist.run, "per-shard (subrun) histograms of one arm: steps, digis, hit reco, fits; input of shardstats"),
@@ -235,6 +236,9 @@ def build_parser():
             sp.add_argument("--alpha", type=float, default=0.01, help="family-wise rate per comparison")
             sp.add_argument("--detail", nargs="+", default=None, metavar="KEY", help="per-bin ratio and pull of these keys")
             sp.add_argument("--detail-min-pull", type=float, default=0.0, help="print only bins with |pull| >= this")
+        if name == "field-reco":
+            sp.add_argument("--events", default=None, help="injector table (sgsteps tree) whose events are the denominator")
+            sp.add_argument("--ref", default="g4", help="reference arm name")
         if name == "field-compare":
             sp.add_argument("--gdml", required=True, help="GDML world export of the sample's geometry (straws, support)")
             sp.add_argument("--species", type=int, default=13, choices=[11, 13], help="MC primary |pdg| (13 muons, 11 electrons)")

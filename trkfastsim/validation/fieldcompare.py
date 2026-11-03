@@ -163,6 +163,39 @@ def _mpv(x):
         return [float(np.median(x)), float("nan")]
 
 
+DROP_MEV = 10.0                    # big_drops: a |p| drop between consecutive straws above this
+DROP_R_EDGES = np.array([0.0, 380.0, 500.0, 600.0, 700.0, 800.0, 900.0])
+DROP_Z_EDGES = np.array([-1700.0, -1600.0, -800.0, 0.0, 800.0, 1600.0, 1700.0])
+
+
+def big_drops(g4, fast, ent, p_min=1000.0):
+    """Where tracks above p_min lose more than DROP_MEV between two consecutive straws (time order), per arm: the
+    fraction of tracks with such a drop, the summed drop per track, and counts of the drops in (r, z) cells of the
+    midpoint between the two straws (detector frame: r about the tracker axis, z along it). Locates material that
+    one arm crosses and the other does not."""
+    key = T.KEY + ["sp"]
+    pe = ent[key + ["px", "py", "pz"]].assign(pent=lambda d: np.sqrt(d.px ** 2 + d.py ** 2 + d.pz ** 2))
+    sel = pe[pe.pent >= p_min][key]
+    out = {"p_min_MeV": p_min, "drop_MeV": DROP_MEV, "r_edges": DROP_R_EDGES.tolist(), "z_edges": DROP_Z_EDGES.tolist()}
+    for name, st_ in (("g4", g4), ("fast", fast)):
+        s = st_.merge(sel, on=key).sort_values(key + ["t"])
+        p = np.sqrt(s.px ** 2 + s.py ** 2 + s.pz ** 2).to_numpy()
+        same = np.r_[False, (s[key].to_numpy()[1:] == s[key].to_numpy()[:-1]).all(1)]
+        dp = np.r_[np.nan, p[:-1] - p[1:]]
+        big = same & (dp > DROP_MEV)
+        mx = 0.5 * (s.x1.to_numpy()[:-1] + s.x0.to_numpy()[1:])
+        my = 0.5 * (s.y1.to_numpy()[:-1] + s.y0.to_numpy()[1:])
+        mz = 0.5 * (s.z1.to_numpy()[:-1] + s.z0.to_numpy()[1:])
+        r, z = np.r_[np.nan, np.hypot(mx, my)], np.r_[np.nan, mz]
+        ntrk = int(len(s[key].drop_duplicates()))
+        tb = s[big][key].drop_duplicates()
+        h, _, _ = np.histogram2d(r[big], z[big], [DROP_R_EDGES, DROP_Z_EDGES])
+        out[name] = {"tracks": ntrk, "tracks_with_drop": int(len(tb)), "fraction": float(len(tb) / max(ntrk, 1)),
+                     "drops": int(big.sum()), "summed_drop_MeV_per_track": float(dp[big].sum() / max(ntrk, 1)),
+                     "cells_r_by_z": h.astype(int).tolist()}
+    return out
+
+
 def compare(g4, fast, ent, final, geom):
     """Summary dict of the paired comparison (g4/fast: primary sgsteps after the entry; ent: entry states)."""
     key = T.KEY + ["sp"]
@@ -225,6 +258,7 @@ def compare(g4, fast, ent, final, geom):
                          "entry_p_median": float(np.median(pent[k])),
                          "dexit_mm_median": float(np.median(dexit[k]))})
     out["last_straw"]["by_entry_p"] = bins
+    out["big_drops"] = big_drops(g4, fast, ent)
     # entry-to-first-straw time
     g1 = g4.sort_values("t").groupby(key).first().reset_index()[key + ["sid", "t"]]
     f1 = fast.sort_values("t").groupby(key).first().reset_index()[key + ["sid", "t"]]

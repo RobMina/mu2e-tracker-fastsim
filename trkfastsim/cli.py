@@ -13,7 +13,7 @@ from trkfastsim.validation import jaxcheck
 from trkfastsim.validation import digicmp
 from trkfastsim.digi import fastdigi
 from trkfastsim.validation import seccensus
-from trkfastsim.validation import hybridpaste, selfpaste, shardhist, shardstats
+from trkfastsim.validation import hybridpaste, selfpaste, shardhist, shardstats, yieldpairs
 from trkfastsim.validation import fieldcompare, fieldreco
 
 ANALYSES = {
@@ -41,6 +41,7 @@ ANALYSES = {
     "shardhist": (shardhist.run, "per-shard (subrun) histograms of one arm: steps, digis, hit reco, fits; input of shardstats"),
     "selfpaste": (selfpaste.run, "closure of the off-axis paster: each Geant4 event's own off-axis secondaries pasted back onto its own muon"),
     "hybridpaste": (hybridpaste.run, "diagnostic: Geant4 primary muons with library secondaries pasted as steps --library does (secondary vs muon part)"),
+    "yieldpairs": (yieldpairs.run, "diagnostic: paired KKLine yield difference of two arms with the same selection, by track transition and digi difference"),
     "shardstats": (shardstats.run, "paired per-shard statistic: batch variance, sign-flip null, family-wise limits, sizes; split-shard null"),
 }
 BATCHABLE = {"refcheck"}
@@ -214,6 +215,12 @@ def build_parser():
             if name == "tv2compare":
                 sp.add_argument("--paired", action="store_true",
                                 help="both arms on the same CRY primaries: split the yield difference into selection-only and both-selected parts")
+        if name == "yieldpairs":
+            sp.add_argument("--compare", nargs="+", required=True, metavar="ROOT", help="reference-arm EventNtuples")
+            sp.add_argument("--steps", nargs="+", required=True, metavar="ROOT", help="candidate step tables")
+            sp.add_argument("--steps-ref", nargs="+", required=True, metavar="ROOT", help="reference step tables")
+            sp.add_argument("--hits", nargs="+", required=True, metavar="ROOT", help="candidate StrawHitTableDumper tables")
+            sp.add_argument("--hits-ref", nargs="+", required=True, metavar="ROOT", help="reference StrawHitTableDumper tables")
         if name == "digi-cond":
             sp.add_argument("--preamp", default=None, metavar="CSV", help="TrkPreampStraw content (dbTool print-run ... --content)")
             sp.add_argument("--align", default=None, metavar="CSV", help="TrkAlignStrawSim content (wire-end offsets of alignedTrackerSim)")

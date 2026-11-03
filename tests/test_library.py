@@ -282,3 +282,36 @@ def test_instraw_fine_length_keys_long_chords_apart():
     assert set(np.unique(x1)) == {1} and len(s1) == 3 * n
     x2, _ = L.InStrawSampler(lib, np.random.default_rng(2), fine_length=True).draw(np.array([3000.0]), np.array([9.5]))
     assert x2[0] == 0
+
+
+def test_no_mirror_drops_steps_beyond_the_lattice():
+    """A fast muon in plane 35, straw 94: a step at +1 plane is mirrored to plane 34 by default, one at +3 straws to
+    straw 93; with the opt-ins each is dropped instead (off the lattice)."""
+    from trkfastsim import geometry as G
+    from trkfastsim.sim import steps as S
+    n = 36 * 6 * 96
+    up = np.repeat(np.arange(36 * 6), 96)
+    g = G.StrawGeometry(plane=up // 6, panel=up % 6, straw=np.tile(np.arange(96), 216), mid=np.zeros((n, 3)),
+                        dir=np.tile([1.0, 0, 0], (n, 1)), halflen=np.full(n, 500.0), radius=2.5085,
+                        panel_R=np.tile(np.eye(3), (216, 1, 1)), panel_t=np.zeros((216, 3)),
+                        plane_R=np.tile(np.eye(3), (36, 1, 1)), plane_t=np.zeros((36, 3)))
+    steps = pd.DataFrame([{"run": 1400, "subrun": 1, "event": 1, "nsgs": 1, "sid": int(G.straw_id(35, 2, 94)),
+                           "plane": 35, "panel": 2, "straw": 94, "upanel": 212, "shape": 0, "ion": 0, "sp": 1,
+                           "eion": 1e-3, "len": 4.0, "width": 0.0, "t": 10.0, "x0": 0.0, "y0": 0.0, "z0": 0.0,
+                           "x1": 0.0, "y1": 0.0, "z1": 0.0, "px": 0.0, "py": -3000.0, "pz": 0.0}])
+    parts = pd.DataFrame({"run": [1400], "subrun": [1], "event": [1], "key": [1], "parent": [-1], "pdg": [13],
+                          "isprim": [1], "ismcprim": [1]})
+    ev = pd.DataFrame({"run": [1400], "subrun": [1], "event": [7], "p": [3000.0], "ux": [0.0], "uy": [-1.0], "uz": [0.0],
+                       "plane_min": [35], "plane_max": [35], "nstraw_mu": [1]})
+    ev["pbin"] = np.digitize(ev.p, L.P_BINS) - 1
+    off = pd.DataFrame({"run": 1400, "subrun": 1, "event": [7, 7], "eion": 2e-3, "len": 2.0, "ion": 1, "shape": 0,
+                        "pdg": 11, "sp": [9, 10], "k": 0, "dpl": [1, 0], "dpa": 0, "dst": [0, 3], "dt": [0.5, 0.6]})
+    lib = {"events": ev, "offaxis": off}
+    out, _, st = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler(lib, np.random.default_rng(1)), g)
+    assert sorted(out[out.sp != 1][["plane", "straw"]].values.tolist()) == [[34, 94], [35, 93]]
+    assert (st["reflected_plane"], st["reflected_straw"]) == (1, 1)
+    for kw, left in (({"no_plane_mirror": True}, [[35, 93]]), ({"no_straw_mirror": True}, [[34, 94]]),
+                     ({"no_plane_mirror": True, "no_straw_mirror": True}, [])):
+        out, _, st = S.add_offaxis_secondaries(steps, parts, L.OffAxisSampler(lib, np.random.default_rng(1), **kw), g)
+        assert out[out.sp != 1][["plane", "straw"]].values.tolist() == left
+        assert st["off_lattice"] == 2 - len(left)

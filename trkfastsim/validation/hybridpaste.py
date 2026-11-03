@@ -46,7 +46,8 @@ def primary_muons(path):
 
 
 def run(inputs, outdir, gdml=None, library=None, library_from=None, seed=1, no_offaxis=False, library_drop_muons=False,
-        offaxis_plane_sign=False, offaxis_shift_from_muon=False, instraw_fine_length=False, **kw):
+        offaxis_plane_sign=False, offaxis_shift_from_muon=False, instraw_fine_length=False, offaxis_no_plane_mirror=False,
+        offaxis_no_straw_mirror=False, **kw):
     from trkfastsim.sim.run import default_gdml
     if (library is None) == (library_from is None):
         raise SystemExit("pass exactly one of --library and --library-from")
@@ -67,7 +68,9 @@ def run(inputs, outdir, gdml=None, library=None, library_from=None, seed=1, no_o
                                fine_length=instraw_fine_length)
         off = None if no_offaxis else L.OffAxisSampler(lib, np.random.default_rng([int(seed), i, 2]),
                                                          drop_muons=library_drop_muons, plane_sign=offaxis_plane_sign,
-                                                         shift_from_muon=offaxis_shift_from_muon)
+                                                         shift_from_muon=offaxis_shift_from_muon,
+                                                         no_plane_mirror=offaxis_no_plane_mirror,
+                                                         no_straw_mirror=offaxis_no_straw_mirror)
         stats = {}
         if off is not None:
             steps, parts, stats = S.add_offaxis_secondaries(steps, parts, off, geom)
@@ -82,7 +85,8 @@ def run(inputs, outdir, gdml=None, library=None, library_from=None, seed=1, no_o
             "library_from": [os.path.basename(p) for p in T.expand(library_from)] if library_from else None,
             "options": {"no_offaxis": no_offaxis, "library_drop_muons": library_drop_muons,
                         "offaxis_plane_sign": offaxis_plane_sign, "offaxis_shift_from_muon": offaxis_shift_from_muon,
-                        "instraw_fine_length": instraw_fine_length}, "files": log}
+                        "instraw_fine_length": instraw_fine_length, "offaxis_no_plane_mirror": offaxis_no_plane_mirror,
+                        "offaxis_no_straw_mirror": offaxis_no_straw_mirror}, "files": log}
     with open(os.path.join(outdir, "hybridpaste.json"), "w") as fh:
         json.dump(meta, fh, indent=1, default=int)
     return meta

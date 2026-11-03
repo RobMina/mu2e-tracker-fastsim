@@ -144,7 +144,12 @@ def compare(d, ref, arm):
     out["p_reco_same_surface"] = {"events": int(len(same)), "diff_MeV": _me(same[f"{arm}_p_reco"] - same[f"{ref}_p_reco"]),
                                   "residual_MeV": {arm: _me(ra), ref: _me(rr), "diff": _me(ra - rr)},
                                   "residual_robust": {arm: _robust(ra), ref: _robust(rr)},
-                                  "rel_residual_robust": {arm: _robust(ra / ta), ref: _robust(rr / tr)},
+                                  "rel_residual_robust": {arm: _robust(ra / ta), ref: _robust(rr / tr),
+                                                          "diff": _robust(ra / ta - rr / tr)},
+                                  "rel_residual_within_10pc": {arm: _me(np.abs(ra / ta) < 0.1),
+                                                               ref: _me(np.abs(rr / tr) < 0.1),
+                                                               "diff": _me((np.abs(ra / ta) < 0.1).astype(float)
+                                                                           - (np.abs(rr / tr) < 0.1))},
                                   "truth": "p_first" if "p_first" in same else "trksegsmc"}
     pt = d["p_first"].to_numpy() if "p_first" in d else d[f"{ref}_p_true"].where(ir, d[f"{arm}_p_true"]).to_numpy()
     bins = []

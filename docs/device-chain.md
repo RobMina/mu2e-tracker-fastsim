@@ -42,6 +42,16 @@ reconstruction.
   an A100), and on CPU the accumulating executables exhaust the process memory maps after one or two tables.
   Padding lanes are inert, but the compiled code differs, so step floats move at the 1e-6 mm level; digis were
   identical on the table checked.
+- **Unrolled loss sampler (opt-in, identical).** `steps_jax.SAMPLER_UNROLL` (default off; the device chain turns it
+  on) passes `unroll=True` to the core energy-loss sampler inside the slab loop: its fixed-trip Poisson and Gamma
+  loops are unrolled at trace time instead of running as device loops. On a GPU each trip of a loop nested in an
+  iterated kernel is its own launch (about 28 per slab slice); unrolled, a slice is one kernel. Same keys and
+  arithmetic: all seven stage digests are unchanged on an MIG slice. Warm steps time per table 1.8 -> 1.27 s; the
+  first-table compilation grows from 223 to 667 s on the slice.
+- **Other step options (opt-in, not used).** `steps_jax.SLICE_ROUNDS >= N_SLICES_MAX` (slab loss in one device call
+  per material), `steps_jax.SLAB_UNROLL` (slices per loop iteration) and `world_jax.SYNC_FREE_PAIRS` (no host count
+  per world material) remove host synchronisations but were not faster on an MIG slice, with or without the unrolled
+  sampler, and triple the compile time.
 
 ## Measuring
 
@@ -87,11 +97,13 @@ Device memory peaks at 1.9 GB; host RSS 4-6 GB.
 
 ## Limits
 
-- The GPU stages are host-driven: the slab energy-loss sampler runs as `lax.while_loop`s with inner fixed-trip loops,
-  which XLA executes on a GPU as host-driven loops (one predicate copy and a few small kernels per iteration); a table
-  takes about 0.5 M device events and 12 k device-to-host copies, nearly all of at most 64 bytes. The device is busy
-  about half of the pass. XLA loop unrolling and command buffers did not help. A device-resident sampler is the next
-  step, not done here.
+- The GPU stages are host-driven: the slab loop is a `lax.while_loop`, which XLA executes on a GPU as a host-driven
+  loop (one predicate copy and a few small kernels per iteration). Before the unrolled sampler a table took about
+  0.5 M device events and 12 k device-to-host copies, nearly all of at most 64 bytes, with the device busy about half
+  of the pass. XLA's own loop unrolling and command buffers did not help. More processes on one MIG slice add 12 %
+  at most: the slice is bound by the serial chain of small kernels.
+- The unrolled sampler compiles about three times longer; a persistent compilation cache makes that a once-per-code
+  cost per device kind.
 - Host work that stays on the host: generator selection, DataFrame assembly, the digitiser's packing between its
   kernels.
 - Identity: see [limitations.md](limitations.md) (device chain, NumPy across host CPU types).

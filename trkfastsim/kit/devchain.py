@@ -83,11 +83,10 @@ def panel_hits(sh, backend, settings="mc"):
 
 
 # JAX step-kernel settings of this chain (module attributes, set for the call and restored): fewer compiled shapes
-# (SHAPE_GROWTH), slab loss in one device call per material (SLICE_ROUNDS >= N_SLICES_MAX) and no host count per
-# world material (SYNC_FREE_PAIRS). Their step floats differ from the steps --backend jax defaults at rounding level.
-DEVICE_STEP_SETTINGS = {"steps_jax.SHAPE_GROWTH": 8, "steps_jax.SLICE_ROUNDS": 256, "steps_jax.SLAB_UNROLL": 8,
-                        "steps_jax.SAMPLER_UNROLL": True,
-                        "world_jax.SYNC_FREE_PAIRS": True}
+# (SHAPE_GROWTH; step floats differ from the steps --backend jax defaults at rounding level) and the loss sampler's
+# fixed-trip loops unrolled inside the slab loop (SAMPLER_UNROLL; same outputs, fewer device launches). SLICE_ROUNDS,
+# SLAB_UNROLL and world_jax.SYNC_FREE_PAIRS stay opt-in: slower on an MIG slice, with three times the compile time.
+DEVICE_STEP_SETTINGS = {"steps_jax.SHAPE_GROWTH": 8, "steps_jax.SAMPLER_UNROLL": True}
 DEVICE_SHAPE_GROWTH = DEVICE_STEP_SETTINGS["steps_jax.SHAPE_GROWTH"]
 
 

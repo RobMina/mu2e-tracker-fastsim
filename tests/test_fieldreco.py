@@ -31,7 +31,7 @@ def test_paired_yield_and_hits():
     assert c["nactive"]["diff"][2] == int(both.sum())
     assert abs(c["nactive"]["diff"][0] + 1.0) < 5 * c["nactive"]["diff"][1]
     r = c["p_reco_same_surface"]
-    assert r["truth"] == "p_first" and abs(r["residual_MeV"]["diff"][0]) < 1e-9
+    assert r["truth"]["fast"] == "reference first straw" and abs(r["residual_MeV"]["diff"][0]) < 1e-9
     assert sum(b["events"] for b in c["by_true_p"]) <= len(d)
 
 

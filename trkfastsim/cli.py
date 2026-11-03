@@ -241,6 +241,8 @@ def build_parser():
             sp.add_argument("--file-tables", default=None, help="directory of the per-file dumper tables sgsteps.<stem>.root")
             sp.add_argument("--ref", default="g4", help="reference arm name")
             sp.add_argument("--hits", action="store_true", help="also hit-level comparison (trkhits, same straw on both first tracks)")
+            sp.add_argument("--arm-tables", nargs="+", default=None, metavar="NAME=TABLE",
+                            help="each arm's own injector table: its first-straw |p| is that arm's truth")
             sp.add_argument("--dump-events", action="store_true", help="also write the per-event frame (events.csv.gz)")
             sp.add_argument("--unbiased", action="store_true",
                             help="denominator: drop events in which a non-primary particle passes the Signal/Calib windows")

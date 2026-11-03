@@ -177,8 +177,12 @@ def compare(d, ref, arm):
     out["fitcon_below_1e-3"] = {arm: _me(both[f"{arm}_fitcon"] < 1e-3), ref: _me(both[f"{ref}_fitcon"] < 1e-3)}
     same = both[both[f"{arm}_sid"] == both[f"{ref}_sid"]]
     # truth: the reference |p| at the first straw of the injector table (same for every arm), else trksegsmc per arm
-    ta = same["p_first"] if "p_first" in same else same[f"{arm}_p_true"]
-    tr = same["p_first"] if "p_first" in same else same[f"{ref}_p_true"]
+    # truth per arm: that arm's own |p| at its first straw (--arm-tables), else the reference table's, else trksegsmc
+    def truth(n):
+        for c in (f"{n}_p_first_own", "p_first", f"{n}_p_true"):
+            if c in same:
+                return same[c]
+    ta, tr = truth(arm), truth(ref)
     ra = same[f"{arm}_p_reco"] - ta
     rr = same[f"{ref}_p_reco"] - tr
     out["p_reco_same_surface"] = {"events": int(len(same)), "diff_MeV": _me(same[f"{arm}_p_reco"] - same[f"{ref}_p_reco"]),
@@ -190,7 +194,9 @@ def compare(d, ref, arm):
                                                                ref: _me(np.abs(rr / tr) < 0.1),
                                                                "diff": _me((np.abs(ra / ta) < 0.1).astype(float)
                                                                            - (np.abs(rr / tr) < 0.1))},
-                                  "truth": "p_first" if "p_first" in same else "trksegsmc"}
+                                  "truth": {n: ("own first straw" if f"{n}_p_first_own" in same else
+                                                "reference first straw" if "p_first" in same else "trksegsmc")
+                                            for n in (arm, ref)}}
     pt = d["p_first"].to_numpy() if "p_first" in d else d[f"{ref}_p_true"].where(ir, d[f"{arm}_p_true"]).to_numpy()
     bins = []
     for lo, hi in zip(P_EDGES[:-1], P_EDGES[1:]):
@@ -217,7 +223,8 @@ def compare(d, ref, arm):
     return out
 
 
-def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=False, unbiased=False, **kw):
+def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=False, unbiased=False, arm_tables=None,
+        **kw):
     """inputs: NAME=DIR per arm. Denominator: the events of the per-file dumper tables `file_tables`/sgsteps.<stem>.root
     (dump/particles keys) of the stems every arm has (a dts file spans several subruns), intersected with the events of
     the injector table `events` (dump/sgsteps keys) when given."""
@@ -256,6 +263,12 @@ def run(inputs, outdir, *, events=None, file_tables=None, ref="g4", self_pass=Fa
         den = den.merge(bad.assign(_b=1), on=KEY, how="left")
         den = den[den._b.isna()].drop(columns="_b")
     den = den.sort_values(KEY).reset_index(drop=True)
+    for spec in arm_tables or []:
+        n, path = spec.split("=", 1)
+        a = uproot.open(path)["dump/sgsteps"].arrays(KEY + ["t", "px", "py", "pz"], library="pd")
+        a = a.sort_values(KEY + ["t"]).groupby(KEY, sort=False).first().reset_index()
+        a[f"{n}_p_first_own"] = np.sqrt(a.px ** 2 + a.py ** 2 + a.pz ** 2)
+        den = den.merge(a[KEY + [f"{n}_p_first_own"]], on=KEY, how="left")
     frames = {n: read_arm([files[n][s] for s in common]) for n in arms}
     d = den.copy()
     for n, f in frames.items():

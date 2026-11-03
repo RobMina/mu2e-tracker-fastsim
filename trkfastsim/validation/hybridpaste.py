@@ -47,7 +47,7 @@ def primary_muons(path):
 
 def run(inputs, outdir, gdml=None, library=None, library_from=None, seed=1, no_offaxis=False, library_drop_muons=False,
         offaxis_plane_sign=False, offaxis_shift_from_muon=False, instraw_fine_length=False, offaxis_no_plane_mirror=False,
-        offaxis_no_straw_mirror=False, offaxis_radial_match=False, offaxis_distance_anchor=False, **kw):
+        offaxis_no_straw_mirror=False, offaxis_radial_match=False, offaxis_distance_anchor=False, offaxis_distance_plane=False, **kw):
     from trkfastsim.sim.run import default_gdml
     if (library is None) == (library_from is None):
         raise SystemExit("pass exactly one of --library and --library-from")
@@ -72,7 +72,8 @@ def run(inputs, outdir, gdml=None, library=None, library_from=None, seed=1, no_o
                                                          no_plane_mirror=offaxis_no_plane_mirror,
                                                          no_straw_mirror=offaxis_no_straw_mirror,
                                                          radial_match=offaxis_radial_match,
-                                                         distance_anchor=offaxis_distance_anchor)
+                                                         distance_anchor=offaxis_distance_anchor,
+                                                         distance_plane=offaxis_distance_plane)
         stats = {}
         if off is not None:
             steps, parts, stats = S.add_offaxis_secondaries(steps, parts, off, geom)
@@ -89,7 +90,7 @@ def run(inputs, outdir, gdml=None, library=None, library_from=None, seed=1, no_o
                         "offaxis_plane_sign": offaxis_plane_sign, "offaxis_shift_from_muon": offaxis_shift_from_muon,
                         "instraw_fine_length": instraw_fine_length, "offaxis_no_plane_mirror": offaxis_no_plane_mirror,
                         "offaxis_no_straw_mirror": offaxis_no_straw_mirror, "offaxis_radial_match": offaxis_radial_match,
-                        "offaxis_distance_anchor": offaxis_distance_anchor},
+                        "offaxis_distance_anchor": offaxis_distance_anchor, "offaxis_distance_plane": offaxis_distance_plane},
             "files": log}
     with open(os.path.join(outdir, "hybridpaste.json"), "w") as fh:
         json.dump(meta, fh, indent=1, default=int)

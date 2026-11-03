@@ -37,7 +37,7 @@ def default_gdml():
     return os.path.join(data, GDML_NAME)
 
 
-def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, offaxis_edge_anchor=False, offaxis_topology_anchor=False, library_drop_muons=False, offaxis_width_match=False, offaxis_plane_sign=False, offaxis_shift_from_muon=False, instraw_fine_length=False, offaxis_no_plane_mirror=False, offaxis_no_straw_mirror=False, offaxis_radial_match=False, offaxis_distance_anchor=False, tag="",
+def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=False, offaxis_plane_bin=6, offaxis_edge_anchor=False, offaxis_topology_anchor=False, library_drop_muons=False, offaxis_width_match=False, offaxis_plane_sign=False, offaxis_shift_from_muon=False, instraw_fine_length=False, offaxis_no_plane_mirror=False, offaxis_no_straw_mirror=False, offaxis_radial_match=False, offaxis_distance_anchor=False, offaxis_distance_plane=False, tag="",
         sliced_msc=False, no_interior=False, near_margin=st.FOOTPRINT_MARGIN, no_interior_msc=False, msc_tail=True, kink_xx0=st.KINK_XX0,
         tail_k=None, band_spread=False, no_surfsteps=False, interior_msc_cal=False, lever_moments=False, kink_sup_xx0=st.KINK_SUP_XX0, no_calo=False, world_mods=None, exit_scatter=True, first_muon_only=False, backend="numpy", ledger_arms=None, navigation="legacy", ordered_signed_endpoint_budget_mm=None, ordered_stopping_evaluation="entry", scatter_in=False, **kw):
     if ordered_signed_endpoint_budget_mm is not None and navigation == "legacy":
@@ -77,7 +77,8 @@ def run(inputs, outdir, seed=1, gdml=None, stage="A", library=None, no_offaxis=F
                                             drop_muons=library_drop_muons, width_match=offaxis_width_match,
                                             plane_sign=offaxis_plane_sign, shift_from_muon=offaxis_shift_from_muon,
                                             no_plane_mirror=offaxis_no_plane_mirror, no_straw_mirror=offaxis_no_straw_mirror,
-                                            radial_match=offaxis_radial_match, distance_anchor=offaxis_distance_anchor)
+                                            radial_match=offaxis_radial_match, distance_anchor=offaxis_distance_anchor,
+                                            distance_plane=offaxis_distance_plane)
                    if lib and not no_offaxis else None)
         sgs, parts = st.make_steps(gen, geom, rng, stage=stage, world=world, sampler=sampler, offaxis=offaxis,
                                    sliced_msc=sliced_msc, interior=interior, near_margin=near_margin,

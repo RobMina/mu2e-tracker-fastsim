@@ -1152,6 +1152,41 @@ def _edge_anchor(mu, MK, f, i, k, dpl, pmin, pmax):
     return out
 
 
+def _plane_distance(mu, MK, f):
+    """(muon index of each row of mu, [muon, plane] distance from each plane to the muon's nearest crossed plane)."""
+    im = pd.MultiIndex.from_frame(f[MK]).get_indexer(pd.MultiIndex.from_frame(mu[MK]))
+    bits = np.zeros(len(f), np.int64)
+    np.bitwise_or.at(bits, im, np.left_shift(1, mu.plane.to_numpy(np.int64)))
+    t = np.arange(NPLANES_)
+    dist = np.full((len(f), NPLANES_), 99, np.int64)
+    for d in range(NPLANES_):
+        lo, hi = t - d, t + d
+        hit = (((bits[:, None] >> np.clip(lo, 0, 35)) & 1) & (lo >= 0)) | (((bits[:, None] >> np.clip(hi, 0, 35)) & 1) & (hi <= 35))
+        dist = np.where((dist == 99) & (hit == 1), d, dist)
+    return im, dist
+
+
+def _distance_plane(mu, MK, f, i, plane0, dpl):
+    """Opt-in target plane (sampler.distance_plane) for off-axis steps with dpl != 0, the anchor kept: among the planes
+    at plane distance |dpl| from the fast muon's nearest crossed plane, preferably on the anchor's dpl side, the one
+    nearest to anchor plane + dpl (ties: towards dpl). None on the planes: plane0 kept."""
+    out = np.asarray(plane0).copy()
+    r = np.flatnonzero(dpl != 0)
+    if not len(r):
+        return out
+    _, dist = _plane_distance(mu, MK, f)
+    t = np.arange(NPLANES_)
+    ok = dist[i[r]] == np.abs(dpl[r])[:, None]                                   # [rows, planes]
+    side = np.sign(t[None, :] - (out[r] - dpl[r])[:, None]) != np.sign(dpl[r])[:, None]     # behind the anchor
+    gap = np.abs(t[None, :] - out[r][:, None]) * 2 + (np.sign(t[None, :] - out[r][:, None]) != np.sign(dpl[r])[:, None])
+    gap = gap + side * 1000
+    gap = np.where(ok, gap, 1 << 20)
+    best = gap.argmin(1)
+    has = ok.any(1)
+    out[r[has]] = best[has]
+    return out
+
+
 def _distance_anchor(mu, MK, f, i, k, dpl):
     """Opt-in anchor (sampler.distance_anchor) for off-axis steps with dpl != 0: the fast muon's step nearest in rank to
     k whose plane + dpl lies on the planes at plane distance |dpl| from the nearest plane the fast muon crosses. The donor's
@@ -1160,15 +1195,7 @@ def _distance_anchor(mu, MK, f, i, k, dpl):
     r = np.flatnonzero(dpl != 0)
     if not len(r):
         return out
-    im = pd.MultiIndex.from_frame(f[MK]).get_indexer(pd.MultiIndex.from_frame(mu[MK]))
-    bits = np.zeros(len(f), np.int64)
-    np.bitwise_or.at(bits, im, np.left_shift(1, mu.plane.to_numpy(np.int64)))
-    t = np.arange(NPLANES_)
-    dist = np.full((len(f), NPLANES_), 99, np.int64)       # plane distance from plane t to muon i's nearest plane
-    for d in range(NPLANES_):
-        lo, hi = t - d, t + d
-        hit = (((bits[:, None] >> np.clip(lo, 0, 35)) & 1) & (lo >= 0)) | (((bits[:, None] >> np.clip(hi, 0, 35)) & 1) & (hi <= 35))
-        dist = np.where((dist == 99) & (hit == 1), d, dist)
+    im, dist = _plane_distance(mu, MK, f)
     q = pd.DataFrame({"row": r, "mi": i[r], "k0": out[r], "d": dpl[r]})
     c = q.merge(pd.DataFrame({"mi": im, "kc": mu.k.to_numpy(), "plane": mu.plane.to_numpy(np.int64)}), on="mi")
     tgt = c.plane.to_numpy() + c.d.to_numpy()
@@ -1240,6 +1267,8 @@ def add_offaxis_secondaries(steps, parts, sampler, geom):
     anc = pd.DataFrame({**{c: f[c].to_numpy()[i] for c in MK}, "k": k}).merge(
         mu[MK + ["k", "plane", "panel", "straw", "t"] + acols], on=MK + ["k"], how="left")
     plane0 = anc.plane.to_numpy() + dpl
+    if getattr(sampler, "distance_plane", False):
+        plane0 = _distance_plane(mu, MK, f, i, plane0, dpl)
     panel = (anc.panel.to_numpy() + st.dpa.to_numpy()) % NPANELS_
     straw0 = anc.straw.to_numpy() + st.dst.to_numpy()
     plane, straw = _mirror(plane0, NPLANES_), _mirror(straw0, NSTRAWS_)

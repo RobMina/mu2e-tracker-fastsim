@@ -318,7 +318,8 @@ class OffAxisSampler:
 
     def __init__(self, lib, rng, plane_bin_width=PLANE_BIN, edge_anchor=False, topology_anchor=False, drop_muons=False,
                  width_match=False, plane_sign=False, shift_from_muon=False, no_plane_mirror=False, no_straw_mirror=False,
-                 radial_match=False, distance_anchor=False):
+                 radial_match=False, distance_anchor=False, distance_plane=False):
+        self.distance_plane = bool(distance_plane)     # opt-in: target plane keeps a step's plane distance to the muon
         if distance_anchor and (edge_anchor or topology_anchor):
             raise ValueError("distance_anchor replaces the edge and topology anchors")
         self.distance_anchor = bool(distance_anchor)   # opt-in: anchor keeps a step's plane distance to the muon

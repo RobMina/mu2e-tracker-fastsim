@@ -342,3 +342,27 @@ def test_panel_cut_rows_exact(monkeypatch):
         assert np.allclose(ref[0][k], got[0][k], rtol=1e-9, atol=1e-9), (k, np.max(np.abs(ref[0][k] - got[0][k])))
     # path omits gas-exit moves of restarts on a gas surface, a rounding call per host (docs/limitations.md)
     assert np.allclose(ref[0]["path"], got[0]["path"], rtol=0, atol=1e-2), np.max(np.abs(ref[0]["path"] - got[0]["path"]))
+
+
+@pytest.mark.parametrize("kernel", ["loop", "xla"])
+def test_support_slab_radiative_matches_numpy_default(monkeypatch, kernel):
+    from mu2efastsim import eloss_jax, muradiative_jax as RJ
+    monkeypatch.setattr(sj, "SLAB_KERNEL", kernel)
+    mats = [materials.ALUMINIUM_6061, materials.BRONZE_C938, materials.COPPER]
+    mc = [eloss_jax.consts(m) for m in mats]
+    di = object.__new__(sj.DeviceInterior)
+    di.MC = eloss_jax.MatConsts(*(jnp.asarray(np.array([getattr(c, f) for c in mc])) for f in eloss_jax.MatConsts._fields))
+    di.RT = RJ.stack(mats)
+    n = 30000
+    rng = np.random.default_rng(5)
+    col = np.where(rng.random((n, 3)) < 0.7, rng.uniform(50, 400, (n, 3)), 0.0)
+    p = np.full(n, 100_000.0)
+    keys = jax.vmap(lambda i: jax.random.fold_in(jax.random.key(5), i))(jnp.arange(n))
+    got = np.asarray(di.slab(jnp.asarray(col), jnp.asarray(p), keys))
+    r = np.random.default_rng(6)
+    ref = sum(np.where(col[:, m] > 0, tr.slab_loss(r, mats[m], p, col[:, m]), 0.0) for m in range(3))
+    se = np.sqrt(got.var() / n + ref.var() / n)
+    assert abs(got.mean() - ref.mean()) <= 5 * se
+    for x in np.quantile(ref, [0.9, 0.99, 0.999]):
+        fa, fb = (got > x).mean(), (ref > x).mean()
+        assert abs(fa - fb) < 5 * np.sqrt((fa + fb) / n) + 1e-4

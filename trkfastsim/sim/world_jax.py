@@ -12,6 +12,7 @@ import numpy as np
 from jax import lax
 
 from mu2efastsim import eloss, eloss_jax, materials, slab_jax, transport as tr
+from mu2efastsim import muradiative_jax as RJ
 from trkfastsim import devfloat as df
 from trkfastsim.sim import steps as st, steps_jax as sj
 df.register(__name__)   # follows the core device float when TRKFASTSIM_DEVICE_FLOAT=core
@@ -81,6 +82,11 @@ def _material_pairs(col, m, p, lost, keys, C):
 
 
 @df.jit
+def _rad_pairs(RT, mat, pp, length, mk, dl):
+    return sj.rad_add(RT, mat, pp, length, mk, dl)
+
+
+@df.jit
 def _material_add(lost, idx, valid, dl):
     return lost.at[jnp.where(valid, idx, len(lost))].add(dl, mode="drop")
 
@@ -105,7 +111,7 @@ def _band_finish(MC, coeff, col, seg, p, before, lost):
 SYNC_FREE_PAIRS = False   # True: every lane of the chunk is a (muon, material) pair slot, no host count per material
 
 
-def _compact_band_loss(MC, coeff, col, seg, p, lost, keys):
+def _compact_band_loss(MC, coeff, col, seg, p, lost, keys, RT=None):
     """Sequential materials with active slice compaction and unchanged per-muon/material/slice keys. With
     SYNC_FREE_PAIRS and steps_jax.SLICE_ROUNDS >= N_SLICES_MAX the band runs without a device-to-host sync."""
     before = lost
@@ -132,26 +138,35 @@ def _compact_band_loss(MC, coeff, col, seg, p, lost, keys):
                 break
             work = sj._slab_next(work, todo, sj._bucket(nt))
         dl = sj._slab_finish(MC, mat, pp, carry)
+        if RT is not None:                                      # core slab_loss default: radiative losses
+            dl = _rad_pairs(RT, mat, pp, length, mk, dl)
         lost = _material_add(lost, idx, valid, dl)
     return _band_finish(MC, coeff, col, seg, p, before, lost)
 
 
 @partial(df.jit, static_argnames=("impl", "block"))
-def _world_path(MCs, cols, segs, p, keys, impl, block=32):
+def _world_path(MCs, cols, segs, p, keys, impl, block=32, RTs=None):
     """The whole chunk's band losses in one slab_jax.path_loss call (steps_jax.SLAB_KERNEL): per band its materials
     in packed order (pair key fold_in(fold_in(muon key, band), material), the band momentum carried), then the mean
     air loss over the uncovered path; returns the cumulative loss after each band [bands][B]."""
-    c, f1, f2, mean, L, ends = [], [], [], [], [], []
+    c, f1, f2, mean, L, ends, rm = [], [], [], [], [], [], []
+    off = 0
     for k, (mc, col, seg) in enumerate(zip(MCs, cols, segs)):
         nm = col.shape[1]
         for m in range(nm + 1):
+            rm.append(off + m)
             c.append([f[m] if m < nm else f[-1] for f in mc])
             f1.append(k), f2.append(m if m < nm else 0), mean.append(m == nm)
             L.append(jnp.where(col[:, m] > 0, col[:, m], 0.0) if m < nm else jnp.maximum(seg - col.sum(1), 0.0))
         ends.append(len(L) - 1)
+        off += nm + 1
+    rad = None if RTs is None else RJ.RadTable(RTs[0].lnE, *(jnp.concatenate([getattr(t, f) for t in RTs])
+                                                            for f in ("cont", "rate", "lvq")), RTs[0].tk_min,
+                                                RTs[0].mass)
     c = eloss_jax.MatConsts(*(jnp.stack([jnp.asarray(x[i]) for x in c]) for i in range(len(eloss_jax.MatConsts._fields))))
     out = slab_jax.path_loss(slab_jax.raw(keys), p, jnp.stack(L), c, jnp.asarray(f1, jnp.uint32),
-                             jnp.asarray(f2, jnp.uint32), jnp.asarray(mean), impl=impl, block=block)
+                             jnp.asarray(f2, jnp.uint32), jnp.asarray(mean), impl=impl, block=block, rad=rad,
+                             rad_mat=jnp.asarray(rm, jnp.int32))
     return tuple(out[j] for j in ends)
 
 
@@ -289,6 +304,7 @@ class DeviceWorld:
             raise ValueError("world band edges do not match tracker plane")
         self.kedges = self.edges - self.frame[1] if df.SINGLE else self.edges   # band edges in the kernel frame
         self.bands = []
+        self.rads = []
         self.tiles = []
         for k, (top, bot) in enumerate(zip(self.edges[:-1], self.edges[1:])):
             ps = world.band(k)
@@ -303,6 +319,7 @@ class DeviceWorld:
                                  np.sqrt(20) * tr.HBARC_MEV_FM / (tr.R_NUCLEUS_FM * a13)])
             arrays = tuple(jnp.asarray(x) for x in (plo, phi, pP, ps.mat))
             self.bands.append(df.dev((arrays, mc, coeff, len(ps.mats))))   # device float once, not per call
+            self.rads.append(df.dev(RJ.stack(mats)))   # radiative tables (core slab_loss default), same order
             padded = (len(ps) + PIECE_TILE - 1) // PIECE_TILE * PIECE_TILE
             pad = padded - len(ps)
             lo = np.pad(plo, ((0, pad), (0, 0)), constant_values=1e30)
@@ -346,7 +363,7 @@ class DeviceWorld:
                     geo.append((self.column(k, origin, dd, length, valid), length, height))
                 cols = tuple(g[0] for g in geo)
                 ends = _world_path(tuple(b[1] for b in self.bands), cols, tuple(g[1] for g in geo), pp, keys,
-                                   sj.slab_impl(), sj.SLAB_BLOCK)
+                                   sj.slab_impl(), sj.SLAB_BLOCK, tuple(self.rads))
                 for k, (col, length, height) in enumerate(geo):
                     _, mc, coeff, _ = self.bands[k]
                     xx0, bp, chi, thn = _band_moments(coeff, col, length, pp, lost, ends[k])
@@ -358,7 +375,8 @@ class DeviceWorld:
                 origin, length, height = _band_segment(oo, dd, top, bot, self.kedges[-1], valid)
                 col = self.column(k, origin, dd, length, valid)
                 _, mc, coeff, _ = self.bands[k]
-                lost, xx0, bp, chi, thn = _compact_band_loss(mc, coeff, col, length, pp, lost, _fold(keys, k))
+                lost, xx0, bp, chi, thn = _compact_band_loss(mc, coeff, col, length, pp, lost, _fold(keys, k),
+                                                             self.rads[k])
                 bands.append((xx0, height, bp, chi, thn, length))
             arrays = [jnp.stack([b[i] for b in bands], 1) for i in range(6)]
             result = _scatter(oo, dd, pp, lost, *arrays, _fold(keys, len(bands)), self.kedges[-1],

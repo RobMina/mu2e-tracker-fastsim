@@ -143,3 +143,25 @@ def test_compacted_band_loss_preserves_fixed_lane_reference():
         b = wj._compact_band_loss(mc, coeff, col, seg, p, initial, keys)
         for x, y in zip(a, b):
             np.testing.assert_allclose(x, y, rtol=2e-12, atol=1e-9)
+
+
+@pytest.mark.parametrize("kernel", ["loop", "xla"])
+def test_world_radiative_matches_numpy_default(monkeypatch, kernel):
+    from trkfastsim.sim import steps_jax as sj
+    monkeypatch.setattr(sj, "SLAB_KERNEL", kernel)
+    pieces = [q[1:] for q in [_box(1, "CONCRETE_MARS", [-500, 300, -500], [500, 2300, 500]),
+                              _box(1, "MildSteel", [-500, 100, -500], [500, 250, 500])]]
+    world = tr.BandedWorld(pieces, [2800.0, 280.0, 0.0])
+    dev = wj.DeviceWorld(world, world.edges)
+    o, d = _rays(30000)
+    o[:, 1] = 2700.0
+    p = np.full(len(o), 50_000.0)
+    pw = tr.world_loss(np.random.default_rng(31), o, d, p, world, world.edges)[0]
+    got = dev.transport(jax.random.key(31), o, d, p)[2]
+    a, b = p - pw, p - got                       # |p| lost on the way to the plane
+    se = np.sqrt(a.var() / len(a) + b.var() / len(b))
+    assert abs(a.mean() - b.mean()) <= 5 * se
+    for x in np.quantile(a, [0.9, 0.99, 0.999]):
+        fa, fb = (a > x).mean(), (b > x).mean()
+        assert abs(fa - fb) < 5 * np.sqrt((fa + fb) / len(a)) + 1e-4
+    assert np.quantile(b, 0.999) > np.quantile(b, 0.5) + 500.0      # the radiative tail is there

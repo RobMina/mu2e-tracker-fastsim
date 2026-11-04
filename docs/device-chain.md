@@ -56,6 +56,12 @@ reconstruction.
   draws and slice policy; values equal to rounding (a last-bit difference can move one slice boundary), counts equal
   to the loop path on every table checked, and downstream hits, combos, seeds and fit tables identical on them.
   `SLAB_BLOCK` (32) sets lanes per kernel block (shorter float64 latency of a slow block).
+- **Radiative muon losses (default, as NumPy).** The support slabs (loop and kernel routes) and the world column
+  (`world_jax`, loop and `path_loss`) draw the core's default bremsstrahlung, pair and photonuclear losses with
+  `mu2efastsim.muradiative_jax` after the ionisation slices (key fold_in(pair key, `RAD_FOLD`)). Against the
+  ionisation-only device chain on the same tables and keys (float64, A100): events with steps -0.05 +- 0.04 %, digis
+  +0.00 +- 0.19 %, good fits -0.25 +- 0.37 %, 0 of 11 histograms flagged. Cost: MIG float32 warm 71,600 -> 69,900
+  events/s (steps 8.4 -> 8.8 s per 20 tables); A100 float64 42,500 -> 38,500 (steps 16.1 -> 18.1 s).
 - **Minion electron fill (device chain default, identical).** `digi_clusters_jax.MINION_UNROLL` (16 loop bodies per
   device iteration; the extra bodies past a lane's end are identity) and `SEARCH_METHOD="compare_all"` (searchsorted
   without a device loop): all seven stage digests unchanged on 20 tables.

@@ -21,10 +21,10 @@ def _mc(mats):
     return eloss_jax.MatConsts(*(jnp.asarray([getattr(c, f) for c in cs]) for f in eloss_jax.MatConsts._fields))
 
 
-def _case(R, seed):
+def _case(R, seed, pmax=1e4):
     rng = np.random.default_rng(seed)
     col = rng.choice([0.0, 0.0, 2.0, 40.0, 400.0], (R, len(MATS))) * rng.uniform(0.5, 1.5, (R, len(MATS)))
-    p = np.geomspace(80.0, 1e4, R)[rng.permutation(R)]
+    p = np.geomspace(80.0, pmax, R)[rng.permutation(R)]
     keys = jax.vmap(lambda i: jax.random.fold_in(jax.random.key(seed), i))(jnp.arange(R, dtype=jnp.uint32))
     return jnp.asarray(col), jnp.asarray(p), keys
 
@@ -38,7 +38,8 @@ def setting():
 
 def test_interior_slab_kernel_equals_loop(setting):
     col, p, keys = _case(600, 1)
-    dev = SimpleNamespace(MC=_mc(MATS))
+    from mu2efastsim import muradiative_jax as RJ
+    dev = SimpleNamespace(MC=_mc(MATS), RT=RJ.stack(MATS))     # with the core default radiative losses
     setting("loop")
     ref = sj.DeviceInterior.slab(dev, col, p, keys)
     setting("xla")
@@ -73,3 +74,30 @@ def test_world_path_equals_compacted_band_loop(impl):
         before = ends[k]
         for a, b in zip(ref[k], out):
             np.testing.assert_allclose(np.asarray(b), np.asarray(a), rtol=1e-9, atol=1e-12)
+
+
+@pytest.mark.parametrize("impl", ["xla", "interpret"])
+def test_world_path_radiative_close_to_compacted_band_loop(impl):
+    """With radiative losses the loop carries each segment's radiative loss into the next segment's ionisation; the
+    one-call path does not (path_radiative): equal to well below a part in 1e3 of the loss."""
+    from mu2efastsim import muradiative_jax as RJ
+    n = 640 if impl == "xla" else 64
+    col, p, keys = _case(n, 4, pmax=2e5)
+    rng = np.random.default_rng(5)
+    bands = []
+    for k, mats in enumerate((MATS[:2], MATS[2:])):
+        mats = mats + (M.AIR,)
+        coeff = jnp.asarray(rng.uniform(0.001, 0.01, (3, len(mats))))
+        c = col[:, :2] if k == 0 else col[:, 2:]
+        bands.append((_mc(mats), coeff, c, c.sum(1) + rng.uniform(0, 800.0, n), RJ.stack(mats)))
+    lost = jnp.zeros(n)
+    for k, (mc, coeff, c, seg, rt) in enumerate(bands):
+        lost, *_ = wj._compact_band_loss(mc, coeff, c, seg, p, lost, wj._fold(keys, k), rt)
+    ion = jnp.zeros(n)
+    for k, (mc, coeff, c, seg, rt) in enumerate(bands):
+        ion, *_ = wj._compact_band_loss(mc, coeff, c, seg, p, ion, wj._fold(keys, k))
+    ends = wj._world_path(tuple(b[0] for b in bands), tuple(b[2] for b in bands), tuple(b[3] for b in bands), p, keys,
+                          impl, RTs=tuple(b[4] for b in bands))
+    a, b, i = np.asarray(lost), np.asarray(ends[-1]), np.asarray(ion)
+    assert (a >= i - 1e-6).all() and (a - i).max() > 0                    # the radiative losses are there
+    assert np.abs(b - a).max() <= 1e-3 * np.maximum(a, 1.0).max()

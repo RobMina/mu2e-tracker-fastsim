@@ -30,7 +30,6 @@ Tracks stop when they leave the envelope (a padded cylinder about the tracker ax
 or reach `max_path_mm` / `max_chords`. Only muons are supported with the default loss model; electrons need an
 explicit `loss` callable (the muon slice sampler and tail are not electron physics).
 """
-import dataclasses
 
 import numpy as np
 import pandas as pd
@@ -49,8 +48,6 @@ MERGE_TOL_MM = 1e-6                       # continuation of a crossing on the ne
 SAG_PRMS = 1.0 / (12.0 * np.sqrt(5.0))    # MakeStrawGasSteps parabola rms factor (includes the 1/8 of the sagitta)
 CHARGE = {13: -1.0, -13: 1.0, 11: -1.0, -11: 1.0, 211: 1.0, -211: -1.0, 2212: 1.0, -2212: -1.0}
 MASS = {13: eloss.MMU, 11: eloss.ME, 211: 139.57039, 2212: 938.27208816}
-# the straw gas with Geant4's gas-state density-effect parameters (the GDML StrawGas is state="gas"); opt-in (gas=)
-STRAW_GAS_G4STATE = dataclasses.replace(st.STRAW_GAS, state="gas")
 
 
 class Envelope:
@@ -271,7 +268,7 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
     loss: None (muon slice sampler; muons only) or callable(rng, material, p, length, mass) -> MeV.
     radiative: with the muon slice sampler, also bremsstrahlung, pair and photonuclear losses in the solids
     (transport.slab_loss radiative=True; opt-in, the gas keeps its mean ionisation loss).
-    gas: the straw-gas Material (default steps.STRAW_GAS; STRAW_GAS_G4STATE for Geant4's gas density effect).
+    gas: the straw-gas Material (default steps.STRAW_GAS, Geant4's gas density-effect branch).
     Returns (steps DataFrame in the sgsteps layout, final DataFrame per track: x, y, z, px, py, pz, t, path, chords,
     status 0 = left the envelope, 1 = stopped, 2 = path/chord cap)."""
     n = len(start)

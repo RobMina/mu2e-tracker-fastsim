@@ -20,6 +20,7 @@ from the calorimeter, add later passages that the fast transport (which stops at
 Errors: paired per-track differences, standard error of the mean; chi2 of binned distributions with Poisson errors on
 both arms (unpaired), ndf = bins with entries.
 """
+import dataclasses
 import json
 import os
 
@@ -239,6 +240,31 @@ def big_drops(g4, fast, ent, p_min=1000.0):
     return out
 
 
+EION_BANDS = (0.0, 1000.0, 3000.0, 10000.0, 30000.0, np.inf)   # MeV/c, step |p|
+
+
+def eion_by_band(g4, fast, key):
+    """Straw eIon per mm of path, sum(eion) / sum(len), per step-|p| band: fast / G4 - 1 with a per-track paired
+    delta-method error (both arms transport the same tracks)."""
+    def per_track(s, lo, hi):
+        p = np.sqrt(s.px ** 2 + s.py ** 2 + s.pz ** 2)
+        b = s[(p >= lo) & (p < hi)]
+        return b.assign(e=1e3 * b.eion).groupby(key)[["e", "len"]].sum()
+    rows = []
+    for lo, hi in zip(EION_BANDS[:-1], EION_BANDS[1:]):
+        t = per_track(g4, lo, hi).join(per_track(fast, lo, hi), how="outer", lsuffix="_g", rsuffix="_f").fillna(0.0)
+        if len(t) < 5 or t.len_g.sum() <= 0 or t.len_f.sum() <= 0:
+            continue
+        eg, lg, ef, lf = (t[c].to_numpy() for c in ("e_g", "len_g", "e_f", "len_f"))
+        r = (ef.sum() / lf.sum()) / (eg.sum() / lg.sum())
+        z = ef / ef.sum() - lf / lf.sum() - eg / eg.sum() + lg / lg.sum()
+        n = len(z)
+        rows.append({"p_lo": float(lo), "p_hi": float(hi), "tracks": int(n), "g4_keV_per_mm": float(eg.sum() / lg.sum()),
+                     "fast_keV_per_mm": float(ef.sum() / lf.sum()), "ratio_minus_1": float(r - 1),
+                     "err": float(r * np.sqrt(n / (n - 1) * ((z - z.mean()) ** 2).sum()))})
+    return rows
+
+
 def compare(g4, fast, ent, final, geom):
     """Summary dict of the paired comparison (g4/fast: primary sgsteps after the entry; ent: entry states)."""
     key = T.KEY + ["sp"]
@@ -270,6 +296,7 @@ def compare(g4, fast, ent, final, geom):
     out["eion_keV"] = {"g4_mean": _mean_err(1e3 * g4.eion), "fast_mean": _mean_err(1e3 * fast.eion),
                        "g4_mpv": _mpv(1e3 * g4.eion), "fast_mpv": _mpv(1e3 * fast.eion),
                        **_hist_chi2(1e3 * g4.eion, 1e3 * fast.eion, np.linspace(0, 20, 81))}
+    out["eion_per_mm_by_p"] = eion_by_band(g4, fast, key)
     out["width_um"] = {"g4": _mean_err(1e3 * g4.width), "fast": _mean_err(1e3 * fast.width),
                        **_hist_chi2(1e3 * g4.width, 1e3 * fast.width, np.linspace(0, 300, 61))}
     out["shape_counts"] = {"g4": g4["shape"].value_counts().sort_index().to_dict(),
@@ -443,7 +470,7 @@ def offset_bound(g4, fast, ent, inter, origin):
 
 def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=None, no_field=False, seed=1,
         chord_mm=20.0, sagitta_mm=0.02, entry_vds=TRACKER_VDS, entry="vd", origin=None, interior=True, max_events=None,
-        mu_radiative=False, gas_state="solid", **kw):
+        mu_radiative=False, gas_state=None, **kw):
     import time
     os.makedirs(outdir, exist_ok=True)
     geom = geometry.from_gdml(gdml)
@@ -485,7 +512,7 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     bnom = ehelix.field_at(field if field is not None else np.zeros(3), org[None])[0]
     t0 = time.perf_counter()
     eopt = dict(loss=fs.electron_loss, tail=False) if species == 11 else dict(radiative=mu_radiative)
-    eopt["gas"] = fs.STRAW_GAS_G4STATE if gas_state == "gas" else None
+    eopt["gas"] = None if gas_state is None else dataclasses.replace(st.STRAW_GAS, state=gas_state)
     fast, final = fs.transport(np.random.default_rng(seed), ent, geom, field, inter, chord_mm=chord_mm,
                                sagitta_mm=sagitta_mm, envelope=env, origin=org, bnom=bnom, **eopt)
     wall = time.perf_counter() - t0

@@ -113,17 +113,20 @@ def test_muon_loss_and_scattering_change_the_state_and_are_seeded():
     assert (a[0].eion >= 0).all() and a[0].eion.mean() > 0
 
 
-def test_radiative_opt_in_default_unchanged():
+def test_radiative_follows_the_core_default():
+    import inspect
+    from mu2efastsim import transport as tr
     geom = _geometry()
     o, d = _lines(200, np.random.default_rng(16))
     env = fs.Envelope(geom, pad_r=10.0, pad_z=10.0, axis_xy=(0.0, 0.0))
     st = _start(o, d, 50_000.0)
     kw = dict(envelope=env, origin=np.zeros(3))
+    core_default = inspect.signature(tr.slab_loss).parameters["radiative"].default
     a = fs.transport(np.random.default_rng(17), st, geom, np.array([0, 0, 1.0]), **kw)
-    b = fs.transport(np.random.default_rng(17), st, geom, np.array([0, 0, 1.0]), radiative=False, **kw)
+    b = fs.transport(np.random.default_rng(17), st, geom, np.array([0, 0, 1.0]), radiative=core_default, **kw)
     pd.testing.assert_frame_equal(a[0], b[0])
     pd.testing.assert_frame_equal(a[1], b[1])
-    c = fs.transport(np.random.default_rng(17), st, geom, np.array([0, 0, 1.0]), radiative=True, **kw)
+    c = fs.transport(np.random.default_rng(17), st, geom, np.array([0, 0, 1.0]), radiative=not core_default, **kw)
     assert len(c[0]) == len(a[0]) and (c[1].status == a[1].status).all()     # the loss itself: core slab_loss tests
     with pytest.raises(ValueError):
         fs.transport(np.random.default_rng(17), st, geom, None, radiative=True, loss=_no_loss, **kw)
@@ -168,3 +171,27 @@ def test_chord_index_finds_the_straw_crossings_clipped_to_the_chord():
     assert len(got) == len(ref) > 100
     np.testing.assert_array_equal(got[:, :2], ref[:, :2])
     np.testing.assert_allclose(got[:, 2:], ref[:, 2:], rtol=0, atol=1e-9)
+
+
+def test_straw_gas_uses_geant4_gas_branch():
+    from mu2efastsim import eloss
+    from trkfastsim.sim import steps as st
+    assert st.STRAW_GAS.state == "gas"
+    C, x0, x1, a, m, d0 = st.STRAW_GAS.density_params()
+    assert (x0, x1, m, d0) == (2.0, 4.0, 3.0, 0.0) and 11.5 < C <= 12.25     # G4IonisParamMat gas branch, STP
+    solid = __import__("dataclasses").replace(st.STRAW_GAS, state="solid")
+    p = np.array([1000.0, 5000.0, 20000.0, 50000.0])
+    r = eloss.dedx_restricted(st.STRAW_GAS, p, st.delta_cut_mev()) / eloss.dedx_restricted(solid, p, st.delta_cut_mev())
+    assert np.allclose(r[:2], 1.0) and (r[2:] < 0.99).all()                  # equal below 10 GeV/c, lower above
+
+
+def test_eion_by_band_pairs_tracks():
+    from trkfastsim.validation import fieldcompare as F
+    rng = np.random.default_rng(3)
+    n = 6000
+    g = pd.DataFrame({"run": 1, "subrun": 1, "event": np.repeat(np.arange(n // 3), 3), "sp": 1,
+                      "px": rng.uniform(0, 40000, n), "py": 0.0, "pz": 0.0, "len": rng.uniform(1, 5, n)})
+    g["eion"] = g.len * 2e-4 * rng.gamma(4, 0.25, n)
+    f = g.assign(eion=g.eion * 1.05)
+    rows = F.eion_by_band(g, f, ["run", "subrun", "event", "sp"])
+    assert len(rows) == 5 and all(abs(r["ratio_minus_1"] - 0.05) < 1e-9 and r["err"] < 1e-9 for r in rows)

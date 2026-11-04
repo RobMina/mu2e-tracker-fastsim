@@ -262,11 +262,6 @@ def build_parser():
             sp.add_argument("--offset-bound", action="store_true",
                             help="first-straw entry offsets per entry type and |p| bin vs the Highland spread of G4's own "
                                  "support scattering (first_straw_offset_bound)")
-            sp.add_argument("--gas-state", choices=["solid", "gas"], default="solid",
-                            help="density-effect branch for the straw gas: solid (as the extracted chain) or Geant4's "
-                                 "gas branch (the GDML StrawGas state)")
-            sp.add_argument("--mu-radiative", action="store_true",
-                            help="muons: also bremsstrahlung, pair and photonuclear losses in the solids (opt-in)")
             sp.add_argument("--save-steps", action="store_true", help="also write the fast steps and final states (fast_steps.root)")
             sp.add_argument("--dump-tracks", type=int, default=0, metavar="N",
                             help="write tracks.json: the step lists of N tracks above 2 GeV/c per entry type, both arms")

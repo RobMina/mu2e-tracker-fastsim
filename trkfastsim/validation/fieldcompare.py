@@ -212,6 +212,9 @@ def big_drops(g4, fast, ent, p_min=1000.0):
     out = {"p_min_MeV": p_min, "drop_MeV": DROP_MEV, "r_edges": DROP_R_EDGES.tolist(), "z_edges": DROP_Z_EDGES.tolist()}
     for name, st_ in (("g4", g4), ("fast", fast)):
         s = st_.merge(sel, on=key).sort_values(key + ["t"])
+        if not len(s):                          # no track above p_min (conversion electrons)
+            out[name] = {"tracks": 0}
+            continue
         p = np.sqrt(s.px ** 2 + s.py ** 2 + s.pz ** 2).to_numpy()
         same = np.r_[False, (s[key].to_numpy()[1:] == s[key].to_numpy()[:-1]).all(1)]
         dp = np.r_[np.nan, p[:-1] - p[1:]]

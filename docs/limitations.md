@@ -72,8 +72,8 @@ restart first regenerates the stock dump and the baseline arms from those 3,000 
   and surface crossings (`surfsteps`) are written for the primary muon only (Geant4 has 52-72 % non-muon virtual
   detector crossings).
 - No magnetic field in the default chain: straight-line transport and a line fit, for the extracted configuration
-  only. The opt-in field-on transport starts at the tracker envelope (no world transport in the field), has no
-  radiative muon loss, and is followed by stock digitisation and reco only ([field-on.md](field-on.md)).
+  only. The opt-in field-on transport starts at the tracker envelope (no world transport in the field) and is
+  followed by stock digitisation and reco only ([field-on.md](field-on.md)).
 - Digitisation: no on-spill folding, ghosts, cross talk, noise hits, TrackerStatus suppression, digi mixing or
   field-on drift (refused by `digi-cond`).
 - The EventNtuple writer does not write the MC branches (`trkmcsim`, `trksegsmc`, `trkhitsmc`, `evtinfomc`), CRV and

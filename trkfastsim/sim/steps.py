@@ -36,7 +36,7 @@ C_MM_PER_NS = 299.792458
 MINION_BG, MINION_KE = 0.5, 20.0          # MakeStrawGasSteps minionBetaGamma, minionKineticEnergy defaults
 TRACKER_CUT_MM = 0.001                    # ExtractedCRY minRangeRegionCuts TrackerMother
 
-# StrawGas from the v04 GDML export (Ar/CO2 80/20 by volume: mass fractions Ar 0.784, O 0.157, C 0.0589)
+# StrawGas from the v04 GDML export (Ar/CO2 80/20 by volume: mass fractions Ar 0.784, O 0.157, C 0.0589; state gas)
 STRAW_GAS = materials.Material("StrawGas", 0.001696, 158.62097145526,
                                {"Ar": 0.784057035890315, "O": 0.15700963928136, "C": 0.0589333248283256},
                                cuts_e_MeV={"tracker": 990e-6}, state="gas")

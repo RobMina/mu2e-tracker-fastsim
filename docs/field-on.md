@@ -17,12 +17,12 @@ this: tracks start from a given state at the tracker envelope.
 - **Material:** straw walls (outer-cylinder chord minus the gas chord), sense wire at its closest approach, gas, and the
   support structure from the GDML (`fieldsteps.interior`: TrackerInterior's coaxial shells, limited to pieces reaching
   inside the envelope cylinder; no calorimeter).
-- **Loss:** muons, the slice sampler of `mu2efastsim.transport.slab_loss` (ionisation only; `radiative=True` /
-  `--mu-radiative` adds bremsstrahlung, pair production and photonuclear losses in the solids); electrons,
+- **Loss:** muons, the slice sampler of `mu2efastsim.transport.slab_loss` (ionisation, and the core default for
+  bremsstrahlung, pair production and photonuclear losses in the solids; `radiative=` forces either); electrons,
   `fieldsteps.electron_loss` (`mu2efastsim.eioni` continuous loss below 0.1 MeV with Urban fluctuations, deltas and
   brem photons above it sampled one by one). Gas eIon per merged crossing: `eloss.sample_loss` (muons) or
-  `electron_gas_eion` (restricted Moller loss, largest transfer T/2). `gas=fieldsteps.STRAW_GAS_G4STATE`
-  (`--gas-state gas`) uses Geant4's gas branch of the density effect for the straw gas (the geometry's state).
+  `electron_gas_eion` (restricted Moller loss, largest transfer T/2). The straw gas is `steps.STRAW_GAS`, with
+  Geant4's gas branch of the density effect (the geometry's state); `gas=` takes another material.
 - **Scattering:** one angular kink per chord at its end, Highland with the log term on the cumulative x/X0, plus the
   single-scattering tail for muons (none for electrons); the kink's lateral displacement is dropped.
 - **Step content** as `MakeStrawGasSteps` with the field on: path in the gas, mean of entry and exit momentum, width
@@ -49,7 +49,7 @@ end points against the straw surfaces) and writes primary-only tables for the ar
 |---|---|---|
 | straws per track, fast - Geant4 | +0.02 +- 0.07 to +0.28 +- 0.07 (two seeds; Geant4 39.5) | +0.05 +- 0.02 (Geant4 39.5) |
 | path in the gas, chi2/ndf | 44/48 - 68/48, means within 0.1 % | means within 0.1 %, chi2/ndf about 4 |
-| eIon | mean within 0.3 %, MPV within 1.6 % | mean +2.3 %, MPV +2.8 %; with `--gas-state gas` -0.02 +- 0.07 %, MPV within 0.1 % |
+| eIon | mean within 0.4 %, MPV within 1.5 %; per mm by step \|p\|: within 0.4 % below 10 GeV/c, +0.1 to +0.8 +- 0.7 % above (+1.9 to +2.9 % with the solid branch) | -0.02 +- 0.07 %, MPV within 0.1 % (+2.3 % and +2.8 % with the solid branch) |
 | width | -1.9 to -2.3 %, chi2/ndf 1.3 | within 0.3 %, chi2/ndf 1.3-2.5 |
 | time at the first straw | below 1 ps | below 0.1 ps |
 | momentum at the last Geant4 straw | within 0.3 MeV/c below 500 MeV/c | +0.1 MeV/c (Geant4 drop 0.75) |
@@ -70,7 +70,8 @@ above 10 MeV in the straws), `big_drops` (where tracks lose more than 10 MeV bet
   constant); with the fast support the offsets grow by 1.15-1.7 (independent draws: sqrt 2). Explained.
 - **Electron gas eIon.** The straw gas is a gas in the Geant4 geometry, and Geant4 uses the gas branch of the
   Sternheimer parametrisation for it; the solid branch puts the restricted loss of 100 MeV electrons 2.4 % high.
-  Explained; the opt-in gas state closes it (table above).
+  Explained; the gas branch, now the default, closes it (table above), and removes the +1.9 to +2.9 % excess of the
+  muon eIon per mm above 10 GeV/c (`eion_per_mm_by_p` in `field-compare`, two seeds).
 - **Reference-sample selection.** The cosmic reference keeps an event when some particle's straw steps have |p|
   between 30 and 250 MeV/c (15 steps, 16 planes), or above 1 GeV/c with 20 steps (prescaled 1/100). Almost every muon
   above 1 GeV/c in it was kept because another particle passed, typically a hard delta electron, and low-momentum
@@ -97,9 +98,9 @@ per arm). The EventNtuple configuration needs the CentralHelix fit under `trk.fi
 | chi2/ndof, fit consistency | -0.05 +- 0.03; +0.02 +- 0.01 |
 | reco momentum - own first-straw momentum, median (sigma from the IQR) | 1-2 GeV/c +0.3 % (1.1 %) vs -0.1 % (1.1 %); 2-5 GeV/c +0.05 % (1.8 %) vs -0.2 % (1.8 %); > 5 GeV/c -0.3 % (6.2 %) vs -0.7 % (7.3 %) |
 
-On the same straws, hit edep is +2.2 % higher in the fast arm (mean; TOT +0.7 %), as the solid-branch density
-effect predicts for these mostly > 5 GeV/c tracks (the gas branch lowers the restricted loss by 1.5-2 % above 10
-GeV/c); the steps differ by
+On the same straws, hit edep was +2.2 % higher in the fast arm (mean; TOT +0.7 %), as the solid-branch density
+effect of these steps predicts for mostly > 5 GeV/c tracks (the gas branch, the default since, lowers the restricted
+loss by 1.5-2 % above 10 GeV/c); the steps differ by
 35 um in wire DOCA (2-5 GeV/c, IQR) and below 1 ps in time. Geant4 all passages against first passage: yield -0.03 +- 0.03 %, hits
 -0.13 +- 0.07.
 

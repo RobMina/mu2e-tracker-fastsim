@@ -20,7 +20,6 @@ from the calorimeter, add later passages that the fast transport (which stops at
 Errors: paired per-track differences, standard error of the mean; chi2 of binned distributions with Poisson errors on
 both arms (unpaired), ndf = bins with entries.
 """
-import dataclasses
 import json
 import os
 
@@ -473,7 +472,7 @@ def offset_bound(g4, fast, ent, inter, origin):
 
 def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=None, no_field=False, seed=1,
         chord_mm=20.0, sagitta_mm=0.02, entry_vds=TRACKER_VDS, entry="vd", origin=None, interior=True, max_events=None,
-        mu_radiative=False, gas_state=None, **kw):
+        **kw):
     import time
     os.makedirs(outdir, exist_ok=True)
     geom = geometry.from_gdml(gdml)
@@ -514,8 +513,7 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     inter = fs.interior(gdml, geom, env, origin=org) if interior else None
     bnom = ehelix.field_at(field if field is not None else np.zeros(3), org[None])[0]
     t0 = time.perf_counter()
-    eopt = dict(loss=fs.electron_loss, tail=False) if species == 11 else dict(radiative=mu_radiative)
-    eopt["gas"] = None if gas_state is None else dataclasses.replace(st.STRAW_GAS, state=gas_state)
+    eopt = dict(loss=fs.electron_loss, tail=False) if species == 11 else {}
     fast, final = fs.transport(np.random.default_rng(seed), ent, geom, field, inter, chord_mm=chord_mm,
                                sagitta_mm=sagitta_mm, envelope=env, origin=org, bnom=bnom, **eopt)
     wall = time.perf_counter() - t0
@@ -524,7 +522,7 @@ def run(inputs, outdir, compare_=None, *, gdml, species=13, field_map=None, bz=N
     res = {"inputs": len(inputs), "species": species, "census": census, "geometry_check": geo,
            "vd_counts_primary": vd.vdid.value_counts().sort_index().to_dict(), "origin_mm": org.tolist(), "bnom_T": bnom.tolist(),
            "field": "none" if field is None else (os.path.basename(field_map) if field_map else f"bz={bz}"),
-           "chord_mm": chord_mm, "sagitta_mm": sagitta_mm, "seed": seed, "mu_radiative": bool(mu_radiative), "gas_state": gas_state, "entry_vds": list(entry_vds),
+           "chord_mm": chord_mm, "sagitta_mm": sagitta_mm, "seed": seed, "entry_vds": list(entry_vds),
            "entries": int(len(ent)), "entry_vd_counts": ent.vdid.value_counts().sort_index().to_dict(),
            "transport_s": wall, "transport_timing_s": getattr(fs.transport, "timing", None), "envelope": {"r": env.r, "z0": env.z0, "z1": env.z1},
            "interior_materials": sorted({str(m) for g in (inter.shells.coax.groups if inter is not None else [])

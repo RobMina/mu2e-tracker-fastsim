@@ -29,6 +29,7 @@ import jax.numpy as jnp
 from jax import lax
 
 from mu2efastsim import eloss, eloss_jax, materials, slab_jax
+from mu2efastsim import muradiative_jax as RJ
 from mu2efastsim import transport as tr
 
 from trkfastsim import crossings, devfloat as df, geometry
@@ -57,6 +58,7 @@ SAMPLER_UNROLL = False   # unroll the loss sampler's fixed-trip loops inside the
 SLAB_KERNEL = "loop"
 SLAB_BLOCK = 32   # lanes per kernel program of the slab kernels (smaller: shorter float64 latency of a slow block)
 KEY_TRANSPORT, KEY_EXIT, KEY_EION, KEY_SLAB, KEY_CORE, KEY_TAIL = 1, 2, 3, 2, 0, 1
+RAD_FOLD = slab_jax.RAD_FOLD   # radiative stream of a slab pair: fold_in(pair key, RAD_FOLD), as slab_jax.radiative
 # column sums in int64 fixed point (exact and order-free, so independent of batching and of the device): length in
 # 1e-9 mm, first moment in 1e-6 mm^2, second in 1e-3 mm^3
 QSCALE = (1e9, 1e6, 1e3)
@@ -639,7 +641,7 @@ def slab_impl():
 
 
 @partial(df.jit, static_argnames=("impl", "block"))
-def _slab_kernel(MC, col, p, keys, impl, block=32):
+def _slab_kernel(MC, col, p, keys, impl, block=32, RT=None):
     """slab() in one slab_jax call over every (row, material) lane: pair keys fold_in(row key, material), |p| floored
     at 1, lanes without support length lose nothing; the per-row sum as _slab_scatter."""
     R, M = col.shape
@@ -649,7 +651,7 @@ def _slab_kernel(MC, col, p, keys, impl, block=32):
     c = eloss_jax.MatConsts(*(f[lanes] for f in MC))
     hit = col > 0
     loss, _ = slab_jax.slab_loss(slab_jax.raw(k), c, jnp.repeat(jnp.maximum(p, 1.0), M),
-                                 jnp.where(hit, col, 0.0).reshape(-1), impl=impl, block=block)
+                                 jnp.where(hit, col, 0.0).reshape(-1), impl=impl, block=block, rad=RT, rad_mat=lanes)
     return _dot(jnp.where(hit, loss.reshape(R, M), 0.0), jnp.ones(M))
 
 
@@ -686,9 +688,19 @@ def _slab_next(idx, todo, CB):
     return _pad_oob(idx, sel, jnp.arange(CB) < jnp.sum(todo), _NBIG)
 
 
+def rad_add(RT, mat, pp, L, keys, ion):
+    """transport.slab_loss's default radiative step on slab pairs (material index mat into the stacked RT, entry |p|
+    pp, length L, pair keys): muradiative_jax.after_ionisation with keys fold_in(pair key, RAD_FOLD)."""
+    rk = jax.vmap(lambda k: jax.random.fold_in(k, RAD_FOLD))(keys)
+    return RJ.after_ionisation(rk, RT, pp, L, ion, mat)
+
+
 @partial(df.jit, static_argnames=("R", "M"))
-def _slab_done(MC, mat, pp, carry, row, v, R, M):
-    return _slab_scatter(row, mat, _slab_finish(MC, mat, pp, carry), v, R, M)
+def _slab_done(MC, mat, pp, carry, row, v, R, M, RT=None, L=None, k=None):
+    loss = _slab_finish(MC, mat, pp, carry)
+    if RT is not None:
+        loss = rad_add(RT, mat, pp, L, k, loss)
+    return _slab_scatter(row, mat, loss, v, R, M)
 
 
 @partial(df.jit, static_argnames=("R", "M"))
@@ -1057,6 +1069,7 @@ class DeviceInterior:
              "coef_el": np.array([coef(m, True) - coef(m, False) for m in mats]), "a13": a13}
         self.MC = df.dev(eloss_jax.MatConsts(*(jnp.asarray(np.array([getattr(c, f) for c in mc]))
                                                for f in eloss_jax.MatConsts._fields)))   # device float once, not per call
+        self.RT = df.dev(RJ.stack(mats))       # radiative tables of the same materials (core slab_loss default)
         # straws (+ one dummy straw that no line crosses) and panel boxes (+ one dummy panel)
         ns = len(geom.mid)
         T["smid"] = np.r_[geom.mid, [[1e12, 1e12, 1e12]]]
@@ -1165,7 +1178,7 @@ class DeviceInterior:
     def slab(self, col, p, keys):
         """Sum over support materials of transport.slab_loss(mat, max(p, 1), col[:, m]) per row [R]."""
         if SLAB_KERNEL != "loop":
-            return _slab_kernel(self.MC, col, p, keys, slab_impl(), SLAB_BLOCK)
+            return _slab_kernel(self.MC, col, p, keys, slab_impl(), SLAB_BLOCK, self.RT)
         R, M = col.shape
         npairs = int(_count_pos(col))
         if not npairs:
@@ -1181,7 +1194,7 @@ class DeviceInterior:
             if not nt:
                 break
             idx = _slab_next(idx, todo, _bucket(nt, 64))
-        return _slab_done(self.MC, mat, pp, carry, row, v, R, M)
+        return _slab_done(self.MC, mat, pp, carry, row, v, R, M, self.RT, L, k)
 
     def _stat(self, name, x):
         self._stats.setdefault(name, []).append(x)

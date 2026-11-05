@@ -132,6 +132,20 @@ also be compared byte-for-byte in the same process and environment:
 python3 tests/test_fieldwall_parity.py --baseline /path/to/main/fieldsteps.py
 ```
 
+## Conversion electrons through stock LoopHelix reconstruction
+
+The generated electron of each Geant4 CeEndpoint dts event goes through the umbrella `beamfastsim.cetracker`
+(`cechain` to the tracker entry plane, then `sim/fieldsteps`); the reference arm is the Geant4 primary electron's own
+steps from its first VD13 crossing (`python3 -m trkfastsim.validation.cearms`). Both arms are injected into the same
+dts events and run through the same stock OffSpill digitisation, stock LoopHelix reconstruction (`KKDe`, recoMC
+OffSpill) and EventNtuple (`scripts/trk1_ce_steps_uva.sh`, `scripts/trk1_ce_reco_uva.sh`); secondaries and calorimeter
+steps are in neither arm. `python3 -m trkfastsim.validation.cemom` compares them per event over every dts event:
+efficiency (fit status > 0, and the CE selection: e-, downstream at TT_Front, fit consistency > 1e-3, tan(dip),
+d0 and r_max windows; no t0 window, since OffSpill digitisation does not fold the times into the microbunch), reco
+momentum at TT_Front minus the arm's own momentum at the tracker entrance (Gaussian core in -1..+1 MeV/c, mean,
+tails beyond +-1 and +-2 MeV/c), momentum shapes in 0.1 MeV/c bins with paired per-bin pulls, active hits and
+chi2/ndof.
+
 ## Open
 
 - An unbiased reference for muons above 1 GeV/c and for side entries (the selection above).

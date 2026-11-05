@@ -8,6 +8,7 @@ import pandas as pd
 
 KEY = ["run", "subrun", "event"]
 MOMENTUM_EDGES = np.array([0, 300, 500, 1000, 2000, 5000, 10000, 30000, np.inf])
+MIN_SHAPE_ENTRIES = 10
 
 
 def mean_error(values):
@@ -55,23 +56,34 @@ def paired_histogram(fast, stock, edges, fast_selected, stock_selected):
                   ratio=ratio.tolist(), ratio_error=ratio_error.tolist(),
                   fast_outside=int(np.sum(fast_selected) - ha.sum()),
                   stock_outside=int(np.sum(stock_selected) - hb.sum()))
-    if ha.sum() and hb.sum():
-        pa, pb = ha / ha.sum(), hb / hb.sum()
-        influence = (a - a.sum(axis=1)[:, None] * pa) / ha.sum()
-        influence -= (b - b.sum(axis=1)[:, None] * pb) / hb.sum()
+    included = (ha >= MIN_SHAPE_ENTRIES) & (hb >= MIN_SHAPE_ENTRIES)
+    shape = dict(chi2=None, ndf=0, included=included.tolist(), minimum_entries_per_arm=MIN_SHAPE_ENTRIES,
+                 excluded_bins=int((~included).sum()), excluded_fast_entries=int(ha[~included].sum()),
+                 excluded_stock_entries=int(hb[~included].sum()),
+                 pulls=np.full(len(ha), np.nan).tolist(), covariance=np.zeros((len(ha), len(ha))).tolist(),
+                 normalization="each arm within included bins only",
+                 statistic="paired event covariance; pseudoinverse rank is ndf")
+    if included.any():
+        sa, sb = a[:, included], b[:, included]
+        na, nb = ha[included].sum(), hb[included].sum()
+        pa, pb = ha[included] / na, hb[included] / nb
+        influence = (sa - sa.sum(axis=1)[:, None] * pa) / na
+        influence -= (sb - sb.sum(axis=1)[:, None] * pb) / nb
         covariance = correction * influence.T @ influence
         delta = pa - pb
         error = np.sqrt(np.maximum(0, np.diag(covariance)))
-        pulls = np.divide(delta, error, out=np.full_like(delta, np.nan), where=error > 0)
+        pulls = np.full(len(ha), np.nan)
+        pulls[included] = np.divide(delta, error, out=np.full_like(delta, np.nan), where=error > 0)
         eig, vectors = np.linalg.eigh(covariance)
         keep = eig > (eig.max() * 1e-10 if eig.max() > 0 else 0)
         components = vectors[:, keep].T @ delta
         unsupported = float(np.linalg.norm(vectors[:, ~keep].T @ delta))
         chi2 = float(np.sum(components**2 / eig[keep])) if unsupported < 1e-10 else np.inf
-        result["shape"] = dict(chi2=chi2, ndf=int(keep.sum()), unsupported_difference_norm=unsupported,
-                               pulls=pulls.tolist(), fast_fraction=pa.tolist(), stock_fraction=pb.tolist(),
-                               covariance=covariance.tolist(), normalization="each arm within displayed range",
-                               statistic="paired event covariance; pseudoinverse rank is ndf")
+        full_covariance = np.zeros((len(ha), len(ha)))
+        full_covariance[np.ix_(included, included)] = covariance
+        shape.update(chi2=chi2, ndf=int(keep.sum()), unsupported_difference_norm=unsupported,
+                     pulls=pulls.tolist(), covariance=full_covariance.tolist())
+    result["shape"] = shape
     return result
 
 
@@ -85,8 +97,12 @@ def compare(events):
                   selection="first track with status > 0; fixed saved G4 first-straw event denominator",
                   momentum="earliest in-bounds SID 0..4; reconstructed momentum, not truth-matched resolution",
                   efficiency=efficiency(good_a, good_b), efficiency_bins=[], histograms={})
+    binned = np.isfinite(events.p_first) & (events.p_first >= MOMENTUM_EDGES[0]) & (events.p_first < MOMENTUM_EDGES[-1])
+    result["efficiency_outside"] = dict(events=int((~binned).sum()),
+                                        fast=int(good_a[~binned].sum()), stock=int(good_b[~binned].sum()),
+                                        reason="nonfinite or outside efficiency-bin range; retained in total efficiency")
     for lo, hi in zip(MOMENTUM_EDGES[:-1], MOMENTUM_EDGES[1:]):
-        selected = (events.p_first >= lo) & (events.p_first < hi)
+        selected = binned & (events.p_first >= lo) & (events.p_first < hi)
         result["efficiency_bins"].append(dict(lo_MeV=float(lo), hi_MeV=float(hi),
                                               **efficiency(good_a[selected], good_b[selected])))
     for name, edges in (("p_reco", np.geomspace(100, 1_000_000, 41)),
@@ -94,6 +110,11 @@ def compare(events):
         result["histograms"][name] = paired_histogram(events[f"legacy_{name}"], events[f"g4_{name}"], edges,
                                                        good_a, good_b)
     return result
+
+
+def _shape_label(shape):
+    value = shape["chi2"]
+    return "Shape χ²/ndf: insufficient populated bins" if value is None else f"Shape χ²/ndf = {value:.1f}/{shape['ndf']}"
 
 
 def plot(result, destination):
@@ -116,19 +137,22 @@ def plot(result, destination):
     x = np.arange(len(bins))
     labels = [f"{b['lo_MeV']/1000:g}–{b['hi_MeV']/1000:g}" if np.isfinite(b["hi_MeV"])
               else f"≥{b['lo_MeV']/1000:g}" for b in bins]
-    for arm, color, offset, label in (("fast", colors[0], -0.07, "Fast (legacy wall) + stock reco"),
-                                      ("stock", colors[1], 0.07, "Geant4 steps + stock reco")):
-        top.errorbar(x + offset, [b[f"{arm}_percent"]["value"] for b in bins],
-                     yerr=[b[f"{arm}_percent"]["error"] for b in bins], fmt="o", ms=4, color=color, label=label)
-    bottom.errorbar(x, [b["ratio"]["value"] if b["ratio"] else np.nan for b in bins],
-                    yerr=[b["ratio"]["error"] if b["ratio"] else np.nan for b in bins], fmt="o", ms=4, color=colors[0])
+    for arm, color, offset, label in (("fast", colors[0], -0.07, "Fast: solid gas, no radiative loss, wall off"),
+                                      ("stock", colors[1], 0.07, "G4 first-passage steps; both stock reco")):
+        top.errorbar(x + offset, np.asarray([b[f"{arm}_percent"]["value"] for b in bins], float),
+                     yerr=np.asarray([b[f"{arm}_percent"]["error"] for b in bins], float),
+                     fmt="o", ms=4, color=color, label=label)
+    bottom.errorbar(x, np.asarray([b["ratio"]["value"] if b["ratio"] else np.nan for b in bins], float),
+                    yerr=np.asarray([b["ratio"]["error"] if b["ratio"] else np.nan for b in bins], float),
+                    fmt="o", ms=4, color=colors[0])
     bottom.set_xticks(x, labels, rotation=25)
     bottom.set_xlabel("G4 event-first-straw momentum [GeV/c]")
     top.set_ylabel("Good-track efficiency [%]")
     top.legend(fontsize=8, loc="upper left")
     eff = result["efficiency"]
     diff = eff["difference_pp"]
-    top.set_title(f"{eff['fast']:,} / {eff['stock']:,} good events of {eff['events']:,}\n"
+    top.set_title(f"{eff['fast']:,} / {eff['stock']:,} good events of {eff['events']:,}; "
+                  f"unbinned: {result['efficiency_outside']['events']}\n"
                   f"Fast − G4: {diff['value']:+.3f} ± {diff['error']:.3f} pp", fontsize=11)
     names = (("p_reco", "Reconstructed momentum [GeV/c]", 0.001),
              ("nactive", "Active hits / first good track", 1),
@@ -145,8 +169,9 @@ def plot(result, destination):
             top.set_xscale("log")
         bottom.set_xlabel(xlabel)
         shape = h["shape"]
-        top.set_title(f"Normalized shape χ²/ndf = {shape['chi2']:.1f}/{shape['ndf']}\n"
-                      f"Outside range: fast {h['fast_outside']}, G4 {h['stock_outside']}", fontsize=10)
+        top.set_title(f"{_shape_label(shape)}; ≥{MIN_SHAPE_ENTRIES}/arm\n"
+                      f"Outside range: fast {h['fast_outside']}, G4 {h['stock_outside']}; "
+                      f"low-count omitted: {shape['excluded_fast_entries']}/{shape['excluded_stock_entries']}", fontsize=10)
     for top, bottom in axes:
         top.grid(alpha=0.18)
         bottom.axhline(1, color="0.4", lw=0.8)
@@ -162,7 +187,7 @@ def plot(result, destination):
         h = result["histograms"][name]
         edges = np.asarray(h["edges"]) * scale
         centers = (edges[1:] + edges[:-1]) / 2
-        supported = np.diag(h["shape"]["covariance"]) > 0
+        supported = np.asarray(h["shape"]["included"]) & (np.diag(h["shape"]["covariance"]) > 0)
         axis.axhspan(-2, 2, color="0.93")
         axis.axhline(0, color="0.4", lw=0.8)
         axis.plot(centers[supported], np.asarray(h["shape"]["pulls"])[supported], "o", ms=4, color=colors[0])
@@ -170,8 +195,10 @@ def plot(result, destination):
             axis.set_xscale("log")
         axis.set_xlabel(xlabel)
         axis.set_ylabel("(fast − G4) / paired error")
-        axis.set_title(f"Normalized shape χ²/ndf = {h['shape']['chi2']:.1f}/{h['shape']['ndf']}", fontsize=10)
-    fig.suptitle("Cosmic shape pulls — paired event errors; one development parent", fontsize=13)
+        axis.set_title(_shape_label(h["shape"]), fontsize=10)
+    fig.suptitle(f"Cosmic shape pulls — bins ≥{MIN_SHAPE_ENTRIES}/arm; one development parent", fontsize=13)
+    fig.supxlabel("Fast: solid-gas branch, no radiative losses, wall off. G4: first-passage steps. "
+                  "Both stock reco; not current-default validation.", fontsize=9)
     fig.savefig(Path(destination).with_name("cosmic_pulls.png"), dpi=170)
     plt.close(fig)
 

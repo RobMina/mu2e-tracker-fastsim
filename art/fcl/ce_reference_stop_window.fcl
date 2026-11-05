@@ -1,0 +1,14 @@
+# Preserve an upstream stop-record window without generation or detector selection.
+process_name : CEStopWindow
+source : { module_type : RootInput }
+outputs : {
+  pool : {
+    module_type : RootOutput
+    fileName : "stop_pool.art"
+    outputCommands : [ "keep *_*_*_*" ]
+  }
+}
+physics : {
+  e1 : [ pool ]
+  end_paths : [ e1 ]
+}

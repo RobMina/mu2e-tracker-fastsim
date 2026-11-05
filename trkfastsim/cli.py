@@ -14,7 +14,7 @@ from trkfastsim.validation import digicmp
 from trkfastsim.digi import fastdigi
 from trkfastsim.validation import seccensus
 from trkfastsim.validation import selfpaste, shardhist, shardstats
-from trkfastsim.validation import fieldcompare, fieldreco
+from trkfastsim.validation import fieldcompare, fieldreco, fieldworld
 
 ANALYSES = {
     "refcheck":  (refcheck.run,  "content check of StrawGasStepTableDumper tables: census, linkage, PrimaryFilter tracker term"),
@@ -36,6 +36,7 @@ ANALYSES = {
     "digi-cond": (fastdigi.run_cond, "fast digitisation conditions (.npz) from the stock job's fhicl-dump, DB CSVs and the GDML"),
     "digi": (fastdigi.run_digi, "fast digitisation (port of StrawDigisFromStrawGasSteps): step tables -> StrawHitTableDumper-layout digi tables"),
     "field-reco": (fieldreco.run, "stock KKCHmu reco on injected field-on steps: arms (NAME=DIR of nts files) paired per event against --ref (yield, hits, fit quality, momentum)"),
+    "field-world": (fieldworld.run, "cosmic muons from the stage-2 start states (DS cryostat surface) through the DS region in the field to the tracker and through it (sim.fieldworld + fieldsteps) vs G4, paired per muon"),
     "field-compare": (fieldcompare.run, "field-on primary StrawGasSteps: fast chord transport (sim.fieldsteps) vs G4, restarted from the G4 tracker-VD entry state"),
     "digicmp": (digicmp.run, "fast vs stock digis on the same steps: digis/event, occupancy, TDC/TOT/PMP, dt, hit reco and combo hits, with a reseeded stock floor"),
     "shardhist": (shardhist.run, "per-shard (subrun) histograms of one arm: steps, digis, hit reco, fits; input of shardstats"),
@@ -265,6 +266,22 @@ def build_parser():
                             help="denominator: drop events in which a non-primary particle passes the Signal/Calib windows")
             sp.add_argument("--self-pass", action="store_true",
                             help="denominator: only events whose primary passes the Signal/Calib windows on its own (--events steps)")
+        if name == "field-world":
+            sp.add_argument("--gdml", required=True, help="GDML world export of the sample's geometry")
+            sp.add_argument("--maps", required=True, help="directory of the Mau13 G4BL maps (DSMap, TSdMap, DSExtension, WorldMap)")
+            sp.add_argument("--seed", type=int, default=1)
+            sp.add_argument("--chord-mm", type=float, default=20.0)
+            sp.add_argument("--sagitta-mm", type=float, default=0.02)
+            sp.add_argument("--origin", type=float, nargs=3, default=None)
+            sp.add_argument("--max-events", type=int, default=None)
+            sp.add_argument("--mu-radiative", action="store_true")
+            sp.add_argument("--gas-state", choices=["solid", "gas"], default="solid")
+            sp.add_argument("--unbiased-only", action="store_true",
+                            help="drop events in which a non-primary particle passes the CosmicSignal Signal/Calib windows")
+            sp.add_argument("--self-pass-only", action="store_true")
+            sp.add_argument("--write-tables", action="store_true", help="also the fast steps as an injector table")
+            sp.add_argument("--probe-r", type=float, nargs="+", default=None, metavar="MM",
+                            help="also compare fast and Geant4 (trajectory points) at the first inward crossing of these radii")
         if name == "field-compare":
             sp.add_argument("--gdml", required=True, help="GDML world export of the sample's geometry (straws, support)")
             sp.add_argument("--species", type=int, default=13, choices=[11, 13], help="MC primary |pdg| (13 muons, 11 electrons)")

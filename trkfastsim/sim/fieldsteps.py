@@ -264,7 +264,8 @@ def _columns(n, parts):
 
 def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_mm=0.02, envelope=None,
               origin=geometry.DETECTOR_ORIGIN_EXTRACTED, bnom=None, max_path_mm=30000.0, max_chords=20000,
-              wire=True, tail=True, tail_k=None, msc=True, loss=None, radiative=False, gas=None):
+              wire=True, tail=True, tail_k=None, msc=True, loss=None, radiative=False, gas=None, stop=None,
+              straws=True, complete_outer_wall=False):
     """Field-on StrawGasSteps of the tracks in `start` (DataFrame: KEY columns, sp, pdg, x, y, z [mm, Mu2e frame],
     px, py, pz [MeV/c], t [ns]). field: constant 3-vector [T], a callable B(x) (ehelix.grid_field) or None (no field).
     bnom: nominal field vector at the tracker centre for the step width (default: field at the envelope centre).
@@ -272,8 +273,15 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
     radiative: with the muon slice sampler, also bremsstrahlung, pair and photonuclear losses in the solids
     (transport.slab_loss radiative=True; opt-in, the gas keeps its mean ionisation loss).
     gas: the straw-gas Material (default steps.STRAW_GAS; STRAW_GAS_G4STATE for Geant4's gas density effect).
+    stop: optional hand-off region (an object with cut(x0, x1) -> chord fraction where the chord enters it, NaN if it
+    does not); a chord entering it is shortened to end on its surface and the track stops there with status 3.
+    straws=False skips the straw search (transport outside the tracker). The interior may carry a `materials` dict
+    for names without core constants.
+    complete_outer_wall: opt-in finite outer-minus-inner material ledger, including wall-only chords; replaces the
+    legacy gas-gated wall contributions in loss, tails and MSC with exact wall lever moments. Gas steps and wire
+    handling are unchanged; False preserves the legacy arithmetic and RNG order.
     Returns (steps DataFrame in the sgsteps layout, final DataFrame per track: x, y, z, px, py, pz, t, path, chords,
-    status 0 = left the envelope, 1 = stopped, 2 = path/chord cap)."""
+    status 0 = left the envelope, 1 = stopped, 2 = path/chord cap, 3 = reached the stop region)."""
     n = len(start)
     pdg = start["pdg"].to_numpy().astype(np.int64)
     q = np.array([CHARGE.get(int(k), np.nan) for k in pdg])
@@ -316,7 +324,13 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
     tm = transport.timing = {"field": 0.0, "straws": 0.0, "support": 0.0, "loss_msc": 0.0, "merge": 0.0,
                              "iterations": 0}
     pieces = []
-    pidx = ChordIndex(geom)
+    pidx = ChordIndex(geom) if straws else None
+    wall_index = None
+    if complete_outer_wall and straws:
+        from trkfastsim.sim.fieldwall import WallIndex
+        wall_index = WallIndex(geom, r_out, ChordIndex)
+    extra = getattr(interior, "materials", None) or {}
+    getm = (lambda nm: extra[nm] if nm in extra else materials.get(nm))
     act = np.flatnonzero(~env.leaving(x, u))
     status[np.setdiff1d(np.arange(n), act)] = 0
     for _ in range(int(max_chords)):
@@ -336,6 +350,14 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
         else:
             B = B0
         xn, un = ehelix.helix(xa, ua, pa, qa, B, h)
+        handed = np.zeros(na, bool)
+        if stop is not None:
+            fr = stop.cut(xa, xn)
+            hit = np.flatnonzero(np.isfinite(fr))
+            if len(hit):
+                h[hit] = np.maximum(h[hit] * fr[hit], 1e-6)
+                xn[hit], un[hit] = ehelix.helix(xa[hit], ua[hit], pa[hit], qa[hit], B[hit], h[hit])
+                handed[hit] = True
         cv = xn - xa
         L = np.maximum(np.linalg.norm(cv, axis=1), 1e-12)
         c = cv / L[:, None]
@@ -343,19 +365,27 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
         gamma_b = pa / ma                                       # beta * gamma at the chord start
         beta = gamma_b / np.sqrt(1 + gamma_b ** 2)
         c1 = time.perf_counter()
-        sp = _straw_pieces(xa, c, L, geom, r_out, rw, rw_in, pidx)
+        sp = _straw_pieces(xa, c, L, geom, r_out, rw, rw_in, pidx) if straws else None
         parts = []
         if sp is not None:
             lane, js, s_in, s_out, wall, wr, pl = sp
             gas_len = s_out - s_in
-            parts += [(materials.MYLAR, lane, wall * (1 - f_metal)), (materials.ALUMINIUM_6061, lane, wall * f_metal),
-                      (gas, lane, gas_len), (materials.TUNGSTEN, lane, wr), (materials.GOLD, lane, pl)]
+            if wall_index is None:
+                parts += [(materials.MYLAR, lane, wall * (1 - f_metal)), (materials.ALUMINIUM_6061, lane, wall * f_metal),
+                          (gas, lane, gas_len), (materials.TUNGSTEN, lane, wr), (materials.GOLD, lane, pl)]
+            else:
+                parts += [(gas, lane, gas_len), (materials.TUNGSTEN, lane, wr), (materials.GOLD, lane, pl)]
             s_mid = 0.5 * (s_in + s_out)
             pieces.append({"it": act[lane], "js": js, "g_in": path[act][lane] + s_in * arc[lane],
                            "g_out": path[act][lane] + s_out * arc[lane],
                            "pos0": xa[lane] + c[lane] * s_in[:, None], "pos1": xa[lane] + c[lane] * s_out[:, None],
                            "dir": c[lane], "p": pa[lane], "len": gas_len,
                            "t": t[act][lane] + s_in * arc[lane] / (beta[lane] * C_MM_PER_NS)})
+        if wall_index is not None:
+            wall_ln, wall_s1, wall_s2 = wall_index.columns(xa, c, L)
+            wall_lanes = np.flatnonzero(wall_ln > 0)
+            parts = [(materials.MYLAR, wall_lanes, wall_ln[wall_lanes] * (1 - f_metal)),
+                     (materials.ALUMINIUM_6061, wall_lanes, wall_ln[wall_lanes] * f_metal)] + parts
         thin = _columns(na, parts)
         c2 = time.perf_counter()
         sup, mom = ({}, {})
@@ -375,7 +405,7 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
         for name, ln in sup.items():
             hh = np.flatnonzero(ln > 0)
             if len(hh):
-                lost[hh] += loss_fn(rng, materials.get(name), np.maximum(pa[hh], 1.0), ln[hh], ma[hh])
+                lost[hh] += loss_fn(rng, getm(name), np.maximum(pa[hh], 1.0), ln[hh], ma[hh])
         tk_new = tk[act] - lost
         dead = tk_new <= 0.5
         pn = np.sqrt(np.clip((np.maximum(tk_new, 0.0) + ma) ** 2 - ma ** 2, 1e-6, None))
@@ -383,16 +413,27 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
             X = np.zeros(na)
             S1 = np.zeros(na)
             S2 = np.zeros(na)
+            if wall_index is not None:
+                inv_x0 = ((1 - f_metal) / eloss.radiation_length_mm(materials.MYLAR)
+                          + f_metal / eloss.radiation_length_mm(materials.ALUMINIUM_6061))
+                X += wall_ln * inv_x0
+                S1 += wall_s1 * inv_x0
+                S2 += wall_s2 * inv_x0
             if sp is not None:
-                for m, ln in ((materials.MYLAR, wall * (1 - f_metal)), (materials.ALUMINIUM_6061, wall * f_metal),
-                              (gas, gas_len), (materials.TUNGSTEN, wr), (materials.GOLD, pl)):
+                if wall_index is None:
+                    msc_parts = ((materials.MYLAR, wall * (1 - f_metal)),
+                                 (materials.ALUMINIUM_6061, wall * f_metal),
+                                 (gas, gas_len), (materials.TUNGSTEN, wr), (materials.GOLD, pl))
+                else:
+                    msc_parts = ((gas, gas_len), (materials.TUNGSTEN, wr), (materials.GOLD, pl))
+                for m, ln in msc_parts:
                     xx = ln / eloss.radiation_length_mm(m)
                     hl = L[lane] - s_mid
                     np.add.at(X, lane, xx)
                     np.add.at(S1, lane, xx * hl)
                     np.add.at(S2, lane, xx * hl ** 2)
             for name, (ln, m1, m2) in mom.items():
-                x0m = eloss.radiation_length_mm(materials.get(name))
+                x0m = eloss.radiation_length_mm(getm(name))
                 X += ln / x0m
                 S1 += (ln * L - m1) / x0m
                 S2 += (ln * L ** 2 - 2 * L * m1 + m2) / x0m
@@ -405,7 +446,7 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
                 dth, _, a = st._kink_core(rng, V, w1, w2)
                 if tail:
                     tparts = [(m, ln[kk]) for m, ln in thin.values()]
-                    tparts += [(materials.get(nm), ln[kk]) for nm, ln in sup.items()]
+                    tparts += [(getm(nm), ln[kk]) for nm, ln in sup.items()]
                     dth = dth + st._group_tail(rng, tparts, np.arange(len(kk)), np.maximum(pm, 1.0),
                                                np.maximum(pm, 1.0), a, tail_k)
                 th = np.hypot(dth[:, 0], dth[:, 1])
@@ -424,7 +465,8 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
         capped = path[act] >= max_path_mm - 1e-9
         status[act[dead]] = 1
         status[act[left & ~dead]] = 0
-        act = act[~dead & ~left & ~capped]
+        status[act[handed & ~dead]] = 3
+        act = act[~dead & ~left & ~capped & ~handed]
         c4 = time.perf_counter()
         tm["field"] += c1 - c0
         tm["straws"] += c2 - c1

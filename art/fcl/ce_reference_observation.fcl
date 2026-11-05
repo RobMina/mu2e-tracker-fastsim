@@ -1,0 +1,15 @@
+# Observe stock acceptance without vetoing the inclusive transport path or output.
+physics.StockSelectionPath : [ TargetStopResampler, generate, genCounter, StockGenFilter, g4run, g4consistentFilter, StrawGasStepMaker, CaloShowerStepMaker, CrvSteps, MakeSS, StockPrimaryFilter, compressDetStepMCs, FindMCPrimary, primaryCounter ]
+physics.trigger_paths : [ PrimaryPath, StockSelectionPath ]
+physics.analyzers.referenceCount : {
+  module_type : RunSubrunEvent
+  printSam : true
+  printEvent : true
+}
+physics.analyzers.referenceStatus : {
+  module_type : PrintModule
+  PrintSubRun : false
+  statusG4Printer : { verbose : 1 inputTags : [ "g4run::CaloLibraryCE" ] }
+}
+physics.EndPath : [ genCountLogger, referenceCount, referenceStatus, PrimaryOutput ]
+physics.end_paths : [ EndPath ]

@@ -1,0 +1,16 @@
+# Read persisted upstream identities without resampling, filtering or transport.
+#include "Offline/fcl/minimalMessageService.fcl"
+process_name : CESourceAudit
+source : { module_type : RootInput }
+services : { message : @local::default_message }
+physics : {
+  analyzers : {
+    current : { module_type : EventLister }
+    upstream : {
+      module_type : EventIDSequencePrinter
+      input : "TargetStopResampler::CaloLibraryCE"
+    }
+  }
+  audit : [ current, upstream ]
+  end_paths : [ audit ]
+}

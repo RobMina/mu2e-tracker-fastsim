@@ -261,7 +261,8 @@ def _columns(n, parts):
 
 def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_mm=0.02, envelope=None,
               origin=geometry.DETECTOR_ORIGIN_EXTRACTED, bnom=None, max_path_mm=30000.0, max_chords=20000,
-              wire=True, tail=True, tail_k=None, msc=True, loss=None, radiative=None, gas=None):
+              wire=True, tail=True, tail_k=None, msc=True, loss=None, radiative=None, gas=None,
+              complete_outer_wall=False):
     """Field-on StrawGasSteps of the tracks in `start` (DataFrame: KEY columns, sp, pdg, x, y, z [mm, Mu2e frame],
     px, py, pz [MeV/c], t [ns]). field: constant 3-vector [T], a callable B(x) (ehelix.grid_field) or None (no field).
     bnom: nominal field vector at the tracker centre for the step width (default: field at the envelope centre).
@@ -269,6 +270,9 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
     radiative: bremsstrahlung, pair and photonuclear losses of the muon slice sampler in the solids (None: the core
     transport.slab_loss default; True/False force them; the gas keeps its mean ionisation loss).
     gas: the straw-gas Material (default steps.STRAW_GAS, Geant4's gas density-effect branch).
+    complete_outer_wall: opt-in finite outer-minus-inner wall material, including wall-only chords; replaces the
+    gas-gated wall contributions in loss, tails and MSC with exact wall lever moments. Default False preserves
+    the arithmetic and RNG order of the gas-gated route; gas steps and wire handling remain independent.
     Returns (steps DataFrame in the sgsteps layout, final DataFrame per track: x, y, z, px, py, pz, t, path, chords,
     status 0 = left the envelope, 1 = stopped, 2 = path/chord cap)."""
     n = len(start)
@@ -313,6 +317,10 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
                              "iterations": 0}
     pieces = []
     pidx = ChordIndex(geom)
+    wall_index = None
+    if complete_outer_wall:
+        from trkfastsim.sim.fieldwall import WallIndex
+        wall_index = WallIndex(geom, r_out, ChordIndex)
     act = np.flatnonzero(~env.leaving(x, u))
     status[np.setdiff1d(np.arange(n), act)] = 0
     for _ in range(int(max_chords)):
@@ -344,14 +352,22 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
         if sp is not None:
             lane, js, s_in, s_out, wall, wr, pl = sp
             gas_len = s_out - s_in
-            parts += [(materials.MYLAR, lane, wall * (1 - f_metal)), (materials.ALUMINIUM_6061, lane, wall * f_metal),
-                      (gas, lane, gas_len), (materials.TUNGSTEN, lane, wr), (materials.GOLD, lane, pl)]
+            if wall_index is None:
+                parts += [(materials.MYLAR, lane, wall * (1 - f_metal)), (materials.ALUMINIUM_6061, lane, wall * f_metal),
+                          (gas, lane, gas_len), (materials.TUNGSTEN, lane, wr), (materials.GOLD, lane, pl)]
+            else:
+                parts += [(gas, lane, gas_len), (materials.TUNGSTEN, lane, wr), (materials.GOLD, lane, pl)]
             s_mid = 0.5 * (s_in + s_out)
             pieces.append({"it": act[lane], "js": js, "g_in": path[act][lane] + s_in * arc[lane],
                            "g_out": path[act][lane] + s_out * arc[lane],
                            "pos0": xa[lane] + c[lane] * s_in[:, None], "pos1": xa[lane] + c[lane] * s_out[:, None],
                            "dir": c[lane], "p": pa[lane], "len": gas_len,
                            "t": t[act][lane] + s_in * arc[lane] / (beta[lane] * C_MM_PER_NS)})
+        if wall_index is not None:
+            wall_ln, wall_s1, wall_s2 = wall_index.columns(xa, c, L)
+            wall_lanes = np.flatnonzero(wall_ln > 0)
+            parts = [(materials.MYLAR, wall_lanes, wall_ln[wall_lanes] * (1 - f_metal)),
+                     (materials.ALUMINIUM_6061, wall_lanes, wall_ln[wall_lanes] * f_metal)] + parts
         thin = _columns(na, parts)
         c2 = time.perf_counter()
         sup, mom = ({}, {})
@@ -379,9 +395,20 @@ def transport(rng, start, geom, field, interior=None, *, chord_mm=20.0, sagitta_
             X = np.zeros(na)
             S1 = np.zeros(na)
             S2 = np.zeros(na)
+            if wall_index is not None:
+                inv_x0 = ((1 - f_metal) / eloss.radiation_length_mm(materials.MYLAR)
+                          + f_metal / eloss.radiation_length_mm(materials.ALUMINIUM_6061))
+                X += wall_ln * inv_x0
+                S1 += wall_s1 * inv_x0
+                S2 += wall_s2 * inv_x0
             if sp is not None:
-                for m, ln in ((materials.MYLAR, wall * (1 - f_metal)), (materials.ALUMINIUM_6061, wall * f_metal),
-                              (gas, gas_len), (materials.TUNGSTEN, wr), (materials.GOLD, pl)):
+                if wall_index is None:
+                    msc_parts = ((materials.MYLAR, wall * (1 - f_metal)),
+                                 (materials.ALUMINIUM_6061, wall * f_metal),
+                                 (gas, gas_len), (materials.TUNGSTEN, wr), (materials.GOLD, pl))
+                else:
+                    msc_parts = ((gas, gas_len), (materials.TUNGSTEN, wr), (materials.GOLD, pl))
+                for m, ln in msc_parts:
                     xx = ln / eloss.radiation_length_mm(m)
                     hl = L[lane] - s_mid
                     np.add.at(X, lane, xx)

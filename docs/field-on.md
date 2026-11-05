@@ -104,6 +104,34 @@ loss by 1.5-2 % above 10 GeV/c); the steps differ by
 35 um in wire DOCA (2-5 GeV/c, IQR) and below 1 ps in time. Geant4 all passages against first passage: yield -0.03 +- 0.03 %, hits
 -0.13 +- 0.07.
 
+## Opt-in finite wall material
+
+`fieldsteps.transport(..., complete_outer_wall=True)` includes finite-cylinder wall-only crossings and exact wall
+lever moments in loss, scattering and tails. It replaces the gas-gated wall contribution rather than adding it;
+gas-step creation, wire handling, material fractions and current radiative/gas defaults are independent. The
+option is Python-only and **defaults to False**. Gas and wire MSC lever moments still use the crossing midpoint
+`s_mid` approximation; exact wall moments do not make those contributions exact. Candidate expansion is not
+memory-bounded by the subtraction batch size.
+
+The finite-wall solver deliberately uses exact `== 0` parallel/stationary tests: a tiny positive transverse
+quadratic coefficient is still a nonparallel crossing. This fixes near-parallel wall intersections; it must not
+share the legacy gas search's near-parallel threshold. The legacy gas search and default route remain unchanged.
+
+The separate cosmic validation note records the saved development comparison and its limitations; those results
+are not duplicated here and do not justify changing the default.
+
+Synthetic tests cover finite cap/parallel/grazing intersections, material consumers, segmentation, and default
+versus explicit-False byte/RNG equality. Normal pytest also compares all six default-route synthetic cases against
+[frozen main 9e81577 outputs](../tests/data/fieldwall_main9e81577.md), generated independently with core d041bb3.
+Schema, integers and RNG states are exact; floats use `rtol=1e-10`, `atol=1e-11` for cross-platform rounding.
+Shared-route perturbation tests demonstrate that the fixtures catch regressions which omitted/False parity alone
+cannot. No baseline source or fixture regeneration is needed to run these tests. An optional main source file can
+also be compared byte-for-byte in the same process and environment:
+
+```bash
+python3 tests/test_fieldwall_parity.py --baseline /path/to/main/fieldsteps.py
+```
+
 ## Open
 
 - An unbiased reference for muons above 1 GeV/c and for side entries (the selection above).

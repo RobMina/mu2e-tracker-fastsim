@@ -62,6 +62,7 @@ def test_assemble_keeps_events_without_a_track_and_rejects_foreign_events():
     tr = den.assign(p_true=104.1)
     d = cemom.assemble(den, {"g4": arm}, {"g4": tr})
     assert len(d) == 4 and list(d.g4_ce) == [True, False, False, False]
+    assert d.g4_p_true.notna().all()                    # truth on every event, with or without an ntuple entry
     assert d.g4_res.iloc[0] == pytest.approx(-0.1)
     foreign = arm.assign(event=np.uint64(9))
     with pytest.raises(ValueError):

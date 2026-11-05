@@ -10,7 +10,7 @@ those events and run through the same stock digitisation, LoopHelix reconstructi
   microbunch, so the on-spill window would cut on the muon decay time, not on the tracker;
 - reco momentum at TT_Front; truth = |p| of the arm's own primary at the tracker entrance (VD13: the hand-off state
   in the fast arm, the Geant4 crossing in the reference arm);
-- active hits and chi2/ndof of the track.
+- active hits of the track (trkhits with KinKal state > -2, and the persisted trk.nactive) and its chi2/ndof.
 
 Denominator: every dts event (no track counts as a failure). Errors: paired per-event differences (efficiency, tail
 fractions, per-bin fractions, mean) and shared-index bootstrap (Gaussian core of the residual, fitted in -1..+1 MeV/c).
@@ -34,6 +34,7 @@ from trkfastsim.validation.fieldreco import KEY, TREE, _chi2, _me, _vec
 
 CE_CUTS = dict(tandip=(0.5774, 1.0), d0=(-80.0, 105.0), rmax=(450.0, 680.0), fitcon=1e-3)
 FRONT_SID = 0
+ACTIVE_STATE_MIN = -2         # KinKal hit state > -2: active (both drift sides and null-ambiguity)
 RES_EDGES = np.round(np.arange(-3.0, 2.0 + 1e-9, 0.1), 3)
 P_EDGES = np.round(np.arange(100.0, 106.0 + 1e-9, 0.1), 3)
 TAILS = (-2.0, -1.0, 1.0, 2.0)
@@ -51,6 +52,7 @@ def read_ntuple(path):
                      ("status", "pdg", "nactive", "chisq", "ndof", "fitcon")], library="ak")
         seg = t["trksegs"].array()
         pars = t["trksegpars_lh"].array()
+        hits = t["trkhits"].array()
     good = a["trk/trk.status"] > 0
     has = ak.to_numpy(ak.any(good, axis=1))
     i = ak.argmax(good, axis=1, keepdims=True)
@@ -73,6 +75,8 @@ def read_ntuple(path):
     for k in ("pdg", "nactive", "chisq", "ndof", "fitcon"):
         df[k] = np.where(has, ak.to_numpy(ak.fill_none(_first(a[f"trk/trk.{k}"], i), np.nan)).astype(float), np.nan)
     df["chi2ndf"] = df.chisq / df.ndof
+    h = ak.fill_none(ak.firsts(hits[i], axis=1), [], axis=0)
+    df["nactive_hits"] = np.where(has, ak.to_numpy(ak.sum(h.state > ACTIVE_STATE_MIN, axis=1)), np.nan)
     if df.duplicated(KEY).any():
         raise ValueError(f"duplicate events in {path}")
     return df
@@ -105,10 +109,11 @@ def read_truth(paths, tree):
 def assemble(den, arms, truths):
     d = den[KEY].copy()
     for name, frame in arms.items():
-        f = frame.merge(truths[name], on=KEY, how="left", validate="one_to_one")
-        unknown = len(f) - len(f.merge(den[KEY], on=KEY))
+        unknown = len(frame) - len(frame.merge(den[KEY], on=KEY))
         if unknown:
             raise ValueError(f"{unknown} {name} events outside the denominator")
+        f = den[KEY].merge(truths[name], on=KEY, how="left", validate="one_to_one")
+        f = f.merge(frame, on=KEY, how="left", validate="one_to_one")
         d = d.merge(f.rename(columns={c: f"{name}_{c}" for c in f if c not in KEY}), on=KEY, how="left",
                     validate="one_to_one")
         d[f"{name}_res"] = d[f"{name}_p_reco"] - d[f"{name}_p_true"]
@@ -189,10 +194,11 @@ def compare(d, arm, ref):
     pa, pr = d.loc[both, f"{arm}_p_reco"].to_numpy(), d.loc[both, f"{ref}_p_reco"].to_numpy()
     out["p_reco_shape"] = binned_pulls(pa, pr, P_EDGES)
     out["p_reco_chi2_unpaired"] = _chi2(pa, pr, P_EDGES)
-    for q in ("nactive", "chi2ndf"):
+    for q in ("nactive", "nactive_hits", "chi2ndf"):
         qa, qr = d.loc[both, f"{arm}_{q}"].to_numpy(float), d.loc[both, f"{ref}_{q}"].to_numpy(float)
-        edges = np.arange(0, 81, 2.0) if q == "nactive" else np.linspace(0, 5, 41)
+        edges = np.linspace(0, 5, 41) if q == "chi2ndf" else np.arange(0, 81, 2.0)
         out[q] = {arm: _me(qa), ref: _me(qr), "paired_difference": _me(qa - qr), "shape": _chi2(qa, qr, edges)}
+    out["nactive_hits_equal_nactive"] = float(np.mean(d.loc[both, f"{arm}_nactive_hits"] == d.loc[both, f"{arm}_nactive"]))
     out["p_true_paired_difference"] = _me(d.loc[both, f"{arm}_p_true"] - d.loc[both, f"{ref}_p_true"])
     return out
 
@@ -227,37 +233,83 @@ def plots(d, rep, arm, ref, outdir):
     fig.tight_layout()
     fig.savefig(Path(outdir) / "ce_mom.png", dpi=150)
     plt.close(fig)
-    # efficiency vs Geant4 truth momentum and pitch at the entrance
-    pt = d[f"{ref}_p_true"].to_numpy(float)
     fig, ax = plt.subplots(2, 1, figsize=(6, 5.5), sharex=True, gridspec_kw=dict(height_ratios=[3, 1]))
+    _eff_panels(ax, d, c, arm, ref, col, lab)
+    fig.tight_layout()
+    fig.savefig(Path(outdir) / "ce_eff.png", dpi=150)
+    plt.close(fig)
+    deck_figure(d, rep, arm, ref, outdir)
+
+
+def _eff_panels(ax, d, c, arm, ref, col, lab):
+    """CE-selection efficiency per generated event against the Geant4 momentum at the tracker entrance; paired
+    fast - G4 difference per bin (pp)."""
+    pt = d[f"{ref}_p_true"].to_numpy(float)
     e = np.arange(95.0, 106.01, 1.0)
     ib = np.digitize(np.nan_to_num(pt, nan=-1), e) - 1
     inb = (ib >= 0) & (ib < len(e) - 1)
     cc = 0.5 * (e[1:] + e[:-1])
-    effs = {}
-    for name in (ref, arm):
-        sel = d[f"{name}_ce"].to_numpy(bool)
-        k = np.bincount(ib[inb], weights=sel[inb], minlength=len(cc))
-        nn = np.bincount(ib[inb], minlength=len(cc))
-        eff = np.where(nn > 0, k / np.maximum(nn, 1), np.nan)
-        err = np.sqrt(eff * (1 - eff) / np.maximum(nn, 1))
-        effs[name] = sel
-        ax[0].errorbar(cc, eff, yerr=err, fmt="o", color=col[name], label=lab[name], ms=4)
-    dd = effs[arm].astype(float) - effs[ref]
-    m = np.bincount(ib[inb], weights=dd[inb], minlength=len(cc)) / np.maximum(np.bincount(ib[inb], minlength=len(cc)), 1)
-    m2 = np.bincount(ib[inb], weights=dd[inb] ** 2, minlength=len(cc)) / np.maximum(np.bincount(ib[inb], minlength=len(cc)), 1)
     nn = np.bincount(ib[inb], minlength=len(cc))
+    sel = {}
+    for name in (ref, arm):
+        sel[name] = d[f"{name}_ce"].to_numpy(bool)
+        k = np.bincount(ib[inb], weights=sel[name][inb], minlength=len(cc))
+        eff = np.where(nn > 0, k / np.maximum(nn, 1), np.nan)
+        ax[0].errorbar(cc, eff, yerr=np.sqrt(eff * (1 - eff) / np.maximum(nn, 1)), fmt="o", color=col[name],
+                       label=lab[name], ms=4)
+    dd = sel[arm].astype(float) - sel[ref]
+    m = np.bincount(ib[inb], weights=dd[inb], minlength=len(cc)) / np.maximum(nn, 1)
+    m2 = np.bincount(ib[inb], weights=dd[inb] ** 2, minlength=len(cc)) / np.maximum(nn, 1)
     se = np.sqrt(np.maximum(m2 - m ** 2, 0) / np.maximum(nn - 1, 1))
-    ax[1].errorbar(cc, 100 * m, yerr=100 * se, fmt="o", color="k", ms=3)
+    ok = nn > 1
+    ax[1].errorbar(cc[ok], 100 * m[ok], yerr=100 * se[ok], fmt="o", color="k", ms=3)
     ax[1].axhline(0, color="0.5", lw=0.8)
     ax[1].set_ylabel("fast $-$ G4 [pp]")
     ax[1].set_xlabel(r"Geant4 $p$ at tracker entrance [MeV/$c$]")
     ef = c["efficiency_ce"]
-    ax[0].set_ylabel("CE selection efficiency per generated event")
-    ax[0].legend(frameon=False, title=f"paired: {100 * ef['paired_difference'][0]:+.2f} $\\pm$ "
-                                        f"{100 * ef['paired_difference'][1]:.2f} pp")
+    ax[0].set_ylabel("CE selection efficiency")
+    ax[0].set_ylim(0, 1)
+    ax[0].legend(frameon=False, loc="lower left",
+                 title=f"all: {100 * ef[arm][0]:.1f} vs {100 * ef[ref][0]:.1f} %, paired "
+                       f"{100 * ef['paired_difference'][0]:+.2f} $\\pm$ {100 * ef['paired_difference'][1]:.2f} pp")
+
+
+def deck_figure(d, rep, arm, ref, outdir, name="ce_deck.png"):
+    """Left: p_reco - p_true at the tracker entrance, fast vs Geant4, with the fast/G4 ratio (paired errors); right:
+    CE-selection efficiency against the Geant4 entrance momentum with the paired difference."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    col = {ref: "#0072B2", arm: "#D55E00"}
+    lab = {ref: "Geant4", arm: "fast"}
+    c = rep["compare"][arm]
+    s = c["residual_shape"]
+    e = np.array(s["edges"])
+    cc = 0.5 * (e[1:] + e[:-1])
+    n = c["residual_core"]["events"]
+    fr, fc = np.array(s["frac_reference"]), np.array(s["frac_candidate"])
+    fig, ax = plt.subplots(2, 2, figsize=(12, 5.8), gridspec_kw=dict(height_ratios=[3, 1]), sharex="col")
+    for arm_name, f in ((ref, fr), (arm, fc)):
+        ax[0, 0].stairs(f * n, e, color=col[arm_name], lw=1.6, label=lab[arm_name])
+    core = c["residual_core"]
+    sig = core["candidate"][1], core["reference"][1]
+    ax[0, 0].set_yscale("log")
+    ax[0, 0].set_ylabel(r"tracks / 0.1 MeV/$c$")
+    ax[0, 0].legend(frameon=False, title=f"{n} events, CE-selected in both\n"
+                                          f"core $\\sigma$ {sig[0]:.3f} vs {sig[1]:.3f} MeV/$c$")
+    ok = fr > 0
+    ratio = np.where(ok, fc / np.where(ok, fr, 1), np.nan)
+    err = np.where(ok, np.array(s["err"]) / np.where(ok, fr, 1), np.nan)
+    ax[1, 0].errorbar(cc, ratio, yerr=err, fmt="o", ms=2.5, color="k", lw=0.6)
+    ax[1, 0].axhline(1, color="0.5", lw=0.8)
+    ax[1, 0].set_ylim(0.5, 1.5)
+    ax[1, 0].set_ylabel("fast / G4")
+    ax[1, 0].set_xlabel(r"$p_{reco} - p_{true}$ at tracker entrance [MeV/$c$]")
+    ax[1, 0].text(0.02, 0.8, f"paired $\\chi^2$/ndf = {s['chi2_paired']:.0f}/{s['ndf']}", transform=ax[1, 0].transAxes,
+                  fontsize=8)
+    _eff_panels(ax[:, 1], d, c, arm, ref, col, lab)
     fig.tight_layout()
-    fig.savefig(Path(outdir) / "ce_eff.png", dpi=150)
+    fig.savefig(Path(outdir) / name, dpi=150)
     plt.close(fig)
 
 

@@ -104,6 +104,30 @@ loss by 1.5-2 % above 10 GeV/c); the steps differ by
 35 um in wire DOCA (2-5 GeV/c, IQR) and below 1 ps in time. Geant4 all passages against first passage: yield -0.03 +- 0.03 %, hits
 -0.13 +- 0.07.
 
+## Opt-in finite wall material
+
+`fieldsteps.transport(..., complete_outer_wall=True)` includes finite-cylinder wall-only crossings and exact wall
+lever moments in loss, scattering and tails. It replaces the gas-gated wall contribution rather than adding it;
+gas-step creation, wire handling, material fractions and current radiative/gas defaults are independent. The
+option is Python-only and **defaults to False**. Candidate expansion is not memory-bounded by the subtraction
+batch size.
+
+A saved single-parent development comparison has 40,991 reference-clock events. With the option disabled, fast
+and Geant4-first-passage steps through the same stock reconstruction give 1,948 and 1,914 good-track events:
+efficiency difference **+0.08295 ± 0.05322 percentage points**, ratio **1.01776 ± 0.01150**. With the option enabled,
+the fast yield is 1,909: difference from Geant4 **−0.01220 ± 0.05169 percentage points**. On the 393-event common
+2–5 GeV/c cohort, enabled-minus-disabled relative momentum-proxy width is **−0.04307 ± 0.17223 percentage points**.
+There is no demonstrated narrowing; this does not justify changing the default. Momentum proxies use each arm's
+event-first straw, not truth-particle matching at a common surface. These saved results use their historical
+physics configuration and are not new validation of every current-main default.
+
+Synthetic tests cover finite cap/parallel/grazing intersections, material consumers, segmentation, and default
+versus explicit-False byte/RNG equality. A current-main source file can also be compared in the same environment:
+
+```bash
+python3 tests/test_fieldwall_parity.py --baseline /path/to/main/fieldsteps.py
+```
+
 ## Open
 
 - An unbiased reference for muons above 1 GeV/c and for side entries (the selection above).

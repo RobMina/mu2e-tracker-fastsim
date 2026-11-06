@@ -6,6 +6,34 @@ into StrawDigi tables in the `StrawHitTableDumper` layout, so the fast hit reco 
 and the fast line finding and fit run on them unchanged. `trkfastsim/digi/digicond.py` builds its conditions from the
 sources the stock job reads.
 
+## Experimental on-spill and field-on extension
+
+The on-spill/field-on extension adds explicit event timing to both Python digitiser
+backends. This is opt-in development work, not a validated replacement for the
+stock Run 1A response. The established off-spill results below retain their scope.
+
+`digicond.build` / `assemble` accept keyword-only `field_bz_T`, the actual field
+sampled at the detector origin, and `detector_origin`, the Mu2e-frame origin used
+by the sample. Do not substitute nominal 1 T or the extracted-geometry origin for
+a Run 1A sample. Field-on configurations require the field value explicitly.
+Drift tables include the stock radius/azimuth dependence and float Bz/CC rounding.
+
+`digitize` and `fastdigi.digitize_steps` accept keyword-only
+`event_timing={"pbtime": ..., "event_length": ...}`, with one entry per event,
+including events with no steps. On spill these arrays are mandatory. They must
+come from the same event-window generator as other detectors: digitisation adds
+the MC proton-bunch offset once, folds step times into the microbunch, then adds
+the stock per-end ghost charges near the boundaries. The reconstructed bunch
+estimate is not a substitute for MC timing. Actual 1675/1700 ns windows govern
+read-all wrap rejection; ordinary on-spill thresholds retain the stock configured
+end. Ghosts carry the source step identity and count toward resource limits.
+
+No cross talk, noise hits, status suppression or digi-level mixing is added.
+The generic CLI still targets its documented off-spill inputs; on-spill callers
+must use the explicit timing API. Fast table outputs contain detector digis/ADCs,
+not a complete `StrawDigiMC` collection. Validate on identical merged primary and
+pileup steps before using the extension for physics or quoting GPU throughput.
+
 ## Conditions: same sources as the stock job
 
 | Item | Source |
@@ -19,8 +47,8 @@ sources the stock job reads.
 | Event window, spill type | `eventTiming`, `EWMProducer.SpillType`, GlobalConstantsService `physicsParams` |
 | makeSD settings | the job's `physics.producers.makeSD` (AllHitsPlanes, AllHitsStraw) and the module defaults |
 
-`digi-cond` refuses configurations it does not implement (on spill, magnetic field, cross talk, noise,
-DriftSingleElectrons, UseStatus, digi mixing). The response tables reproduce the stock job's own printout
+The default `digi-cond` CLI cannot supply the explicit field/timing inputs of the experimental API above.
+Cross talk, noise, DriftSingleElectrons, UseStatus and digi mixing remain unsupported and rejected. The response tables reproduce the stock job's own printout
 (`strawElectronics.verbose`) to its printed precision (`tests/test_digi.py`).
 
 ## What is reproduced and what is approximated
@@ -41,7 +69,8 @@ DriftSingleElectrons, UseStatus, digi mixing). The response tables reproduce the
 | Digital dead time | 400 ns after a digi in the same straw | same |
 | Truth | StrawDigiMC | the input step of the cluster referenced at each end's crossing (`d_step0/1`) only |
 | Random numbers | CLHEP engines from SeedService | one numpy Generator: statistically equivalent, not the same numbers |
-| Not implemented | on-spill folding and ghosts, cross talk, noise hits, TrackerStatus suppression, digi mixing, field-on drift | refused by `digi-cond` |
+| Experimental extension | on-spill folding/ghosts and field-on drift | explicit API above; development validation only |
+| Not implemented | cross talk, noise hits, TrackerStatus suppression, digi mixing | refused by `digi-cond` |
 
 A regula-falsi step can divide by zero when two samples on the same side of the threshold are equal (the response
 is piecewise constant in 0.1 ns bins) and the crossing time becomes NaN. The fast code keeps the stock consequences:

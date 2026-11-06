@@ -3,7 +3,7 @@
 Sources, the same ones the stock job reads (Offline v13_39_00):
 - ``fhicl-dump`` of the digitisation job: ProditionsService ``strawPhysics``, ``strawDrift``, ``strawElectronics``,
   ``eventTiming``; ``physics.producers.makeSD`` (module defaults where unset); ``EWMProducer.SpillType``;
-  ``GeometryService.bFieldFile`` (only the field-free case is supported);
+  ``GeometryService.bFieldFile`` (field-on requires an explicit measured ``field_bz_T``);
 - DbService tables of the run (``dbTool print-run --purpose P --version V --run R --table T --content`` CSVs):
   ``TrkPreampStraw`` (thresholds, ADC gain), ``TrkAlignStrawSim`` (wire-end offsets of ``alignedTrackerSim``, which runs
   with onlyWireOffsets), ``TrkDelayPanel``/``TrkDelayRStraw`` (read only when overrideDbTimeOffsets is false);
@@ -30,7 +30,8 @@ MAKESD_DEFAULTS = {"MaxNClusters": 20, "addCrossTalk": False, "DriftSingleElectr
                    "minstepE": 2.0e-6, "StrawGasStepTimeBuffer": 100.0, "FlashTimeBuffer": 10.0, "TDCTimeBuffer": 2.0,
                    "AllHitsStraw": 90, "AllHitsPlanes": [], "UseStatus": False}
 # GlobalConstantsService/data/globalConstants_01.txt physicsParams
-GLOBAL_DEFAULTS = {"nominalDRPeriod": 1695.0, "nominalDAQFrequency": 40.0}
+GLOBAL_DEFAULTS = {"nominalDRPeriod": 1695.0, "nominalDAQFrequency": 40.0,
+                   "nominalDAQTicks": 68, "nominalDAQOnSpillBins": 5}
 
 
 # ---------------------------------------------------------------- fhicl-dump reader
@@ -142,7 +143,8 @@ def straw_drift(cfg, wire_radius, straw_outer_radius, bz=0.0):
     logR = math.log(straw_outer_radius / wire_radius)
     dd = [V / (e * logR) for e in E]
     nphi = int(cfg["phiBins"])
-    CC = bz * logR / V
+    # StrawDriftMaker rounds nonzero origin Bz and then CC to float.
+    CC = float(np.float32(float(np.float32(bz)) * logR / V)) if bz != 0.0 else bz * logR / V
     dD = float(cfg["deltaDistance"])
     dphi = math.pi / 2.0 / (nphi - 1)
     dist, times = [0.0], [[0.0] * nphi]
@@ -168,6 +170,7 @@ def straw_drift(cfg, wire_radius, straw_outer_radius, bz=0.0):
     return {"drift_dist": np.array(dist), "drift_times": np.array(times), "drift_dD": dD, "drift_dphi": dphi}
 
 
+# Stock driftCluster passes wirePosition.Phi() to StrawPhysics::driftDistanceToTime, then StrawDrift::D2T.
 def d2t(dist, phi, dd, tt, dD, dphi):
     """StrawDrift::D2T, vectorised: linear in distance on the grid, linear in folded phi between phi bins."""
     dist = np.asarray(dist, float)
@@ -345,13 +348,16 @@ def linear_response_table(tab, t, wdist, halflen, cfg, wd):
 
 
 # ---------------------------------------------------------------- straws (alignedTrackerSim, onlyWireOffsets)
-def sim_straws(g, align_rows=None):
+def sim_straws(g, align_rows=None, detector_origin=None):
     """Straw axes (nominal) and wires (nominal + TrkAlignStrawSim wire-end offsets in the panel UVW frame), detector frame.
 
     Offline Panel UVW: u = wire direction of straw 0, v = unit(origin(straw 94) - origin(straw 0)), w = u x v.
     Straw direction points from the HV end to the cal end (cal end = mid + halflength * dir).
     """
-    mid = geometry.to_detector(g.mid)
+    origin = geometry.DETECTOR_ORIGIN_EXTRACTED if detector_origin is None else np.asarray(detector_origin, float)
+    if origin.shape != (3,) or not np.isfinite(origin).all():
+        raise ValueError("detector_origin must be three finite Mu2e-frame coordinates")
+    mid = geometry.to_detector(g.mid, origin=origin)
     sdir = g.dir / np.linalg.norm(g.dir, axis=1)[:, None]
     hl = np.asarray(g.halflen, float)
     up = np.asarray(g.upanel)
@@ -378,8 +384,9 @@ def sim_straws(g, align_rows=None):
 
 
 # ---------------------------------------------------------------- build / save / load
-def build(fcl_dump, preamp_csv, gdml, align_csv=None, delay_csvs=None, global_constants=None):
-    """Conditions from the files the stock job reads (see the module docstring)."""
+def build(fcl_dump, preamp_csv, gdml, align_csv=None, delay_csvs=None, global_constants=None, *,
+          field_bz_T=None, detector_origin=None):
+    """Build conditions; field-on requires actual Bz [T] sampled by stock at the detector origin."""
     with open(fcl_dump) as f:
         d = parse_fhicl_dump(f.read())
     sources = {"fcl_dump": str(fcl_dump), "preamp": str(preamp_csv), "align": str(align_csv), "gdml": str(gdml),
@@ -387,16 +394,32 @@ def build(fcl_dump, preamp_csv, gdml, align_csv=None, delay_csvs=None, global_co
     return assemble(d, read_db_csv(preamp_csv), geometry.from_gdml(gdml),
                     read_db_csv(align_csv) if align_csv else None,
                     [read_db_csv(p) for p in delay_csvs] if delay_csvs else None,
-                    read_global_constants(global_constants), sources)
+                    read_global_constants(global_constants), sources, field_bz_T=field_bz_T,
+                    detector_origin=detector_origin)
 
 
-def assemble(d, preamp_rows, g, align_rows=None, delays=None, gc=None, sources=None):
-    """Conditions from a parsed fhicl-dump table, DB rows and a StrawGeometry (Mu2e frame)."""
-    gc = gc or dict(GLOBAL_DEFAULTS)
+def assemble(d, preamp_rows, g, align_rows=None, delays=None, gc=None, sources=None, *,
+             field_bz_T=None, detector_origin=None):
+    """Assemble conditions with actual origin Bz; on-spill digitisation also needs per-event timing arrays.
+
+    field_bz_T is stock BFieldManager::getBField(detector origin in Mu2e).z(), not the nominal map field.
+    The on-spill eventWindowLength scalar is the maximum marker length, not a substitute for event timing.
+    """
+    gc = dict(GLOBAL_DEFAULTS, **(gc or {}))
     pro = fcl_get(d, "services.ProditionsService")
     bfile = fcl_get(d, "services.GeometryService.bFieldFile")
-    if "no_field" not in bfile:
-        raise NotImplementedError(f"bFieldFile {bfile}: only the field-free drift (Bz = 0) is implemented")
+    if field_bz_T is None:
+        if "no_field" not in bfile:
+            raise ValueError(f"bFieldFile {bfile}: field-on conditions require explicit field_bz_T sampled at detector origin")
+        field_bz_T = 0.0
+    try:
+        if np.ndim(field_bz_T) != 0:
+            raise ValueError("not a scalar")
+        field_bz_T = float(field_bz_T)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("field_bz_T must be a finite scalar actual Bz at detector origin") from exc
+    if not math.isfinite(field_bz_T) or abs(field_bz_T) > float(np.finfo(np.float32).max):
+        raise ValueError("field_bz_T must be finite and representable as stock float Bz at detector origin")
     sd = dict(MAKESD_DEFAULTS)
     sd.update(fcl_get(d, "physics.producers.makeSD"))
     if sd["addCrossTalk"] or sd["addNoise"] or sd["DriftSingleElectrons"] or sd["UseStatus"]:
@@ -407,15 +430,15 @@ def assemble(d, preamp_rows, g, align_rows=None, delays=None, gc=None, sources=N
     et = pro["eventTiming"]
     ele = pro["strawElectronics"]
     phys = straw_physics(pro["strawPhysics"])
-    drift = straw_drift(pro["strawDrift"], g.wire_r, g.wall_rmax, bz=0.0)
+    drift = straw_drift(pro["strawDrift"], g.wire_r, g.wall_rmax, bz=field_bz_T)
     el = straw_electronics(ele, et, preamp_rows, g.halflen[:NSTRAWS], delays)
-    straws = sim_straws(g, align_rows)
+    straws = sim_straws(g, align_rows, detector_origin=detector_origin)
     clock = 1000.0 / gc["nominalDAQFrequency"]
     onspill = int(ewm["SpillType"]) == 1
-    if onspill:
-        raise NotImplementedError("on-spill digitisation (microbunch folding, ghosts, EWM phase) is not implemented")
+    # EventWindowMarkerProducer uses nominalDAQTicks (or one fewer), not OffSpillEventLength, on spill.
+    window_ticks = gc["nominalDAQTicks"] if onspill else et["OffSpillEventLength"]
     scal = {
-        "onspill": onspill, "eventWindowLength": float(et["OffSpillEventLength"]) * clock,
+        "onspill": onspill, "eventWindowLength": float(window_ticks) * clock, "field_bz_T": field_bz_T,
         "mbtime": gc["nominalDRPeriod"], "strawInnerRadius": float(g.radius), "strawOuterRadius": float(g.wall_rmax),
         "wireRadius": float(g.wire_r), "minstepE": float(sd["minstepE"]), "steptimebuf": float(sd["StrawGasStepTimeBuffer"]),
         "flashBuffer": float(sd["FlashTimeBuffer"]), "tdcbuf": float(sd["TDCTimeBuffer"]),
@@ -441,7 +464,9 @@ def assemble(d, preamp_rows, g, align_rows=None, delays=None, gc=None, sources=N
     if not scal["nonlindrift"]:
         raise NotImplementedError("useNonLinearDrift false (constant drift speed) is not implemented")
     scal["drift_dD"], scal["drift_dphi"] = drift.pop("drift_dD"), drift.pop("drift_dphi")
-    scal["sources"] = dict(sources or {}, bFieldFile=bfile)
+    origin = geometry.DETECTOR_ORIGIN_EXTRACTED if detector_origin is None else np.asarray(detector_origin, float)
+    scal["sources"] = dict(sources or {}, bFieldFile=bfile, field_bz_T=field_bz_T,
+                           detector_origin=origin.tolist())
     return Conditions(scal, {**phys, **drift, **el, **straws})
 
 

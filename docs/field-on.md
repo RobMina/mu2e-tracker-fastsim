@@ -138,7 +138,7 @@ The generated electron of each Geant4 CeEndpoint dts event goes through the umbr
 (`cechain` to the tracker entry plane, then `sim/fieldsteps`); the reference arm is the Geant4 primary electron's own
 steps from its first VD13 crossing (`python3 -m trkfastsim.validation.cearms`). Both arms are injected into the same
 dts events and run through the same stock OffSpill digitisation, stock LoopHelix reconstruction (`KKDe`, recoMC
-OffSpill) and EventNtuple (`scripts/trk1_ce_steps_uva.sh`, `scripts/trk1_ce_reco_uva.sh`); secondaries and calorimeter
+OffSpill) and EventNtuple (`scripts/ce_steps_slurm.sh`, `scripts/ce_reco_slurm.sh`; submit with `sbatch -A YOUR_ACCOUNT`); secondaries and calorimeter
 steps are in neither arm. `python3 -m trkfastsim.validation.cemom` compares them per event over every dts event:
 efficiency (fit status > 0, and the CE selection: e-, downstream at TT_Front, fit consistency > 1e-3, tan(dip),
 d0 and r_max windows; no t0 window, since OffSpill digitisation does not fold the times into the microbunch), reco

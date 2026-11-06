@@ -1,9 +1,8 @@
 #!/bin/bash
 # CE arm through stock art: inject an injector table into its dts events, stock OffSpill digitisation, stock recoMC OffSpill (LoopHelix KKDe), EventNtuple.
-# Usage (Slurm array over the dts sequencers in LIST): sbatch --array=0-N trk1_ce_reco_uva.sh ARM LIST HANDOFF_ROOT OUT_ROOT TABLE_NAME
+# Usage (Slurm array over the dts sequencers in LIST): sbatch -A YOUR_ACCOUNT --array=0-N ce_reco_slurm.sh ARM LIST HANDOFF_ROOT OUT_ROOT TABLE_NAME
 #   LIST: lines "SEQUENCER DTS_PATH"; HANDOFF_ROOT/<SEQUENCER>/TABLE_NAME is the injector table; output OUT_ROOT/<ARM>/<SEQUENCER>/.
 # Site paths come from the environment: FASTSIMKIT_SCRATCH (scratch root with the runtime, tarball, cvmfsexec).
-#SBATCH -A ldmxuva
 #SBATCH -p standard
 #SBATCH -c 1
 #SBATCH --mem=12G

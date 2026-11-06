@@ -1,9 +1,8 @@
 #!/bin/bash
 # CE tracker steps of both arms for one dts file: fast (umbrella beamfastsim.cetracker: cechain -> fieldsteps) and Geant4 (trkfastsim.validation.cearms).
-# Usage (Slurm array over the lines "SEQUENCER TABLE [TABLE...]" of LIST): sbatch --array=0-N trk1_ce_steps_uva.sh LIST OUT_ROOT SEED
+# Usage (Slurm array over the lines "SEQUENCER TABLE [TABLE...]" of LIST): sbatch -A YOUR_ACCOUNT --array=0-N ce_steps_slurm.sh LIST OUT_ROOT SEED
 # Environment: FASTSIMKIT_SCRATCH, CODE (dir with core/, beam/ and tracker code), IMAGE (fastsim SIF), GDML, MAPS ("DS TSd"),
 # OFFLINE_ROOT and CE_GEOM (cechain geometry file); writes OUT_ROOT/<SEQUENCER>/.
-#SBATCH -A ldmxuva
 #SBATCH -p standard
 #SBATCH -c 1
 #SBATCH --mem=8G

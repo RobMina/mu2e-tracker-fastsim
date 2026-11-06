@@ -340,7 +340,7 @@ def main(argv=None):
     ap.add_argument("--gen", nargs="+", required=True, help="states.root files (dump/gen: one row per dts event)")
     ap.add_argument("--truth", action="append", required=True, help="NAME=ROOT[,ROOT...] with dump/entries (VD13)")
     ap.add_argument("--nts", action="append", required=True, help="NAME=DIR with nts.*.root (recursive)")
-    ap.add_argument("--ref", default="g4")
+    ap.add_argument("--ref", default="g4", help="reference arm; with a single arm only its efficiencies are reported")
     ap.add_argument("--outdir", required=True)
     ap.add_argument("--plots", action="store_true")
     a = ap.parse_args(argv)
@@ -360,6 +360,7 @@ def main(argv=None):
     rep = dict(events=len(den), ntuple_files=nfiles, ntuple_entries={n: len(f) for n, f in arms.items()},
                ce_cuts={k: list(v) if isinstance(v, tuple) else v for k, v in CE_CUTS.items()},
                truth="|p| of the arm's own primary at VD13 (tracker entrance); reco at the first in-bounds TT_Front",
+               arm_efficiency={n: {sel: _me(d[f"{n}_{sel}"].to_numpy(bool)) for sel in ("fit", "ce")} for n in arms},
                compare={n: compare(d, n, a.ref) for n in arms if n != a.ref})
     out = Path(a.outdir)
     out.mkdir(parents=True, exist_ok=True)
@@ -370,8 +371,9 @@ def main(argv=None):
         for n in rep["compare"]:
             plots(d, rep, n, a.ref, out)
     c = rep["compare"]
-    print(json.dumps({n: {k: c[n][k] for k in ("efficiency_fit", "efficiency_ce", "residual_core", "residual_mean")}
-                      for n in c}, indent=1))
+    print(json.dumps(dict(arm_efficiency=rep["arm_efficiency"],
+                          **{n: {k: c[n][k] for k in ("efficiency_fit", "efficiency_ce", "residual_core",
+                                                       "residual_mean")} for n in c}), indent=1))
 
 
 if __name__ == "__main__":

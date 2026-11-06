@@ -8,7 +8,7 @@ sources the stock job reads.
 
 ## Experimental on-spill and field-on extension
 
-The `PU1-onspill-digi` work adds explicit event timing to both Python digitiser
+The on-spill/field-on extension adds explicit event timing to both Python digitiser
 backends. This is opt-in development work, not a validated replacement for the
 stock Run 1A response. The established off-spill results below retain their scope.
 

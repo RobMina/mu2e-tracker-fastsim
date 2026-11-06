@@ -73,13 +73,60 @@ def test_onspill_timing_validation_even_when_empty(onspill, timing):
         DJ.digitize(st, 1, onspill, jax.random.key(1), event_timing=timing)
 
 
-def test_offspill_explicit_default_timing_preserves_arrays(cond):
-    st = _steps([_step(cond, 520)])
-    key = jax.random.key(3)
-    a = DJ.digitize(st, 1, cond, key)
-    b = DJ.digitize(st, 1, cond, key, event_timing=_timing(length=cond.eventWindowLength))
-    for field in a:
-        np.testing.assert_array_equal(a[field], b[field])
+@pytest.mark.skipif(jax.default_backend() != "cpu" or df.DRAW64, reason="CPU golden with native-precision draws")
+def test_offspill_matches_main_golden(cond):
+    # Main d7dbe3021cffc2172e23e141272f117c6b84bb4f; JAX/jaxlib 0.11.2, NumPy 2.4.6, arm64 CPU.
+    # Unmodified test_digi fixture; float64 default or core float32, DRAW64=0, threefry2x32 seed 23.
+    st = _steps([_step(cond, 520), _step(cond, 521, t=1800.), _step(cond, 92, t=100.),
+                 _step(cond, 522, t=3000.)], ev=[0, 0, 2, 2])
+    key = jax.random.key(23, impl="threefry2x32")
+    if df.SINGLE:
+        expected = {
+            "adc": [[390, 390, 391, 391, 392, 454, 649, 635, 521, 441, 395, 370, 358, 354, 352],
+                    [391, 390, 390, 391, 391, 475, 677, 579, 481, 420, 386, 367, 359, 356, 357],
+                    [390, 390, 390, 391, 390, 459, 647, 586, 489, 426, 390, 370, 362, 359, 358],
+                    [390, 390, 391, 390, 391, 430, 601, 610, 509, 439, 396, 374, 363, 359, 358]],
+            "tdc": [[51908, 51958], [92833, 92912], [5887, 5922], [154378, 154430]],
+            "tot": [[8, 8], [6, 6], [7, 7], [8, 8]],
+            "pmp": [259, 287, 257, 220],
+        }
+        analog = [[1014.215124130249, 1015.1231098175049],
+                  [1813.6762208938599, 1815.028738975525],
+                  [114.52722930908203, 115.24673175811768],
+                  [3015.097702026367, 3016.025552749634]]
+    else:
+        expected = {
+            "adc": [[390, 391, 390, 390, 390, 430, 603, 574, 486, 427, 393, 374, 366, 362, 362],
+                    [391, 390, 391, 390, 391, 425, 566, 529, 461, 417, 391, 377, 370, 368, 368],
+                    [391, 390, 391, 391, 391, 432, 655, 607, 502, 433, 392, 371, 361, 357, 357],
+                    [390, 390, 391, 390, 391, 436, 624, 583, 490, 427, 392, 372, 364, 361, 359]],
+            "tdc": [[51984, 52050], [92982, 93004], [5926, 5977], [154464, 154486]],
+            "tot": [[7, 7], [6, 7], [7, 7], [7, 7]],
+            "pmp": [213, 176, 265, 234],
+        }
+        analog = [[1015.8975498682379, 1017.0410868042683],
+                  [1816.4135725859994, 1816.9605714529237],
+                  [115.69024435137072, 116.92312224528332],
+                  [3016.156636495361, 3016.7840557792215]]
+    expected.update(ev=[0, 0, 2, 2], sid=[680, 681, 92, 682], step=[[0, 0], [1, 1], [2, 2], [3, 3]])
+    for timing in (None, _timing(nev=3, length=cond.eventWindowLength)):
+        out = DJ.digitize(st, 3, cond, key, event_timing=timing)
+        assert set(out) == set(expected) | {"t_analog"}
+        for name, values in expected.items():
+            assert out[name].dtype == np.dtype("int64"), name
+            np.testing.assert_array_equal(out[name], values, err_msg=name)
+        assert out["t_analog"].dtype == np.dtype("float64")
+        # A 0.001 ns roundoff allowance is below one TDC tick; all digital outputs remain exact.
+        np.testing.assert_allclose(out["t_analog"], analog, rtol=0, atol=1e-3)
+    empty = {name: values[:0] for name, values in st.items()}
+    for nev in (0, 3):
+        out = DJ.digitize(empty, nev, cond, key)
+        assert set(out) == set(expected) | {"t_analog"}
+        for name, values in {**expected, "t_analog": analog}.items():
+            dtype = np.float64 if name == "t_analog" else np.int64
+            golden_empty = np.asarray(values, dtype=dtype)[:0]
+            assert out[name].dtype == golden_empty.dtype, name
+            np.testing.assert_array_equal(out[name], golden_empty, err_msg=name)
 
 
 def _fixed_clusters(monkeypatch, c):

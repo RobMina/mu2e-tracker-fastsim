@@ -94,6 +94,7 @@ Docs: [`architecture.md`](docs/architecture.md), [`running.md`](docs/running.md)
 |---|---|
 | JAX step generator (`steps --backend jax`) | [device-world.md](docs/device-world.md) |
 | JAX digitiser (`digi --backend jax`) | [fast-digi.md](docs/fast-digi.md#opt-in-jax-backend) |
+| Resident measured-hit wire helix (`reco.resident`, experimental Run1A) | [resident-reco.md](docs/resident-reco.md); bounded device grouping/seed/wire fit, not drift/CH reconstruction |
 | float32 step and digitiser kernels (`TRKFASTSIM_DEVICE_FLOAT=core`: follow the core device float) | [device-precision.md](docs/device-precision.md) |
 | leave other primary muons out of the library draws (`steps --library-drop-muons`) | [limitations.md](docs/limitations.md) |
 | off-axis plane offsets follow the muon direction, colliding off-axis steps shifted, in-straw draw keyed on long paths (`steps --offaxis-plane-sign --offaxis-shift-from-muon --instraw-fine-length`) | [secondary-validation.md](docs/secondary-validation.md#opt-in-placement-and-in-straw-options-paired-per-shard) |

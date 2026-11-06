@@ -313,6 +313,28 @@ def deck_figure(d, rep, arm, ref, outdir, name="ce_deck.png"):
     plt.close(fig)
 
 
+def headline(rep, arm, ref="g4"):
+    """Deck numbers: value, reference and paired difference with its error for each headline metric."""
+    c = rep["compare"][arm]
+
+    def pde(x, scale=1.0):
+        return dict(fast=round(scale * x[arm][0], 5), g4=round(scale * x[ref][0], 5),
+                    diff=round(scale * x["paired_difference"][0], 5), err=round(scale * x["paired_difference"][1], 5))
+    core = c["residual_core"]
+    out = dict(events=rep["events"], paired_tracks=core["events"],
+               eff_fit_pct=pde(c["efficiency_fit"], 100), eff_ce_pct=pde(c["efficiency_ce"], 100),
+               core_sigma_MeV=dict(fast=round(core["candidate"][1], 5), g4=round(core["reference"][1], 5),
+                                   diff=round(core["difference"][1], 5), err=round(core["paired_error"][1], 5)),
+               core_mean_MeV=dict(fast=round(core["candidate"][0], 5), g4=round(core["reference"][0], 5),
+                                  diff=round(core["difference"][0], 5), err=round(core["paired_error"][0], 5)),
+               mean_residual_MeV=pde(c["residual_mean"]),
+               tails_pct={k: pde(v, 100) for k, v in c["tails"].items()},
+               active_hits=pde(c["nactive_hits"]), chi2ndf=pde(c["chi2ndf"]),
+               residual_shape_paired_chi2_ndf=[round(c["residual_shape"]["chi2_paired"], 1), c["residual_shape"]["ndf"]],
+               p_reco_shape_paired_chi2_ndf=[round(c["p_reco_shape"]["chi2_paired"], 1), c["p_reco_shape"]["ndf"]])
+    return out
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog="python3 -m trkfastsim.validation.cemom", description=__doc__.split("\n")[0])
     ap.add_argument("--gen", nargs="+", required=True, help="states.root files (dump/gen: one row per dts event)")
@@ -343,6 +365,7 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     (out / "cemom.json").write_text(json.dumps(rep, indent=1) + "\n")
     d.to_csv(out / "events.csv.gz", index=False)
+    (out / "numbers.json").write_text(json.dumps({n: headline(rep, n, a.ref) for n in rep["compare"]}, indent=1) + "\n")
     if a.plots:
         for n in rep["compare"]:
             plots(d, rep, n, a.ref, out)

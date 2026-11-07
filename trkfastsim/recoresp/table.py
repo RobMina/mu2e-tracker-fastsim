@@ -140,7 +140,10 @@ def save(path, tab):
     np.savez_compressed(Path(path), **tab)
 
 
-def load(path):
+DEFAULT = Path(__file__).with_name("data") / "ce_loophelix_run1a.npz"
+
+
+def load(path=DEFAULT):
     with np.load(Path(path)) as f:
         return {k: f[k] for k in f.files}
 

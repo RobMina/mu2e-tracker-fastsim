@@ -146,8 +146,24 @@ momentum at TT_Front minus the arm's own momentum at the tracker entrance (Gauss
 tails beyond +-1 and +-2 MeV/c), momentum shapes in 0.1 MeV/c bins with paired per-bin pulls, active hits and
 chi2/ndof.
 
+## On the device: `sim/fieldsteps_jax` and the reco response (`recoresp`)
+
+`sim/fieldsteps_jax.transport` is the device twin of `fieldsteps.transport` for electrons (`loss=electron_loss`,
+`tail=False`), float64 or float32. Inputs and outputs stay device arrays: start states in, fixed-shape per-track
+record buffers out (`[tracks, R_CAP]` sgsteps columns plus `valid`; `to_frame` gives the host table). Every cap is
+counted in the returned statistics. With loss and scattering off it reproduces the NumPy rows to rounding (float64);
+with them on it is statistically equivalent (independent random streams). Tables are built once per process
+(`Tracker.from_gdml`); compiling the chord loop takes minutes on a GPU, so use the JAX persistent compile cache.
+
+`recoresp` is a reco response layer for conversion electrons: `recoresp.table` measures, from a reference arm run
+through stock LoopHelix reconstruction, the fit and fit-quality efficiencies and the residual distributions (momentum
+at the front, tan(dip), d0, r_max, fit consistency, chi2/ndf, active hits; inverse CDFs with a Gaussian copula),
+binned in the event's step rows and its entry tan(dip). `recoresp.device.apply` draws them per fast event on the
+device and applies the CE fiducial cuts to the smeared values. The shipped table (`recoresp/data`) is built from
+development events only; check agreement on independent events. It extrapolates only as far as its reference:
+conversion electrons in the Run 1A tracker.
+
 ## Open
 
 - An unbiased reference for muons above 1 GeV/c and for side entries (the selection above).
-- No world transport to the tracker, no fast field-on digitisation (stock digitisation through the art injector
-  instead), no field-on reconstruction.
+- No world transport to the tracker; no device track fit (the reco response layer stands in for it).

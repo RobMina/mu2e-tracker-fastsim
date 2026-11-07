@@ -51,7 +51,7 @@ def entry_truth(x, p, axis_xy, bz, q=-1.0):
 
 
 def _bin(edges, v):
-    return jnp.clip(jnp.searchsorted(edges, v, side="right") - 1, 0, edges.shape[0] - 2)
+    return jnp.clip(jnp.searchsorted(edges, v, side="right", method="compare_all") - 1, 0, edges.shape[0] - 2)
 
 
 @jax.jit

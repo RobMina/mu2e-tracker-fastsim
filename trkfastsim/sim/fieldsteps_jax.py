@@ -270,8 +270,8 @@ def _straws(T, cfg, pwidth, x, c, L):
     n = x.shape[0]
     z0 = jnp.minimum(x[:, 2], x[:, 2] + c[:, 2] * L)
     z1 = jnp.maximum(x[:, 2], x[:, 2] + c[:, 2] * L)
-    a = jnp.searchsorted(T["plo_z"], z0 - pwidth, side="left")
-    b = jnp.searchsorted(T["plo_z"], z1, side="right")
+    a = jnp.searchsorted(T["plo_z"], z0 - pwidth, side="left", method="compare_all")
+    b = jnp.searchsorted(T["plo_z"], z1, side="right", method="compare_all")
     npan = T["plo_z"].shape[0]
     pi = a[:, None] + jnp.arange(P_CAP)[None]
     pv = pi < b[:, None]
@@ -383,8 +383,8 @@ def _support(T, cfg, groups, x, c, L):
         live = cand[:, None] & (s1 > s0)
         za, zb = oz[:, None] + dz[:, None] * s0, oz[:, None] + dz[:, None] * s1
         zlo, zhi = jnp.minimum(za, zb), jnp.maximum(za, zb)
-        j_hi = jnp.searchsorted(g["Z0"], zhi, side="left") - 1
-        j_lo = jnp.searchsorted(g["ZRUN"], zlo, side="right")
+        j_hi = jnp.searchsorted(g["Z0"], zhi, side="left", method="compare_all") - 1
+        j_lo = jnp.searchsorted(g["ZRUN"], zlo, side="right", method="compare_all")
         W = jnp.where(live, jnp.clip(j_hi - j_lo + 1, 0, None), 0)
         over = over + jnp.sum(W > zcap).astype(jnp.int32)
         j = j_lo[..., None] + jnp.arange(zcap)                                  # [n, 2, zcap]

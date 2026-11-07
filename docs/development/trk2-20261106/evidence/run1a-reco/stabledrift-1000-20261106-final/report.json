@@ -1,0 +1,456 @@
+{
+  "baseline_status_counts": {
+    "converged": 195,
+    "empty": 858,
+    "invalid_seed": 178,
+    "max_iterations": 33,
+    "stalled": 282
+  },
+  "candidate_status_counts": {
+    "converged_certified": 307,
+    "derivative_unstable": 134,
+    "empty": 858,
+    "invalid_seed": 178,
+    "max_iterations": 17,
+    "nondifferentiable": 48,
+    "stalled": 4
+  },
+  "status_transition_table": {
+    "converged": {
+      "converged_certified": 141,
+      "derivative_unstable": 47,
+      "empty": 0,
+      "invalid_seed": 0,
+      "max_iterations": 1,
+      "nondifferentiable": 5,
+      "stalled": 1
+    },
+    "empty": {
+      "converged_certified": 0,
+      "derivative_unstable": 0,
+      "empty": 858,
+      "invalid_seed": 0,
+      "max_iterations": 0,
+      "nondifferentiable": 0,
+      "stalled": 0
+    },
+    "invalid_seed": {
+      "converged_certified": 0,
+      "derivative_unstable": 0,
+      "empty": 0,
+      "invalid_seed": 178,
+      "max_iterations": 0,
+      "nondifferentiable": 0,
+      "stalled": 0
+    },
+    "max_iterations": {
+      "converged_certified": 13,
+      "derivative_unstable": 8,
+      "empty": 0,
+      "invalid_seed": 0,
+      "max_iterations": 7,
+      "nondifferentiable": 4,
+      "stalled": 1
+    },
+    "stalled": {
+      "converged_certified": 153,
+      "derivative_unstable": 79,
+      "empty": 0,
+      "invalid_seed": 0,
+      "max_iterations": 9,
+      "nondifferentiable": 39,
+      "stalled": 2
+    }
+  },
+  "termination_status_counts": {
+    "analytic_stationary": 441,
+    "empty": 858,
+    "invalid_seed": 178,
+    "max_iterations": 48,
+    "stalled": 21
+  },
+  "certificate_status_counts": {
+    "adjacent_stencil_checked": 307,
+    "analytic_nondifferentiable": 48,
+    "analytic_nonstationary": 21,
+    "fd_check_failed": 102,
+    "no_admissible_stencil_pair": 32,
+    "not_evaluated": 1036
+  },
+  "objective_comparison_all": {
+    "hypotheses": 1546,
+    "comparable_valid_hypotheses": 510,
+    "baseline_objective_valid": 510,
+    "candidate_objective_valid": 510,
+    "no_comparable_objective": 1036,
+    "candidate_final_minus_baseline_final": {
+      "min": -2.8279945312577013,
+      "median": -9.992668026370666e-09,
+      "p90": 0.0004016204936117883,
+      "max": 0.015791933941784464
+    },
+    "objective_worse_than_baseline": 99,
+    "objective_equal_baseline": 0,
+    "objective_better_than_baseline": 411
+  },
+  "objective_comparison_by_baseline_status": {
+    "converged": {
+      "hypotheses": 195,
+      "comparable_valid_hypotheses": 195,
+      "baseline_objective_valid": 195,
+      "candidate_objective_valid": 195,
+      "no_comparable_objective": 0,
+      "candidate_final_minus_baseline_final": {
+        "min": -0.005586774098674141,
+        "median": -3.9566288023706875e-09,
+        "p90": -3.1235458664014036e-11,
+        "max": 0.0071076732814674415
+      },
+      "objective_worse_than_baseline": 13,
+      "objective_equal_baseline": 0,
+      "objective_better_than_baseline": 182
+    },
+    "empty": {
+      "hypotheses": 858,
+      "comparable_valid_hypotheses": 0,
+      "baseline_objective_valid": 0,
+      "candidate_objective_valid": 0,
+      "no_comparable_objective": 858,
+      "candidate_final_minus_baseline_final": {},
+      "objective_worse_than_baseline": 0,
+      "objective_equal_baseline": 0,
+      "objective_better_than_baseline": 0
+    },
+    "invalid_seed": {
+      "hypotheses": 178,
+      "comparable_valid_hypotheses": 0,
+      "baseline_objective_valid": 0,
+      "candidate_objective_valid": 0,
+      "no_comparable_objective": 178,
+      "candidate_final_minus_baseline_final": {},
+      "objective_worse_than_baseline": 0,
+      "objective_equal_baseline": 0,
+      "objective_better_than_baseline": 0
+    },
+    "max_iterations": {
+      "hypotheses": 33,
+      "comparable_valid_hypotheses": 33,
+      "baseline_objective_valid": 33,
+      "candidate_objective_valid": 33,
+      "no_comparable_objective": 0,
+      "candidate_final_minus_baseline_final": {
+        "min": -2.8279945312577013,
+        "median": -3.628236910913074e-08,
+        "p90": 0.00046168948693434684,
+        "max": 0.015791933941784464
+      },
+      "objective_worse_than_baseline": 14,
+      "objective_equal_baseline": 0,
+      "objective_better_than_baseline": 19
+    },
+    "stalled": {
+      "hypotheses": 282,
+      "comparable_valid_hypotheses": 282,
+      "baseline_objective_valid": 282,
+      "candidate_objective_valid": 282,
+      "no_comparable_objective": 0,
+      "candidate_final_minus_baseline_final": {
+        "min": -0.02278006725475734,
+        "median": -4.760117988666934e-08,
+        "p90": 0.0008870081168254274,
+        "max": 0.004510501940373501
+      },
+      "objective_worse_than_baseline": 72,
+      "objective_equal_baseline": 0,
+      "objective_better_than_baseline": 210
+    }
+  },
+  "objective_comparison_scope": "All rows valid in both fits, including failures; no success or residual recut. Worse final objectives are allowed for independent trajectories from the same seeds.",
+  "residual_comparison": "No residual improvement or resolution claim; all original hit identities are retained.",
+  "assigned_directions": 0,
+  "accepted_lr_updates": 0,
+  "original_arrays_preserved": true,
+  "original_seed_equality_verified": true,
+  "initial_objective_equality_verified": true,
+  "initial_objective_replayed_hypotheses": 510,
+  "initial_objective_replay_tolerance": {
+    "rtol": 1e-10,
+    "atol": 1e-09
+  },
+  "candidate_missing_value_policy": "Unattempted condition/gradient values are NaN regardless of batch peers; unselected hit floats are NaN and flags false. Baseline arrays are never normalized or changed.",
+  "direction_order": [
+    -1,
+    1
+  ],
+  "fit_trial_evaluations": 19392,
+  "certificate_evaluations": 22176,
+  "evaluation_count_scope": "Logical per-hypothesis trial, analytic-check and eligible certificate attempts; not total batched work or valid-probe counts.",
+  "eligible_groups": 255,
+  "baseline_success": {
+    "hypotheses": 195,
+    "any_direction_groups": 159,
+    "both_direction_groups": 36,
+    "neither_direction_groups": 614,
+    "neither_eligible_groups": 96,
+    "negative_z": 105,
+    "positive_z": 90
+  },
+  "candidate_success": {
+    "hypotheses": 307,
+    "any_direction_groups": 213,
+    "both_direction_groups": 94,
+    "neither_direction_groups": 560,
+    "neither_eligible_groups": 42,
+    "negative_z": 151,
+    "positive_z": 156
+  },
+  "baseline_same_check_success": {
+    "hypotheses": 20,
+    "any_direction_groups": 20,
+    "both_direction_groups": 0,
+    "neither_direction_groups": 753,
+    "neither_eligible_groups": 235,
+    "negative_z": 11,
+    "positive_z": 9
+  },
+  "baseline_same_check_status_counts": {
+    "adjacent_stencil_checked": 20,
+    "analytic_nondifferentiable": 2,
+    "analytic_nonstationary": 484,
+    "fd_check_failed": 2,
+    "no_admissible_stencil_pair": 2,
+    "not_evaluated": 1036
+  },
+  "baseline_same_check_pass_by_original_status": {
+    "converged": 13,
+    "empty": 0,
+    "invalid_seed": 0,
+    "max_iterations": 0,
+    "stalled": 7
+  },
+  "baseline_same_check_scope": "Read-only application of identical analytic/adjacent-FD criterion to saved final states; original labels unchanged.",
+  "analytic_stationary_hypotheses": 441,
+  "selected_certificate_pair_counts": {
+    "0": 2,
+    "1": 222,
+    "2": 83
+  },
+  "candidate_gradient_over_threshold_checked": {
+    "min": 8.146824824881799e-05,
+    "median": 0.02402154595838676,
+    "p90": 0.4102968240077045,
+    "max": 0.9960814544204287
+  },
+  "candidate_final_abs_poca_correction_mm": {
+    "min": 1.9778305385637736e-17,
+    "median": 1.3665487510392569e-13,
+    "p90": 6.482868041662229e-09,
+    "max": 9.99816766544134e-08
+  },
+  "linearization_checks": 6212,
+  "candidate_certificate_details": {
+    "compatible_pairs_per_row": {
+      "0": 97,
+      "1": 173,
+      "2": 236,
+      "3": 4
+    },
+    "compatible_rows_by_scale": [
+      4,
+      240,
+      413,
+      443
+    ],
+    "checked_rows_by_scale": [
+      2,
+      227,
+      395,
+      211
+    ],
+    "compatible_gradient_disagreement_over_threshold": {
+      "min": 4.639642093986544e-05,
+      "median": 0.051109484200822064,
+      "p90": 0.5241798196723625,
+      "max": 23.533231286398554
+    },
+    "compatible_max_column_relative_error": {
+      "min": 1.0748621521410776e-09,
+      "median": 3.6866459601113643e-07,
+      "p90": 3.4009103516233115e-06,
+      "max": 4.2046448290311e-05
+    }
+  },
+  "candidate_accepted_trial_count": 3887,
+  "candidate_invalid_trial_attempts": 0,
+  "candidate_unchanged_parameter_trials": 947,
+  "candidate_objective_decreased_from_initial": 510,
+  "events": 1000,
+  "groups": 773,
+  "hits": 13492,
+  "fixed_selected_hits": 5427,
+  "zero_hit_events": 235,
+  "group_batch": 32,
+  "effective_group_batch": 32,
+  "fixed_full_width": 51,
+  "candidate_max_iterations": 40,
+  "baseline_max_iterations": 40,
+  "numerical_settings": {
+    "condition_limit": 1000000000000.0,
+    "gradient_tolerance": 1e-06,
+    "initial_damping": 0.001,
+    "max_parameter_step": 10.0,
+    "max_backtracks": 8,
+    "finite_difference_steps": [
+      0.001,
+      0.0001,
+      1e-05,
+      1e-06
+    ],
+    "gradient_agreement_fraction": 0.25,
+    "jacobian_column_relative_tolerance": 0.001,
+    "certificate_scope": "analytic stationary, adjacent-stencil checked; not a local-minimum or physics certificate"
+  },
+  "budget_scope": "Default candidate 40 steps versus saved baseline 40 steps is NOT equal compute. Trials, analytic derivatives and certificate evaluations have different costs.",
+  "preparation_seconds": 0.005443166010081768,
+  "baseline_replay_seconds": 4.735480792121962,
+  "candidate_seconds": 31.84808391612023,
+  "baseline_adjacent_stencil_check_seconds": 4.309210375882685,
+  "baseline_final_state_objective_default_gradient_replayed": true,
+  "objective_replayed_hypotheses": 510,
+  "nominal_axial_bz_T": 1.0117,
+  "mass_hypothesis_MeV": 105.6583755,
+  "origin_drift_bz_T": 1.0117056584464001,
+  "conditions_scope": "Measured endpoints, resolved propagation calibration and stock drift response; nominal axial trajectory field and stated mass hypothesis. CLI repeats saved hashes, service configuration, oracle and IOV checks; not a complete database snapshot, field-map/material fit or stock-track validation.",
+  "input_provenance_caveat": "Original association inputs and prior joint-output NPZ lack recorded hash binding; current hashes and replay do not repair those historical gaps.",
+  "caveat": "Independent fixed-support, fixed-LR numerical candidate from original seeds.\n\nBoth flight directions remain unassigned. Counts are numerical diagnostics, not\ntracking efficiency or full-physics validation. The historical development1000\n195 baseline convergence labels are not robust stationarity certificates:\nonly 13 passed the same threshold at the smallest diagnostic FD stencil. Neither\nthat stencil nor this candidate's local derivative checks prove optimality.\n",
+  "load_and_oracle_seconds": 0.16576987504959106,
+  "processing_scope": "Original-seed candidate plus separately timed read-only baseline final-state diagnostic replay; no wire fit, association search or baseline optimizer rerun; timings exclude output writing.",
+  "historical_source_hash_equality_required": false,
+  "historical_implementation_hashes": {
+    "driver": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_timing.py",
+      "sha256": "76cfb3544e9639249a2c58f76b28799f42aaf7e80101c6932db9d5a513ee4b41"
+    },
+    "timing_source": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixtiming.py",
+      "sha256": "fad4c6622a3726ba35b5988258a33df5c5defbf3cdd175709c4d4fd04b664110"
+    },
+    "drift_source": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/fielddrift.py",
+      "sha256": "5f04827404fc6cc56c2141f4b44f7f2066a384a9086cc8c84823d2b6aa134dc6"
+    },
+    "drift_fit_source": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixdriftfit.py",
+      "sha256": "4e4cb705636a537a31129d653e4e57df2beece69537d35b7f6892ab429efd68b"
+    }
+  },
+  "implementation_provenance": "Current code hashes are separate from unchanged historical implementation hashes.",
+  "inputs": {
+    "hits": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/comparison-1000/numpy.npz",
+      "sha256": "9bd666236840e2525eb9fe03ccca741c5ee0a9a44726ad3116e80be2dd4d1b2d"
+    },
+    "conditions": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/comparison-1000/conditions.json",
+      "sha256": "f78baed3c613b4692993621fcbb3917303b073fca502a38742c77782780e770e"
+    },
+    "association": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/association-1000-fixedwidth-20261106/diagnostics.npz",
+      "sha256": "8c943efeb9ebde7ee42052c087e10768585fce6cacad15f92cf04edb7fd5fed4"
+    },
+    "reference": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/reference-1000/hits.root",
+      "sha256": "b0dc99d4fdd7f8b256492bff6325f764079abe0151e5f06ce614f0dcb62e4d20"
+    },
+    "oracle": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/drift-oracle-10-20261106/drift-oracle.root",
+      "sha256": "0c7edd9cd613b2e30a1d89da704f5626bc4aa711f799928f60888d6775352c98"
+    },
+    "config": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/drift-oracle-10-20261106/expanded.fcl",
+      "sha256": "54c0e68d40c944478d7aae72d19b4c8bcb822c0ee49cd89c2ac5dbba8daa992d"
+    },
+    "wirefit": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/wirefit-1000-20261106-final/diagnostics.npz",
+      "sha256": "518da949d71523cff0db9a0944f6b96c450ebd68306a0d23ef6db62ac4a24c45"
+    },
+    "wirefit_report": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/wirefit-1000-20261106-final/report.json",
+      "sha256": "85de33e4424c48336ef631f9ca2001157bd45ef31df8770e20f1e5c26b19c1b9"
+    },
+    "drift_check": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/drift-model-check-20261106-final/report.json",
+      "sha256": "2d15cb27ef892e62658d17aea6713c51c1c5d652068ca2d88d118be102d14ecb"
+    },
+    "reference_config": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/reference-1000/expanded.fcl",
+      "sha256": "98d7ff58e4aae2744439379da5e8016d4bd27b674c01f518724f32c8c2b5ee4b"
+    }
+  },
+  "saved_baseline": {
+    "report": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/driftfit-1000-20261106-final/report.json",
+      "sha256": "f0aa8334588f7b27505181ad2aa54d7f63f2c56d2f065b32a46b50b6c64b6586"
+    },
+    "payload": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/driftfit-1000-20261106-final/diagnostics.npz",
+      "sha256": "3725896548d4b9c264d456f8f692f221f45218f1e38933092293c1b615d7dcf2"
+    }
+  },
+  "current_implementation": {
+    "trkfastsim.reco.stabledriftfit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/stabledriftfit.py",
+      "sha256": "c986079f8d1d56d1af38fbf2d245040be9bee66f4c7ba97ba697678353588a6e"
+    },
+    "trkfastsim.reco.driftjacobian": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/driftjacobian.py",
+      "sha256": "43ac9f1d656c0ed4d922fe34c74c9b74b8f8e329d7849ebbb3ab45b3ac17bd2f"
+    },
+    "trkfastsim.reco.driftfitdiagnostic": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/driftfitdiagnostic.py",
+      "sha256": "9d205aedc55fc7cf9be5aee3af3deeaaf66683d1542c1bd7ef60b2d4d90d2d38"
+    },
+    "trkfastsim.reco.helixdriftfit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixdriftfit.py",
+      "sha256": "93ac9d6dab0484860fafddb34d04c7485d37e31785fb3282bc5e3c7b52b2e298"
+    },
+    "trkfastsim.reco.helixtiming": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixtiming.py",
+      "sha256": "694f25b481b0fea09bb1983a0b6317679356da3f6b2f83ec7c97fe53ad5b50c6"
+    },
+    "trkfastsim.reco.fielddrift": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/fielddrift.py",
+      "sha256": "5f04827404fc6cc56c2141f4b44f7f2066a384a9086cc8c84823d2b6aa134dc6"
+    },
+    "trkfastsim.reco.helixfit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixfit.py",
+      "sha256": "28f7f10713e0db02046c3c320231158079f1535209bde3b8fe8b3fd20c64e68f"
+    },
+    "trkfastsim.validation.run1a_drift_diagnostic": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_drift_diagnostic.py",
+      "sha256": "42eb2f691d5f1fcac2f524a907e55288aa8caf455471f562ec2fde7c71818221"
+    },
+    "trkfastsim.validation.run1a_timing": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_timing.py",
+      "sha256": "76cfb3544e9639249a2c58f76b28799f42aaf7e80101c6932db9d5a513ee4b41"
+    },
+    "trkfastsim.validation.run1a_wirefit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_wirefit.py",
+      "sha256": "557ade29ddf84e7775c0d840bfc4339f0aaf7230dbaf1afe3df194366097b423"
+    },
+    "trkfastsim.validation.run1a_drift": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_drift.py",
+      "sha256": "859423ff82b4531c4d0787f36debd47e0ad3cf48ba59330def4457b76a03b545"
+    },
+    "__main__": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_stabledrift.py",
+      "sha256": "8809a48cdcb5cb6a783742d59b3bb6658bb68b79a9e002e992b66dcc3020d823"
+    }
+  },
+  "saved_comparison": {
+    "exact": true,
+    "different_arrays": [],
+    "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/stabledrift-1000-batch17-20261106/diagnostics.npz",
+    "sha256": "facc4edd54ffd87297cb50b2695617ef0e0433f21494481b8322bf9d19b17a9e"
+  }
+}

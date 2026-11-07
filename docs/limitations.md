@@ -74,8 +74,10 @@ restart first regenerates the stock dump and the baseline arms from those 3,000 
 - No magnetic field in the default chain: straight-line transport and a line fit, for the extracted configuration
   only. The opt-in field-on transport starts at the tracker envelope (no world transport in the field) and is
   followed by stock digitisation and reco only ([field-on.md](field-on.md)).
-- Digitisation: no on-spill folding, ghosts, cross talk, noise hits, TrackerStatus suppression, digi mixing or
-  field-on drift (refused by `digi-cond`).
+- Experimental Run 1A digitisation supports field-dependent drift and on-spill timing/ghosts; this branch's
+  same-step cosmic checks are described in [run1a-digi.md](run1a-digi.md). Cross talk, noise hits, TrackerStatus
+  suppression and digi mixing remain unsupported. Field-on fast reconstruction is under development
+  ([run1a-reco.md](run1a-reco.md)), not a validated replacement for stock CentralHelix.
 - The EventNtuple writer does not write the MC branches (`trkmcsim`, `trksegsmc`, `trkhitsmc`, `evtinfomc`), CRV and
   DS surfaces in `trksegs`, or `trk.nseg`; ROOT C++ reading of its RNTuple is not checked ([eventntuple.md](eventntuple.md)).
 - F2 has a fixed momentum (2000 MeV/c) and no material: for statistical use only.

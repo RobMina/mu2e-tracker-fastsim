@@ -1,0 +1,12 @@
+# Independent stock response seed on the same saved injected steps.
+#include "Production/JobConfig/digitize/OffSpill.fcl"
+services.GeometryService.inputFile: "Offline/Mu2eG4/geom/geom_run1_a.txt"
+services.GeometryService.bFieldFile: "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt"
+services.DbService.purpose: Sim_best
+services.DbService.version: v1_1
+services.SeedService.baseSeed: 20261106
+services.TFileService.fileName: "stock.root"
+physics.filters.TriggerableCHPrescale.prescaleFactor: 1
+physics.analyzers.trkdigi: { module_type: StrawDigiTableDumper StrawDigiTag: "makeSD" }
+physics.EndPath: [digiCompressionCheck, trkdigi]
+outputs: {}

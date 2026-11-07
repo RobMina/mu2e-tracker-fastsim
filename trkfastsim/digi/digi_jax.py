@@ -70,10 +70,27 @@ def _relative_geometry(c):
     return df.dev({k: jnp.asarray(v) for k, v in a.items()})
 
 
+def _d2t(rho, phi, dist, times, dD, dphi):
+    """StrawDrift::D2T with radial extrapolation and folded-phi interpolation."""
+    fphi = jnp.abs(jnp.fmod(phi, jnp.pi))
+    fphi = jnp.where(fphi > jnp.pi / 2, jnp.pi - fphi, fphi)
+    p0 = jnp.maximum(0, jnp.floor(fphi / dphi)).astype(jnp.int32)
+    p1 = jnp.minimum(times.shape[1] - 1, jnp.ceil(fphi / dphi)).astype(jnp.int32)
+    di = jnp.clip(jnp.floor(rho / dD).astype(jnp.int32), 0, len(dist) - 2)
+    fr = (rho - dist[di]) / dD
+    lo = times[di, p0] + fr * (times[di + 1, p0] - times[di, p0])
+    hi = times[di, p1] + fr * (times[di + 1, p1] - times[di, p1])
+    return jnp.where(phi == 0, lo, lo + (fphi - p0 * dphi) / dphi * (hi - lo))
+
+
 @lru_cache(maxsize=8)
 def _charge_kernel(c):
     a = _relative_geometry(c)
     dtv0, dtv1 = (float(x) for x in np.asarray(c.dtvar)[:2])
+    field_free = np.all(c.drift_times == c.drift_times[:, :1])
+    pdir = np.cross(np.asarray(c.wire_dir), np.array([0., 0., 1.]))
+    pdir *= np.where(np.sum(pdir * c.wire_mid, axis=1) < 0, -1., 1.)[:, None]
+    pdir = jnp.asarray(df.dev(pdir))
 
     @df.jit
     def run(key, us, pos, ne, time):
@@ -93,7 +110,12 @@ def _charge_kernel(c):
         rho = jnp.linalg.norm(d - zw[:, None] * a["wire_dir"][us], axis=1)
         di = jnp.clip(jnp.floor(rho / c.drift_dD).astype(jnp.int32), 0, len(c.drift_dist) - 2)
         fr = (rho - a["drift_dist"][di]) / c.drift_dD
-        td = a["drift_times"][di, 0] + fr * (a["drift_times"][di + 1, 0] - a["drift_times"][di, 0])
+        if field_free:
+            td = a["drift_times"][di, 0] + fr * (a["drift_times"][di + 1, 0] - a["drift_times"][di, 0])
+        else:
+            cp = d - zw[:, None] * a["wire_dir"][us]
+            phi = jnp.arctan2(jnp.sum(cp * pdir[us], axis=1), cp[:, 2])
+            td = _d2t(rho, phi, a["drift_dist"], a["drift_times"], c.drift_dD, c.drift_dphi)
         td = (td + (dtv0 + dtv1 * rho) * df.draw(random.normal, k3, ne.shape)).astype(jnp.float32)
         hl = a["wire_halflen"][us]
         wd = jnp.stack([hl - zw, hl + zw], 1).astype(jnp.float32)
@@ -136,7 +158,8 @@ def _electronics_kernel(c, cap, pair_cap, batch):
     adc_k = jnp.arange(c.nADCSamples)
 
     @df.jit
-    def run(key, t, q, wd, step, n, straw_us, straw_ra, straw_key, live_straw, jitter, n_ref=None):
+    def run(key, t, q, wd, step, n, straw_us, straw_ra, straw_key, live_straw, jitter, n_ref=None,
+            event_end_tdc=None, window_end=None):
         n = n.astype(jnp.int32)
         if rel and n_ref is None:     # absolute times (direct kernel callers)
             n_ref = jnp.zeros(batch, jnp.int64)
@@ -266,7 +289,12 @@ def _electronics_kernel(c, cap, pair_cap, batch):
         if rel:
             ts = ts - tref
         ic, tt, th, vv, cr, failed = crosses(jnp.zeros(R, jnp.int32), jnp.repeat(ts, 2), threshold, jnp.zeros(R), live)
-        end = max(c.eventWindowLength, c.mbtime) - c.electronicsTimeDelay + c.tdcbuf
+        if c.onspill:
+            end = max(c.digitizationEnd - c.timeFromProtonsToDRMarker, c.mbtime) - c.electronicsTimeDelay + c.tdcbuf
+        elif window_end is not None:
+            end = jnp.maximum(window_end, c.mbtime) - c.electronicsTimeDelay + c.tdcbuf
+        else:
+            end = max(c.eventWindowLength, c.mbtime) - c.electronicsTimeDelay + c.tdcbuf
 
         def active(cr, tt):
             t0, t1 = tt[::2], tt[1::2]
@@ -364,7 +392,8 @@ def _electronics_kernel(c, cap, pair_cap, batch):
                                + (n_ref * per_tdc)[:, None], 0, c.maxTDC)
             else:
                 tdc = jnp.clip(jnp.floor((xt + c.electronicsTimeDelay) / c.TDCLSB), 0, c.maxTDC).astype(jnp.int64)
-            ewend = int(c.tdc_response(c.eventWindowLength - c.electronicsTimeDelay))
+            ewend = (int(c.tdc_response(c.eventWindowLength - c.electronicsTimeDelay))
+                     if event_end_tdc is None else event_end_tdc[:, None])
             ok_all = jnp.all((xt + c.electronicsTimeDelay > (-tref[:, None] if rel else 0)) & (tdc < ewend), 1)
             upper = c.digitizationEndTDC if c.onspill else ewend
             ok_norm = jnp.all((tdc > c.digitizationStartTDC) & (tdc < upper), 1)
@@ -385,16 +414,15 @@ def _electronics_kernel(c, cap, pair_cap, batch):
     return run
 
 
-def digitize(st, nev, c, key, stats=None):
+def digitize(st, nev, c, key, stats=None, *, event_timing=None):
     """Digitise flat steps with an explicit JAX key, returning host arrays like digi.digitize.
 
     Host boundaries select and pack variable-sized arrays; ionisation and electronics
     are JAX kernels. Conditions must be immutable for the life of the kernel cache.
     """
     from trkfastsim.digi.digi_clusters_jax import make_clusters
+    from trkfastsim.digi.timing import step_times, ghost_indices
     random.key_data(key)
-    if not np.all(c.drift_times == c.drift_times[:, :1]) or c.onspill:
-        raise NotImplementedError("JAX digitiser requires off-spill field-free conditions")
     st = {k: np.asarray(v) for k, v in st.items()}
     for field in ("t", "eion", "len", "width", "x0", "y0", "z0", "x1", "y1", "z1"):
         if not np.isfinite(st[field]).all():
@@ -407,9 +435,10 @@ def digitize(st, nev, c, key, stats=None):
         raise ValueError("invalid StrawId")
     st["_us"] = us
     ra = ((sid & 0x7f) >= c.allStraw) & np.isin(sid >> 10, c.allPlanes)
-    time = st["t"].astype(np.float64)
+    time, event_lengths = step_times(st, nev, c, event_timing)
     start = c.digitizationStart - c.timeFromProtonsToDRMarker
-    inwin = (time > start - c.electronicsTimeDelay - c.steptimebuf) & (time < max(c.mbtime, c.eventWindowLength) - c.electronicsTimeDelay + c.steptimebuf)
+    end = c.digitizationEnd - c.timeFromProtonsToDRMarker if c.onspill else event_lengths[ev]
+    inwin = (time > start - c.electronicsTimeDelay - c.steptimebuf) & (time < np.maximum(c.mbtime, end) - c.electronicsTimeDelay + c.steptimebuf)
     idx = np.flatnonzero((st["eion"] > c.minstepE) & (inwin | ra))
     if not len(idx):
         return _empty(c)
@@ -444,6 +473,14 @@ def digitize(st, nev, c, key, stats=None):
     panel = reference.unique_panel(straw_sid)
     jitter = _panel_jitter(random.fold_in(key, 2), straw_ev, panel, c.eventWindowMarkerROCJitter)
     counts = np.bincount(inst, minlength=ns)
+    if c.onspill:
+        buffer = (c.nADCSamples - c.nADCPresamples) * c.ADCPeriod
+        ghost_src, ghost_time = ghost_indices(gt.ravel(), c.mbtime, buffer)
+        ghost_row = 2 * inst[ghost_src // 2] + ghost_src % 2
+        end_counts = np.bincount(ghost_row, minlength=2 * ns).reshape(ns, 2)
+        ghost_order = np.argsort(ghost_row, kind="stable")
+        ghost_starts = np.r_[0, np.cumsum(end_counts.ravel())[:-1]].reshape(ns, 2)
+        counts = end_counts.max(axis=1)
     if counts.max() > MAX_ROW_CLUSTERS:
         raise OverflowError(f"waveform cluster count exceeds MAX_ROW_CLUSTERS={MAX_ROW_CLUSTERS}; no output returned")
     caps = np.left_shift(np.int64(1), np.ceil(np.log2(counts)).astype(np.int64))
@@ -456,35 +493,53 @@ def digitize(st, nev, c, key, stats=None):
         for b0 in range(0, len(bucket), batch):
             which = bucket[b0:b0 + batch]
             nb = len(which)
-            gather = starts[which, None] + np.arange(cap)[None, :]
-            mask = np.arange(cap)[None, :] < counts[which, None]
-            ci_ = order[np.minimum(gather, len(order) - 1)]
+            if not c.onspill:
+                gather = starts[which, None] + np.arange(cap)[None, :]
+                mask = np.arange(cap)[None, :] < counts[which, None]
+                ci_ = order[np.minimum(gather, len(order) - 1)]
             t = np.zeros((batch, 2, cap)); q = np.zeros_like(t); w = np.zeros_like(t)
             steps = np.zeros((batch, 2, cap), np.int64)
             n = np.zeros((batch, 2), np.int32)
             for end in (0, 1):
-                oo = np.argsort(np.where(mask, gt[ci_, end], np.inf), axis=1, kind="stable")
-                ix = np.take_along_axis(ci_, oo, 1)
-                t[:nb, end] = gt[ix, end]
+                if c.onspill:
+                    gather = ghost_starts[which, end, None] + np.arange(cap)[None, :]
+                    mask = np.arange(cap)[None, :] < end_counts[which, end, None]
+                    gi = ghost_order[np.minimum(gather, len(ghost_order) - 1)]
+                    oo = np.argsort(np.where(mask, ghost_time[gi], np.inf), axis=1, kind="stable")
+                    gi = np.take_along_axis(gi, oo, 1)
+                    ix = ghost_src[gi] // 2
+                    t[:nb, end] = ghost_time[gi]
+                    n[:nb, end] = end_counts[which, end]
+                else:
+                    oo = np.argsort(np.where(mask, gt[ci_, end], np.inf), axis=1, kind="stable")
+                    ix = np.take_along_axis(ci_, oo, 1)
+                    t[:nb, end] = gt[ix, end]
+                    n[:nb, end] = counts[which]
                 q[:nb, end] = charge[ix]
                 w[:nb, end] = wd[ix, end]
                 steps[:nb, end] = cs[ix]
-                n[:nb, end] = counts[which]
             su = np.zeros(batch, np.int64); sr = np.zeros(batch, bool); sk = np.zeros(batch, np.int64)
             live = np.arange(batch) < nb; ji = np.zeros(batch)
             su[:nb], sr[:nb], sk[:nb], ji[:nb] = straw_us[which], straw_ra[which], ukey[which], jitter[which]
             extra = ()
             if df.SINGLE:   # float32: times relative to the straw's first cluster, floored to a COMMON_PERIOD
-                first_t = np.where(mask[:, None, :], t[:nb], np.inf).min(axis=(1, 2))
+                valid = np.arange(cap)[None, None, :] < n[:nb, :, None]
+                first_t = np.where(valid, t[:nb], np.inf).min(axis=(1, 2))
                 nref = np.zeros(batch, np.int64)
                 nref[:nb] = np.floor(first_t / df.COMMON_PERIOD).astype(np.int64)
                 t = t - (nref * df.COMMON_PERIOD)[:, None, None]
                 extra = (jnp.asarray(nref),)
+            timing_args = {}
+            if event_timing is not None:
+                lengths = np.full(batch, c.eventWindowLength)
+                lengths[:nb] = event_lengths[straw_ev[which]]
+                timing_args = {"window_end": jnp.asarray(df.dev(lengths)),
+                               "event_end_tdc": jnp.asarray(c.tdc_response(lengths - c.electronicsTimeDelay))}
             pair_cap = 4
             while True:
                 result = _electronics_kernel(c, int(cap), pair_cap, batch)(random.fold_in(key, 3),
                     *[jnp.asarray(df.dev(x.reshape(2 * batch, cap))) for x in (t, q, w, steps)], jnp.asarray(n.ravel()),
-                    jnp.asarray(su), jnp.asarray(sr), jnp.asarray(sk), jnp.asarray(live), jnp.asarray(df.dev(ji)), *extra)
+                    jnp.asarray(su), jnp.asarray(sr), jnp.asarray(sk), jnp.asarray(live), jnp.asarray(df.dev(ji)), *extra, **timing_args)
                 result = {k: np.asarray(v) for k, v in result.items()}
                 if result["sat_overflow"]:
                     raise RuntimeError("JAX ADC saturation time bucket overflow; no output returned")

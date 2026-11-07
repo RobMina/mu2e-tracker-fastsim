@@ -1,0 +1,100 @@
+{
+  "schema_version": 1,
+  "files": [
+    {
+      "source": "run1a-reco/resident-gpu-20261106-v2/report.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-reco/resident-gpu-20261106-v2/report.json",
+      "sha256": "2d16556ece840a6ec2d65b7826c650075d5dcd651d42624b55b697a987fef74f"
+    },
+    {
+      "source": "run1a-reco/resident-gpu-20261106-v2/tests.log",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-reco/resident-gpu-20261106-v2/tests.txt",
+      "sha256": "b77cad0f0b2fdf63a6f84be8fe83096cf5fca0c7416b9482f49b6fbcc946d062"
+    },
+    {
+      "source": "run1a-reco/resident-focused-20261106-final.log",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-reco/resident-focused-20261106-final.txt",
+      "sha256": "eadd3217e996e4199936f4afaa7988de66d9bb2d28ca42599a0b8544996346ed"
+    },
+    {
+      "source": "run1a-reco/resident-cpu-vs-gpu-20261106/report.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-reco/resident-cpu-vs-gpu-20261106/report.json",
+      "sha256": "8a640fd8aefb4b295e18c4846f692835ce874e66b95279ae42d033b939913f07"
+    },
+    {
+      "source": "run1a-reco/stockattrition-focused-tests-20261106-final.log",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-reco/stockattrition-focused-tests-20261106-final.txt",
+      "sha256": "265d5daaf7213c310bdddbc7dbe7589c01e5cedb390a772a50bedba0278faf5a"
+    },
+    {
+      "source": "run1a-reco/lrdrift-1000-20261106-final/report.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-reco/lrdrift-1000-20261106-final/report.json",
+      "sha256": "b592c9e44b65bbdb83b928f1389bb5c5c62b096bafaa03c7ef6512d60dd9f850"
+    },
+    {
+      "source": "run1a-reco/stabledrift-1000-20261106-final/report.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-reco/stabledrift-1000-20261106-final/report.json",
+      "sha256": "6f131de0f5618e36851053ec60b70115f5f0fcca66c34b44620615d721f7c8ed"
+    },
+    {
+      "source": "run1a-reco/stockcompare-ch-1000-20261106-2/report.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-reco/stockcompare-ch-1000-20261106-2/report.json",
+      "sha256": "b0a5e74c56c8d42320653e655ff3f5a60b0d58186dcc667716bfff578ba1c611"
+    },
+    {
+      "source": "run1a-reco/stockattrition-1000-20261106-final/report.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-reco/stockattrition-1000-20261106-final/report.json",
+      "sha256": "5abaf7d66ca30250500b54af9d32d0174261d1aa984af9d882643d3e5f3f51fd"
+    },
+    {
+      "source": "run1a-reco/stereopairaudit-1000-20261106-final/report.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-reco/stereopairaudit-1000-20261106-final/report.json",
+      "sha256": "772d80749f2ef8346873470805a883b5b069cc8ac4c96de3a68aded678cc2d26"
+    },
+    {
+      "source": "run1a-digi/main-runtime-7af3daa-20261106/tests-final.log",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-digi/main-runtime-7af3daa-20261106/tests-final.txt",
+      "sha256": "1cd2a41f3279cfe16395bbdffd5496d1cc4ecd6e403a18d4b4c0d6907f5fbfb6"
+    },
+    {
+      "source": "run1a-digi/main-runtime-7af3daa-20261106/main-runtime.sha256",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-digi/main-runtime-7af3daa-20261106/main-runtime.sha256",
+      "sha256": "46b5d1348007dc4c6a5d1b643e2b562a6ca93cb3b4eb9b2cf0b6705c2cba27f0"
+    },
+    {
+      "source": "run1a-digi/main-runtime-7af3daa-20261106/runtime-paths.txt",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-digi/main-runtime-7af3daa-20261106/runtime-paths.txt",
+      "sha256": "286dc99d00f5366017b2245e85462a482546362b5c801e72d0ace10d378e14d8"
+    },
+    {
+      "source": "run1a-digi/validation-refresh-20261106/stock-control.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-digi/validation-refresh-20261106/stock-control.json",
+      "sha256": "2aa21cd434ec452e6fef5e7bf38dc34311b6a27882d9875595faa35f05ada701"
+    },
+    {
+      "source": "run1a-digi/validation-refresh-20261106/before.sha256",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-digi/validation-refresh-20261106/before.sha256",
+      "sha256": "1ac195aa8f6c4aa40c89fd1983810de9fd63a0c4c58e8d4b41ae5ccb3a5b1fff"
+    },
+    {
+      "source": "run1a-digi/validation-refresh-20261106-final/numpy-1000.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-digi/validation-refresh-20261106-final/numpy-1000.json",
+      "sha256": "33b62426ef76d12442b509eb65cc674d291a56489640157f43206921b5a7a232"
+    },
+    {
+      "source": "run1a-digi/validation-refresh-20261106-final/jaxcpu-1000.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-digi/validation-refresh-20261106-final/jaxcpu-1000.json",
+      "sha256": "691bb4a6dab9415054fca88063429f2cd1e71ec59aa76368d5bcc36109ee93c5"
+    },
+    {
+      "source": "run1a-digi/validation-refresh-20261106-final/numpy-heldout10000.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-digi/validation-refresh-20261106-final/numpy-heldout10000.json",
+      "sha256": "5702485ceb98d7a3f3a1e9bc2efbe025a0e5e2796ffa78ca566a8cf4c67b8918"
+    },
+    {
+      "source": "run1a-digi/validation-refresh-20261106-final/jaxcpu-heldout10000.json",
+      "destination": "docs/development/trk2-20261106/evidence/run1a-digi/validation-refresh-20261106-final/jaxcpu-heldout10000.json",
+      "sha256": "d95ebd6d4ace396e5add075e63231f76103a89f990f5d66a2ddd28ab9405d60e"
+    }
+  ]
+}

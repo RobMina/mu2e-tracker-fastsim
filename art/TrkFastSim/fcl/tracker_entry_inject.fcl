@@ -1,0 +1,33 @@
+# Shared table adapter for both arms; no entry or straw-response filter.
+#include "Offline/fcl/standardServices.fcl"
+process_name: EntryStepInject
+source: { module_type: RootInput fileNames: [] inputCommands: ["drop *"] }
+services: @local::Services.Sim
+physics: {
+  producers: {
+    entryReplay: {
+      module_type: TrackerEntryParticlesFromTable
+      tableFile: "../prepared/entries.root"
+    }
+    compressDetStepMCs: {
+      module_type: StrawGasStepsFromTable
+      trkTableFile: "transport.root"
+      genParticles: "entryReplay"
+      makeTrajectories: false
+    }
+    # Empty event-level primary bookkeeping keeps zero-entry events; selected reco truth is rebuilt at ntuple time.
+    FindMCPrimary: { module_type: NullMCPrimary ExtraSteps: [] }
+  }
+  p1: [entryReplay, compressDetStepMCs, FindMCPrimary]
+  e1: [out]
+  trigger_paths: [p1]
+  end_paths: [e1]
+}
+outputs.out: {
+  module_type: RootOutput
+  fileName: "inj.art"
+  outputCommands: ["drop *", "keep *_*_*_EntryStepInject"]
+}
+services.GeometryService.inputFile: "Offline/Mu2eG4/geom/geom_run1_a.txt"
+services.GeometryService.bFieldFile: "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt"
+services.SeedService.baseSeed: 20261105

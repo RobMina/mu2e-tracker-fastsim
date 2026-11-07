@@ -1,0 +1,20 @@
+# Stock conditions-only queries on saved digi events; requires FieldOnDriftOracle build.
+#include "run1a_reco_reference.fcl"
+process_name: Run1aDriftOracle
+services.TFileService.fileName: "drift-oracle.root"
+physics.analyzers.driftoracle: {
+  module_type: FieldOnDriftOracle
+  TimeMin: -50.0
+  TimeMax: 200.0
+  TimeStep: 0.05
+  AngleBins: 77
+  ExtraProbes: 8192
+  MaxQueries: 1000000
+  TimeProbes: [-0.000001, 0.0, 0.000001, 0.049999, 0.050001, 79.999999, 80.000001]
+  AngleProbes: [0.0, 1.5707963267948966, -1.5707963267948966, 3.141592653589793, -3.141592653589793, 0.123, 2.345]
+}
+physics.RecoPath: []
+physics.trigger_paths: []
+physics.DumpPath: [driftoracle]
+physics.end_paths: [DumpPath]
+outputs: {}

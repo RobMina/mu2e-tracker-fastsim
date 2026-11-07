@@ -1,0 +1,9 @@
+# Replay the existing source event stream without reading its previous physics products.
+#include "TrkFastSim/fcl/tracker_entry_smoke.fcl"
+process_name: EntryReplayCoverage
+source: {
+  module_type: RootInput
+  fileNames: []
+  inputCommands: ["drop *"]
+}
+physics.producers.entryReplay.tableFile: "../prepared/entries.root"

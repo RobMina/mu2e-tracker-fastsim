@@ -1,0 +1,23 @@
+# Hit-only reference on saved Run 1A OffSpill digis; no transport, digitisation or track fit.
+#include "Production/JobConfig/recoMC/OffSpill.fcl"
+process_name: Run1aHitReference
+services.GeometryService.inputFile: "Offline/Mu2eG4/geom/geom_run1_a.txt"
+services.GeometryService.bFieldFile: "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt"
+services.DbService.purpose: Sim_best
+services.DbService.version: v1_1
+services.DbService.verbose: 0
+services.TFileService.fileName: "hits.root"
+physics.analyzers.trkdump: {
+  module_type: StrawHitTableDumper
+  StrawDigiTag: "makeSD"
+  StrawHitTag: "makeSH"
+  PanelHitTag: "makePH"
+  ProtonBunchTimeTag: @local::physics.producers.makeSH.ProtonBunchTimeTag
+  EventWindowMarkerTag: @local::physics.producers.makeSH.EventWindowMarker
+  DumpTracks: false
+}
+physics.RecoPath: [PBTFSD, makeSH, makePH]
+physics.trigger_paths: [RecoPath]
+physics.DumpPath: [trkdump]
+physics.end_paths: [DumpPath]
+outputs: {}

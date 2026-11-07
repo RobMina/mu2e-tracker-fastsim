@@ -1,0 +1,17 @@
+# CentralHelix ntuples with the same current EventNtuple configuration in both arms.
+#include "EventNtuple/fcl/from_mcs-mockdata.fcl"
+physics.producers.ntuplePrimary: {
+  module_type: FindMCPrimary
+  SimParticles: "compressRecoMCs"
+  PrimaryProcess: "mu2ePrimary"
+}
+physics.EventNtuplePath: [ntuplePrimary, @sequence::EventNtuple.PathOff]
+physics.analyzers.EventNtuple.mc.primaryParticleTag: "ntuplePrimary"
+physics.analyzers.EventNtuple.trk.fits: [{@table::Off trkDtDtTag: ""}]
+physics.analyzers.EventNtuple.FitType: CentralHelix
+physics.analyzers.EventNtuple.trk.fillTrkDtDt: false
+services.TFileService.fileName: "nts.root"
+services.GeometryService.inputFile: "Offline/Mu2eG4/geom/geom_run1_a.txt"
+services.GeometryService.bFieldFile: "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt"
+services.DbService.purpose: Sim_best
+services.DbService.version: v1_1

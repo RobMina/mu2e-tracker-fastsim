@@ -1,0 +1,6 @@
+/Users/rmina/mu2e/.cache/TRK2/run1a-digi/main-runtime-7af3daa-20261106/trkfastsim/digi/digicond.py
+/Users/rmina/mu2e/.cache/TRK2/run1a-digi/main-runtime-7af3daa-20261106/trkfastsim/digi/digitize.py
+/Users/rmina/mu2e/.cache/TRK2/run1a-digi/main-runtime-7af3daa-20261106/trkfastsim/digi/digi_jax.py
+/Users/rmina/mu2e/.cache/TRK2/run1a-digi/main-runtime-7af3daa-20261106/trkfastsim/digi/fastdigi.py
+/Users/rmina/mu2e/.cache/TRK2/run1a-digi/main-runtime-7af3daa-20261106/trkfastsim/digi/timing.py
+/Users/rmina/mu2e/.cache/TRK2/run1a-digi/main-runtime-7af3daa-20261106/trkfastsim/validation/run1a_digi.py

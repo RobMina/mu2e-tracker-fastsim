@@ -1,0 +1,10 @@
+# Identical stock OffSpill digitisation for both primary-only tracker arms.
+#include "Production/JobConfig/digitize/OffSpill.fcl"
+physics.filters.TriggerableCHPrescale.prescaleFactor: 1
+outputs.Output.SelectEvents: ["DigitizePath"]
+outputs.Output.fileName: "dig.art"
+services.GeometryService.inputFile: "Offline/Mu2eG4/geom/geom_run1_a.txt"
+services.GeometryService.bFieldFile: "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt"
+services.DbService.purpose: Sim_best
+services.DbService.version: v1_1
+services.SeedService.baseSeed: 20261105

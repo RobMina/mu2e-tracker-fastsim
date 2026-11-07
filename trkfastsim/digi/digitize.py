@@ -12,12 +12,13 @@ stock one (0.1 ns response tables, wire-distance interpolation, end reflection, 
 
 Random numbers come from one numpy Generator; the draws are statistically equivalent to the stock CLHEP draws, not
 the same numbers. Rejection loops of the stock module (cluster sizes of minimum-ionising steps) are sampled as the
-equivalent truncated distributions. Only the off-spill, field-free, no-cross-talk, no-noise configuration of the
-extracted (KPP) digitisation is implemented; digicond.build refuses others.
+equivalent truncated distributions. The field-free, no-cross-talk, no-noise configuration is implemented, with
+explicit shared event timing required for on-spill folding and ghosts.
 """
 import numpy as np
 
 from trkfastsim.digi.digicond import NSTRAWS, NPANELS, d2t, dist_interp, reflection
+from trkfastsim.digi.timing import step_times, ghost_indices
 
 F32 = np.float32
 NUPANELS = 216
@@ -408,8 +409,12 @@ def _crosses(wf, st, rows, K=8):
     return ret
 
 
-def find_crossings(wf, rng, straw_us, straw_readall, stats=None):
-    """findThresholdCrossings for every straw instance -> pairs (straw, T[2], vcross[2], ic[2]) in time order per straw."""
+def find_crossings(wf, rng, straw_us, straw_readall, stats=None, *, event_lengths=None):
+    """Return crossing pairs (straw, T[2], vcross[2], ic[2]) in time order per straw.
+
+    event_lengths optionally supplies one marker-to-marker length per straw instance;
+    only off-spill crossing bounds use these lengths, including read-all straws.
+    """
     c = wf.c
     ns = len(straw_us)
     nrow = 2 * ns
@@ -419,7 +424,9 @@ def find_crossings(wf, rng, straw_us, straw_readall, stats=None):
     st["thr"][:] = rng.normal((vth + noise[:, None]).ravel(), c.thresholdAnalogNoise)
     tstart = np.where(straw_readall, -c.deadTimeAnalog, c.digitizationStart - c.timeFromProtonsToDRMarker - c.flashBuffer)
     st["T"][:] = np.repeat(tstart, 2)
-    tend = max(c.eventWindowLength, c.mbtime) - c.electronicsTimeDelay + c.tdcbuf
+    dend = c.digitizationEnd - c.timeFromProtonsToDRMarker if c.onspill else (
+        c.eventWindowLength if event_lengths is None else np.asarray(event_lengths))
+    tend = np.broadcast_to(np.maximum(dend, c.mbtime) - c.electronicsTimeDelay + c.tdcbuf, (ns,))
     allrows = np.arange(nrow)
     cr = _crosses(wf, st, allrows)
     pairs = []
@@ -454,7 +461,7 @@ def find_crossings(wf, rng, straw_us, straw_readall, stats=None):
             st["ic"][early] += 1
             st["T"][early] += c.deadTimeAnalog
             cr[early] = _crosses(wf, st, early)
-        act = act[cr[2 * act] & cr[2 * act + 1] & (cxx_max(st["T"][2 * act], st["T"][2 * act + 1]) < tend)]
+        act = act[cr[2 * act] & cr[2 * act + 1] & (cxx_max(st["T"][2 * act], st["T"][2 * act + 1]) < tend[act])]
     if stats is not None:
         stats["straws"] = stats.get("straws", 0) + ns
         stats["nan_crossing_ends"] = stats.get("nan_crossing_ends", 0) + int(np.isnan(st["T"]).sum())
@@ -507,26 +514,27 @@ def _adc_volts(wf, rows, times, chunk=256):
     return out
 
 
-def digitize(st, nev, c, rng, stats=None):
+def digitize(st, nev, c, rng, stats=None, *, event_timing=None):
     """StrawGasSteps of nev events (flat arrays; positions detector frame, mm; t ns; eion MeV) -> digi arrays.
 
     st keys: ev (event index), sid, shape, ion, eion, len, width, t, x0, y0, z0, x1, y1, z1. Returns a dict of per-digi
     arrays (ev, sid, tdc [n,2], tot [n,2], pmp, adc [n, nsamp], step [n,2] = index of the step whose cluster is
     referenced at the crossing of each end, t_analog [n,2]) in the stock order (event, StrawId, time). stats (dict,
     optional) accumulates counters: straws, clusters, saturated straw ends, NaN regula-falsi crossings, pairs, digis.
+    event_timing is a mapping of pbtime and event_length float64 arrays [nev], required on spill; see step_times.
     """
-    st = dict(st)
+    st = {k: np.asarray(v) for k, v in st.items()}
+    ctime, event_lengths = step_times(st, nev, c, event_timing)
     nst = len(st["sid"])
     sid = np.asarray(st["sid"], np.int64)
     us = unique_straw(sid)
     st["_us"] = us
     readall = ((sid & 0x7F) >= c.allStraw) & np.isin(sid >> 10, c.allPlanes)
     jitter = rng.normal(0.0, c.eventWindowMarkerROCJitter, (nev, NUPANELS))
-    ctime = np.asarray(st["t"], np.float64)                             # off spill: no PBT offset, no folding
     dstart = c.digitizationStart - c.timeFromProtonsToDRMarker
-    dend = c.eventWindowLength
+    dend = c.digitizationEnd - c.timeFromProtonsToDRMarker if c.onspill else event_lengths[st["ev"]]
     inwin = (ctime > dstart - c.electronicsTimeDelay - c.steptimebuf) & \
-            (ctime < max(c.mbtime, dend) - c.electronicsTimeDelay + c.steptimebuf)
+            (ctime < np.maximum(c.mbtime, dend) - c.electronicsTimeDelay + c.steptimebuf)
     sel = np.nonzero((np.asarray(st["eion"]) > c.minstepE) & (inwin | readall))[0]
     empty = {"ev": np.zeros(0, np.int64), "sid": np.zeros(0, np.int64), "tdc": np.zeros((0, 2), np.int64),
              "tot": np.zeros((0, 2), np.int64), "pmp": np.zeros(0, np.int64),
@@ -555,14 +563,21 @@ def digitize(st, nev, c, rng, stats=None):
     straw_us = unique_straw(straw_sid)
     straw_ra = ((straw_sid & 0x7F) >= c.allStraw) & np.isin(straw_sid >> 10, c.allPlanes)
     row = np.concatenate([2 * inst, 2 * inst + 1])
-    wf = Waveforms(c, row, np.concatenate([gt[:, 0], gt[:, 1]]).astype(np.float64),
-                   np.concatenate([qe, qe]).astype(np.float64), np.concatenate([wd[:, 0], wd[:, 1]]).astype(np.float64),
-                   np.concatenate([cus, cus]), np.concatenate([cs, cs]))
+    times = np.concatenate([gt[:, 0], gt[:, 1]])
+    charges = np.concatenate([qe, qe])
+    distances = np.concatenate([wd[:, 0], wd[:, 1]])
+    end_us, end_steps = np.concatenate([cus, cus]), np.concatenate([cs, cs])
+    if c.onspill:
+        source, times = ghost_indices(times, c.mbtime, (c.nADCSamples - c.nADCPresamples) * c.ADCPeriod)
+        row, charges, distances = row[source], charges[source], distances[source]
+        end_us, end_steps = end_us[source], end_steps[source]
+    wf = Waveforms(c, row, times.astype(np.float64), charges.astype(np.float64), distances.astype(np.float64),
+                   end_us, end_steps)
     if stats is not None:
         stats["clusters"] = stats.get("clusters", 0) + len(cs)
         stats["saturated_ends"] = stats.get("saturated_ends", 0) + int((wf.maxposs > c.saturationVoltage).sum())
         stats["ends"] = stats.get("ends", 0) + len(wf.maxposs)
-    ps, pT, pV, pI = find_crossings(wf, rng, straw_us, straw_ra, stats)
+    ps, pT, pV, pI = find_crossings(wf, rng, straw_us, straw_ra, stats, event_lengths=event_lengths[straw_ev])
     if ps.size == 0:
         return empty
     npair = len(ps)
@@ -580,7 +595,7 @@ def digitize(st, nev, c, rng, stats=None):
         xt = xt - c.time_offsets[straw_us[ps]]
     wsum = volts + rng.normal(0.0, c.adcAnalogNoise, volts.shape)
     tdc = c.tdc_response(xt)
-    ewend = int(c.tdc_response(c.eventWindowLength - c.electronicsTimeDelay))
+    ewend = c.tdc_response(event_lengths[straw_ev[ps]] - c.electronicsTimeDelay)[:, None]
     ra = straw_ra[ps]
     ok_all = np.all((xt + c.electronicsTimeDelay > 0) & (tdc < ewend), 1)
     upper = c.digitizationEndTDC if c.onspill else ewend

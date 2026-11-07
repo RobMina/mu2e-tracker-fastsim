@@ -1,0 +1,29 @@
+# Read saved detector digis and sample the field without running simulation or response.
+#include "Production/JobConfig/digitize/OffSpill.fcl"
+process_name: Run1aDigiReference
+services.TFileService.fileName: "stock.root"
+services.GeometryService.inputFile: "Offline/Mu2eG4/geom/geom_run1_a.txt"
+services.GeometryService.bFieldFile: "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt"
+services.DbService.purpose: Sim_best
+services.DbService.version: v1_1
+outputs: {}
+physics: {
+  analyzers: {
+    trkdigi: { module_type: StrawDigiTableDumper StrawDigiTag: "makeSD" }
+    fieldOrigin: {
+      module_type: BFieldPlotter
+      plane: z
+      planeValue: 10171
+      axisOneMin: -3905
+      axisOneMax: -3903
+      axisTwoMin: -1
+      axisTwoMax: 1
+      mapBinSize: 1
+      dump: true
+      dumpName: Run1aOrigin
+    }
+  }
+  e1: [trkdigi, fieldOrigin]
+  trigger_paths: []
+  end_paths: [e1]
+}

@@ -1,0 +1,7 @@
+# Full existing event census, with diagnostic startup output disabled.
+#include "TrkFastSim/fcl/tracker_entry_g4_pilot.fcl"
+source.maxEvents: -1
+physics.end: [dump]
+outputs: {}
+physics.producers.g4run.debug.writeGDML: false
+services.TFileService.fileName: "transport.root"

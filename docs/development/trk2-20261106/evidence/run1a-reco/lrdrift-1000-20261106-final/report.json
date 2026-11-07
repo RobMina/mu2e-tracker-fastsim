@@ -1,0 +1,662 @@
+{
+  "saved_candidate_status_counts": {
+    "converged_certified": 307,
+    "derivative_unstable": 134,
+    "empty": 858,
+    "invalid_seed": 178,
+    "max_iterations": 17,
+    "nondifferentiable": 48,
+    "stalled": 4
+  },
+  "lr_status_counts": {
+    "analytic_nonstationary": 6,
+    "converged_certified": 336,
+    "derivative_unstable": 110,
+    "empty": 858,
+    "invalid_seed": 178,
+    "nondifferentiable": 17,
+    "pending_lr_flips": 3,
+    "refit_numerical_failure": 38
+  },
+  "termination_status_counts": {
+    "empty": 858,
+    "invalid_seed": 178,
+    "lr_stationary": 505,
+    "max_rounds": 5
+  },
+  "certificate_status_counts": {
+    "adjacent_stencil_checked": 348,
+    "analytic_nondifferentiable": 41,
+    "analytic_nonstationary": 8,
+    "fd_check_failed": 88,
+    "no_admissible_stencil_pair": 25,
+    "not_evaluated": 1036
+  },
+  "last_refit_status_counts": {
+    "converged_certified": 258,
+    "derivative_unstable": 84,
+    "max_iterations": 2,
+    "nondifferentiable": 38,
+    "not_attempted": 1162,
+    "stalled": 2
+  },
+  "saved_continuous_checked": {
+    "hypotheses": 307,
+    "negative_z": 151,
+    "positive_z": 156,
+    "any_direction_groups": 213,
+    "both_direction_groups": 94,
+    "neither_eligible_groups": 42
+  },
+  "saved_combined_checked": {
+    "hypotheses": 90,
+    "negative_z": 40,
+    "positive_z": 50,
+    "any_direction_groups": 63,
+    "both_direction_groups": 27,
+    "neither_eligible_groups": 192
+  },
+  "final_continuous_checked": {
+    "hypotheses": 348,
+    "negative_z": 173,
+    "positive_z": 175,
+    "any_direction_groups": 227,
+    "both_direction_groups": 121,
+    "neither_eligible_groups": 28
+  },
+  "final_combined_checked": {
+    "hypotheses": 336,
+    "negative_z": 168,
+    "positive_z": 168,
+    "any_direction_groups": 222,
+    "both_direction_groups": 114,
+    "neither_eligible_groups": 33
+  },
+  "combined_criterion": "Unchanged analytic/adjacent-stencil criterion AND no pointwise beneficial LR flip AND no proposal/contract error or sticky refit numerical failure; not global optimality, calibrated ambiguity probability, direction identification or tracking efficiency.",
+  "status_transition_table": {
+    "converged_certified": {
+      "analytic_nonstationary": 2,
+      "converged_certified": 239,
+      "derivative_unstable": 36,
+      "empty": 0,
+      "invalid_seed": 0,
+      "nondifferentiable": 7,
+      "pending_lr_flips": 1,
+      "refit_numerical_failure": 22
+    },
+    "derivative_unstable": {
+      "analytic_nonstationary": 0,
+      "converged_certified": 57,
+      "derivative_unstable": 62,
+      "empty": 0,
+      "invalid_seed": 0,
+      "nondifferentiable": 3,
+      "pending_lr_flips": 1,
+      "refit_numerical_failure": 11
+    },
+    "empty": {
+      "analytic_nonstationary": 0,
+      "converged_certified": 0,
+      "derivative_unstable": 0,
+      "empty": 858,
+      "invalid_seed": 0,
+      "nondifferentiable": 0,
+      "pending_lr_flips": 0,
+      "refit_numerical_failure": 0
+    },
+    "invalid_seed": {
+      "analytic_nonstationary": 0,
+      "converged_certified": 0,
+      "derivative_unstable": 0,
+      "empty": 0,
+      "invalid_seed": 178,
+      "nondifferentiable": 0,
+      "pending_lr_flips": 0,
+      "refit_numerical_failure": 0
+    },
+    "max_iterations": {
+      "analytic_nonstationary": 3,
+      "converged_certified": 8,
+      "derivative_unstable": 2,
+      "empty": 0,
+      "invalid_seed": 0,
+      "nondifferentiable": 1,
+      "pending_lr_flips": 1,
+      "refit_numerical_failure": 2
+    },
+    "nondifferentiable": {
+      "analytic_nonstationary": 0,
+      "converged_certified": 29,
+      "derivative_unstable": 10,
+      "empty": 0,
+      "invalid_seed": 0,
+      "nondifferentiable": 6,
+      "pending_lr_flips": 0,
+      "refit_numerical_failure": 3
+    },
+    "stalled": {
+      "analytic_nonstationary": 1,
+      "converged_certified": 3,
+      "derivative_unstable": 0,
+      "empty": 0,
+      "invalid_seed": 0,
+      "nondifferentiable": 0,
+      "pending_lr_flips": 0,
+      "refit_numerical_failure": 0
+    }
+  },
+  "by_saved_status": {
+    "converged_certified": {
+      "hypotheses": 307,
+      "comparable_valid": 307,
+      "combined_checked_before": 90,
+      "combined_checked_after": 239,
+      "continuous_checked_after": 245,
+      "initially_pending_lr": 217,
+      "final_pending_lr": 2,
+      "accepted_lr_flip_operations": 581,
+      "net_changed_hit_hypothesis_entries": 483,
+      "lower_objective": 217,
+      "equal_objective": 90,
+      "higher_objective": 0,
+      "final_minus_saved_objective": {
+        "min": -199.1138351248338,
+        "median": -2.1011939282158494,
+        "p90": 0.0,
+        "max": 0.0
+      },
+      "saved_abs_drift_residual_mm": {
+        "min": 0.0001273867836338871,
+        "median": 0.18469297161263754,
+        "p90": 0.5796879103586629,
+        "max": 2.03017355056987
+      },
+      "final_abs_drift_residual_mm": {
+        "min": 0.0001278716103998434,
+        "median": 0.14055483915564526,
+        "p90": 0.4453528585150517,
+        "max": 2.03017355056987
+      }
+    },
+    "derivative_unstable": {
+      "hypotheses": 134,
+      "comparable_valid": 134,
+      "combined_checked_before": 0,
+      "combined_checked_after": 57,
+      "continuous_checked_after": 62,
+      "initially_pending_lr": 105,
+      "final_pending_lr": 1,
+      "accepted_lr_flip_operations": 235,
+      "net_changed_hit_hypothesis_entries": 191,
+      "lower_objective": 105,
+      "equal_objective": 29,
+      "higher_objective": 0,
+      "final_minus_saved_objective": {
+        "min": -174.59635028412,
+        "median": -4.574152470221805,
+        "p90": 0.0,
+        "max": 0.0
+      },
+      "saved_abs_drift_residual_mm": {
+        "min": 0.0002042076564263695,
+        "median": 0.19027496674292887,
+        "p90": 0.5805380063046135,
+        "max": 2.810476766314728
+      },
+      "final_abs_drift_residual_mm": {
+        "min": 8.990234207312264e-05,
+        "median": 0.1494631575557901,
+        "p90": 0.4515360301666227,
+        "max": 2.283348010919036
+      }
+    },
+    "empty": {
+      "hypotheses": 858,
+      "comparable_valid": 0,
+      "combined_checked_before": 0,
+      "combined_checked_after": 0,
+      "continuous_checked_after": 0,
+      "initially_pending_lr": 0,
+      "final_pending_lr": 0,
+      "accepted_lr_flip_operations": 0,
+      "net_changed_hit_hypothesis_entries": 0,
+      "lower_objective": 0,
+      "equal_objective": 0,
+      "higher_objective": 0,
+      "final_minus_saved_objective": {},
+      "saved_abs_drift_residual_mm": {},
+      "final_abs_drift_residual_mm": {}
+    },
+    "invalid_seed": {
+      "hypotheses": 178,
+      "comparable_valid": 0,
+      "combined_checked_before": 0,
+      "combined_checked_after": 0,
+      "continuous_checked_after": 0,
+      "initially_pending_lr": 0,
+      "final_pending_lr": 0,
+      "accepted_lr_flip_operations": 0,
+      "net_changed_hit_hypothesis_entries": 0,
+      "lower_objective": 0,
+      "equal_objective": 0,
+      "higher_objective": 0,
+      "final_minus_saved_objective": {},
+      "saved_abs_drift_residual_mm": {},
+      "final_abs_drift_residual_mm": {}
+    },
+    "max_iterations": {
+      "hypotheses": 17,
+      "comparable_valid": 17,
+      "combined_checked_before": 0,
+      "combined_checked_after": 8,
+      "continuous_checked_after": 8,
+      "initially_pending_lr": 14,
+      "final_pending_lr": 1,
+      "accepted_lr_flip_operations": 70,
+      "net_changed_hit_hypothesis_entries": 56,
+      "lower_objective": 14,
+      "equal_objective": 3,
+      "higher_objective": 0,
+      "final_minus_saved_objective": {
+        "min": -117.57279303934581,
+        "median": -7.444301538494997,
+        "p90": 0.0,
+        "max": 0.0
+      },
+      "saved_abs_drift_residual_mm": {
+        "min": 0.0013538091597224966,
+        "median": 0.30660296371735385,
+        "p90": 0.8102056794335272,
+        "max": 1.8617186540471196
+      },
+      "final_abs_drift_residual_mm": {
+        "min": 0.0006469589081048444,
+        "median": 0.2254344476668129,
+        "p90": 0.7343749597385891,
+        "max": 1.4598322755290103
+      }
+    },
+    "nondifferentiable": {
+      "hypotheses": 48,
+      "comparable_valid": 48,
+      "combined_checked_before": 0,
+      "combined_checked_after": 29,
+      "continuous_checked_after": 30,
+      "initially_pending_lr": 45,
+      "final_pending_lr": 1,
+      "accepted_lr_flip_operations": 146,
+      "net_changed_hit_hypothesis_entries": 106,
+      "lower_objective": 45,
+      "equal_objective": 3,
+      "higher_objective": 0,
+      "final_minus_saved_objective": {
+        "min": -115.91148544110192,
+        "median": -11.136354198837989,
+        "p90": -0.1032403707518955,
+        "max": 0.0
+      },
+      "saved_abs_drift_residual_mm": {
+        "min": 0.0006959413826386207,
+        "median": 0.2349046839280775,
+        "p90": 0.6475260253351486,
+        "max": 2.3664474537955336
+      },
+      "final_abs_drift_residual_mm": {
+        "min": 7.795283375111595e-05,
+        "median": 0.14717945693213613,
+        "p90": 0.5007083419777894,
+        "max": 2.320202540980455
+      }
+    },
+    "stalled": {
+      "hypotheses": 4,
+      "comparable_valid": 4,
+      "combined_checked_before": 0,
+      "combined_checked_after": 3,
+      "continuous_checked_after": 3,
+      "initially_pending_lr": 3,
+      "final_pending_lr": 0,
+      "accepted_lr_flip_operations": 18,
+      "net_changed_hit_hypothesis_entries": 10,
+      "lower_objective": 3,
+      "equal_objective": 1,
+      "higher_objective": 0,
+      "final_minus_saved_objective": {
+        "min": -136.3248789935327,
+        "median": -14.649740799325336,
+        "p90": -3.0270765365922356,
+        "max": 0.0
+      },
+      "saved_abs_drift_residual_mm": {
+        "min": 0.0001467779340318387,
+        "median": 0.28837916004255526,
+        "p90": 0.6879704956810309,
+        "max": 1.6817210509780949
+      },
+      "final_abs_drift_residual_mm": {
+        "min": 0.009514011899551797,
+        "median": 0.24830496218407294,
+        "p90": 0.6253641792543051,
+        "max": 1.2570904069481796
+      }
+    }
+  },
+  "accepted_lr_flip_operations": 1050,
+  "accepted_lr_rounds": 534,
+  "net_changed_hit_hypothesis_entries": 846,
+  "net_changed_distinct_source_hits": 513,
+  "continuous_refits": 534,
+  "refit_failure_count": 192,
+  "original_arrays_preserved": true,
+  "assigned_directions": 0,
+  "comparison_scope": "Explicit continuation from every saved candidate final, including numerical failures, not original seeds. Additional LR/continuous budgets are not equal compute to the fixed-LR baseline.",
+  "input_provenance_caveat": "Current hashes/replay cannot restore original association input hashes, baseline output-NPZ binding or historical candidate payload authentication.",
+  "final_lr_stationary_hypotheses": 505,
+  "initial_pending_lr_hypotheses": 384,
+  "final_pending_lr_hypotheses": 5,
+  "final_pending_lr_hit_hypothesis_entries": 13,
+  "changed_lr_hypotheses": 384,
+  "objective_comparison_all_valid": {
+    "hypotheses": 510,
+    "lower": 384,
+    "equal": 126,
+    "higher": 0,
+    "final_minus_saved": {
+      "min": -199.1138351248338,
+      "median": -4.326851185664257,
+      "p90": 0.0,
+      "max": 0.0
+    }
+  },
+  "same_hit_residuals_all_valid": {
+    "hit_hypothesis_entries": 8790,
+    "saved_abs_drift_mm": {
+      "min": 0.0001273867836338871,
+      "median": 0.1925405797057207,
+      "p90": 0.5987516632893277,
+      "max": 2.810476766314728
+    },
+    "final_abs_drift_mm": {
+      "min": 7.795283375111595e-05,
+      "median": 0.14588438542966276,
+      "p90": 0.4625592396451676,
+      "max": 2.320202540980455
+    },
+    "scope": "Identical valid hit-hypothesis identities including numerical failures; objective reduction is not an independent resolution validation."
+  },
+  "continuous_iterations": 4653,
+  "continuous_accepted_steps": 2961,
+  "fit_trial_evaluations": 21706,
+  "certificate_evaluations": 22512,
+  "work_counter_scope": "Logical row work; certificate_evaluations counts final checks, not inner-refit checks or replay. Extra LR/refit work is not equal compute or end-to-end throughput.",
+  "active_rows_by_round": [
+    510,
+    384,
+    124
+  ],
+  "flip_accepted_rows_by_round": [
+    384,
+    124,
+    26
+  ],
+  "refit_attempted_rows_by_round": [
+    384,
+    124,
+    26
+  ],
+  "refit_accepted_rows_by_round": [
+    384,
+    122,
+    26
+  ],
+  "invalid_rows_by_round": [
+    0,
+    0,
+    0
+  ],
+  "roundoff_rows_by_round": [
+    0,
+    0,
+    0
+  ],
+  "refit_error_rows_by_round": [
+    0,
+    0,
+    0
+  ],
+  "accepted_lr_objective_gain": {
+    "min": 3.810822052230378e-05,
+    "median": 2.476599463471082,
+    "p90": 17.894716555616878,
+    "max": 70.89857255624418
+  },
+  "accepted_refit_objective_gain": {
+    "min": 1.8474111129762605e-13,
+    "median": 3.1432305300871137,
+    "p90": 31.979931760136978,
+    "max": 97.3510848280962
+  },
+  "total_accepted_lr_objective_gain": 3400.320531446489,
+  "total_accepted_refit_objective_gain": 5563.554481828431,
+  "continuous_refit_raw_terminations": {
+    "analytic_stationary": 454,
+    "max_iterations": 37,
+    "stalled": 43
+  },
+  "continuous_refit_final_statuses": {
+    "converged_certified": 342,
+    "derivative_unstable": 112,
+    "max_iterations": 3,
+    "nondifferentiable": 74,
+    "stalled": 3
+  },
+  "final_failure_flags": {
+    "contract_or_proposal_error": 0,
+    "sticky_numerical_failure": 38,
+    "sticky_failure_but_continuous_checked": 11,
+    "pending_lr_but_continuous_checked": 3,
+    "pending_lr_and_sticky_failure": 2
+  },
+  "combined_pass_transition": {
+    "retained": 90,
+    "gained": 246,
+    "lost": 0
+  },
+  "events": 1000,
+  "groups": 773,
+  "hits": 13492,
+  "fixed_selected_hits": 5427,
+  "zero_hit_events": 235,
+  "group_batch": 32,
+  "effective_group_batch": 32,
+  "fixed_full_width": 51,
+  "nominal_axial_bz_T": 1.0117,
+  "mass_hypothesis_MeV": 105.6583755,
+  "max_rounds": 3,
+  "continuous_max_iterations": 40,
+  "continuous_max_backtracks": 8,
+  "saved_final_replay_seconds": 5.017707377905026,
+  "lr_continuation_seconds": 25.366066416492686,
+  "replay_scope": "Full saved final evaluator state on objective-valid selected hits, raw linear diagnostics, all certificate fields including invalid lanes; optimizer history copied, not rerun.",
+  "numerical_policy": "Unchanged evaluator/POCA/analytic derivatives/certificate thresholds; simultaneous pointwise LR proposals, strict actual-objective acceptance, unchanged bounded continuous refits.",
+  "caveat": "Opt-in measured LR continuation of saved analytic-candidate final states.\n\nThis is NOT an independent original-seed comparison: it adds bounded LR/refit\nwork to saved finals, including numerical failures. No support pruning, stock\nmembership, truth, direction winner, material or momentum output is introduced.\n",
+  "load_and_oracle_seconds": 0.25417908397503197,
+  "processing_seconds": 30.44551487499848,
+  "historical_candidate_implementation": {
+    "trkfastsim.reco.stabledriftfit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/stabledriftfit.py",
+      "sha256": "c986079f8d1d56d1af38fbf2d245040be9bee66f4c7ba97ba697678353588a6e"
+    },
+    "trkfastsim.reco.driftjacobian": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/driftjacobian.py",
+      "sha256": "43ac9f1d656c0ed4d922fe34c74c9b74b8f8e329d7849ebbb3ab45b3ac17bd2f"
+    },
+    "trkfastsim.reco.driftfitdiagnostic": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/driftfitdiagnostic.py",
+      "sha256": "9d205aedc55fc7cf9be5aee3af3deeaaf66683d1542c1bd7ef60b2d4d90d2d38"
+    },
+    "trkfastsim.reco.helixdriftfit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixdriftfit.py",
+      "sha256": "93ac9d6dab0484860fafddb34d04c7485d37e31785fb3282bc5e3c7b52b2e298"
+    },
+    "trkfastsim.reco.helixtiming": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixtiming.py",
+      "sha256": "694f25b481b0fea09bb1983a0b6317679356da3f6b2f83ec7c97fe53ad5b50c6"
+    },
+    "trkfastsim.reco.fielddrift": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/fielddrift.py",
+      "sha256": "5f04827404fc6cc56c2141f4b44f7f2066a384a9086cc8c84823d2b6aa134dc6"
+    },
+    "trkfastsim.reco.helixfit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixfit.py",
+      "sha256": "28f7f10713e0db02046c3c320231158079f1535209bde3b8fe8b3fd20c64e68f"
+    },
+    "trkfastsim.validation.run1a_drift_diagnostic": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_drift_diagnostic.py",
+      "sha256": "42eb2f691d5f1fcac2f524a907e55288aa8caf455471f562ec2fde7c71818221"
+    },
+    "trkfastsim.validation.run1a_timing": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_timing.py",
+      "sha256": "76cfb3544e9639249a2c58f76b28799f42aaf7e80101c6932db9d5a513ee4b41"
+    },
+    "trkfastsim.validation.run1a_wirefit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_wirefit.py",
+      "sha256": "557ade29ddf84e7775c0d840bfc4339f0aaf7230dbaf1afe3df194366097b423"
+    },
+    "trkfastsim.validation.run1a_drift": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_drift.py",
+      "sha256": "859423ff82b4531c4d0787f36debd47e0ad3cf48ba59330def4457b76a03b545"
+    },
+    "__main__": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_stabledrift.py",
+      "sha256": "8809a48cdcb5cb6a783742d59b3bb6658bb68b79a9e002e992b66dcc3020d823"
+    }
+  },
+  "processing_scope": "Saved-final replay plus explicit LR continuation; no baseline, association or wire-fit rerun; output excluded.",
+  "inputs": {
+    "hits": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/comparison-1000/numpy.npz",
+      "sha256": "9bd666236840e2525eb9fe03ccca741c5ee0a9a44726ad3116e80be2dd4d1b2d"
+    },
+    "conditions": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/comparison-1000/conditions.json",
+      "sha256": "f78baed3c613b4692993621fcbb3917303b073fca502a38742c77782780e770e"
+    },
+    "association": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/association-1000-fixedwidth-20261106/diagnostics.npz",
+      "sha256": "8c943efeb9ebde7ee42052c087e10768585fce6cacad15f92cf04edb7fd5fed4"
+    },
+    "reference": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/reference-1000/hits.root",
+      "sha256": "b0dc99d4fdd7f8b256492bff6325f764079abe0151e5f06ce614f0dcb62e4d20"
+    },
+    "oracle": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/drift-oracle-10-20261106/drift-oracle.root",
+      "sha256": "0c7edd9cd613b2e30a1d89da704f5626bc4aa711f799928f60888d6775352c98"
+    },
+    "config": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/drift-oracle-10-20261106/expanded.fcl",
+      "sha256": "54c0e68d40c944478d7aae72d19b4c8bcb822c0ee49cd89c2ac5dbba8daa992d"
+    },
+    "wirefit": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/wirefit-1000-20261106-final/diagnostics.npz",
+      "sha256": "518da949d71523cff0db9a0944f6b96c450ebd68306a0d23ef6db62ac4a24c45"
+    },
+    "wirefit_report": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/wirefit-1000-20261106-final/report.json",
+      "sha256": "85de33e4424c48336ef631f9ca2001157bd45ef31df8770e20f1e5c26b19c1b9"
+    },
+    "drift_check": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/drift-model-check-20261106-final/report.json",
+      "sha256": "2d15cb27ef892e62658d17aea6713c51c1c5d652068ca2d88d118be102d14ecb"
+    },
+    "reference_config": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/reference-1000/expanded.fcl",
+      "sha256": "98d7ff58e4aae2744439379da5e8016d4bd27b674c01f518724f32c8c2b5ee4b"
+    },
+    "baseline_report": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/driftfit-1000-20261106-final/report.json",
+      "sha256": "f0aa8334588f7b27505181ad2aa54d7f63f2c56d2f065b32a46b50b6c64b6586"
+    },
+    "baseline_payload": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/driftfit-1000-20261106-final/diagnostics.npz",
+      "sha256": "3725896548d4b9c264d456f8f692f221f45218f1e38933092293c1b615d7dcf2"
+    },
+    "candidate_report": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/stabledrift-1000-20261106-final/report.json",
+      "sha256": "6f131de0f5618e36851053ec60b70115f5f0fcca66c34b44620615d721f7c8ed"
+    },
+    "candidate_payload": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/stabledrift-1000-20261106-final/diagnostics.npz",
+      "sha256": "facc4edd54ffd87297cb50b2695617ef0e0433f21494481b8322bf9d19b17a9e"
+    }
+  },
+  "current_implementation": {
+    "trkfastsim.reco.lrdriftfit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/lrdriftfit.py",
+      "sha256": "d7f8398cde1a55eca2cf5a2307de9213c37b25b3543c1b512f3884c7484d97b6"
+    },
+    "trkfastsim.reco.driftjacobian": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/driftjacobian.py",
+      "sha256": "43ac9f1d656c0ed4d922fe34c74c9b74b8f8e329d7849ebbb3ab45b3ac17bd2f"
+    },
+    "trkfastsim.reco.stabledriftfit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/stabledriftfit.py",
+      "sha256": "c986079f8d1d56d1af38fbf2d245040be9bee66f4c7ba97ba697678353588a6e"
+    },
+    "trkfastsim.reco.driftfitdiagnostic": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/driftfitdiagnostic.py",
+      "sha256": "9d205aedc55fc7cf9be5aee3af3deeaaf66683d1542c1bd7ef60b2d4d90d2d38"
+    },
+    "trkfastsim.reco.helixfit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixfit.py",
+      "sha256": "28f7f10713e0db02046c3c320231158079f1535209bde3b8fe8b3fd20c64e68f"
+    },
+    "trkfastsim.reco.helixtiming": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixtiming.py",
+      "sha256": "694f25b481b0fea09bb1983a0b6317679356da3f6b2f83ec7c97fe53ad5b50c6"
+    },
+    "trkfastsim.reco.fielddrift": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/fielddrift.py",
+      "sha256": "5f04827404fc6cc56c2141f4b44f7f2066a384a9086cc8c84823d2b6aa134dc6"
+    },
+    "trkfastsim.reco.helixdriftfit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/helixdriftfit.py",
+      "sha256": "93ac9d6dab0484860fafddb34d04c7485d37e31785fb3282bc5e3c7b52b2e298"
+    },
+    "trkfastsim.validation.run1a_drift_diagnostic": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_drift_diagnostic.py",
+      "sha256": "42eb2f691d5f1fcac2f524a907e55288aa8caf455471f562ec2fde7c71818221"
+    },
+    "trkfastsim.validation.run1a_stabledrift": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_stabledrift.py",
+      "sha256": "8809a48cdcb5cb6a783742d59b3bb6658bb68b79a9e002e992b66dcc3020d823"
+    },
+    "trkfastsim.validation.run1a_drift_failure": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_drift_failure.py",
+      "sha256": "de39aff6b834fae5f9398ca88ad4ac662b457b374630627ec5ef0f362caf4742"
+    },
+    "trkfastsim.validation.run1a_timing": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_timing.py",
+      "sha256": "76cfb3544e9639249a2c58f76b28799f42aaf7e80101c6932db9d5a513ee4b41"
+    },
+    "trkfastsim.validation.run1a_wirefit": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_wirefit.py",
+      "sha256": "557ade29ddf84e7775c0d840bfc4339f0aaf7230dbaf1afe3df194366097b423"
+    },
+    "trkfastsim.validation.run1a_drift": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_drift.py",
+      "sha256": "859423ff82b4531c4d0787f36debd47e0ad3cf48ba59330def4457b76a03b545"
+    },
+    "__main__": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_lrdrift.py",
+      "sha256": "7a701ec00272075bdfe570021bb4bae1bddafc95dd794bc1ed6eb62743c3aabf"
+    }
+  },
+  "saved_comparison": {
+    "exact": true,
+    "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/lrdrift-1000-batch17-20261106/diagnostics.npz",
+    "sha256": "d1aee6c77c43086d5cc34138cac7f9ba5b096278a9cf39c290482cea2801bcb3"
+  },
+  "output_payload_sha256": "d1aee6c77c43086d5cc34138cac7f9ba5b096278a9cf39c290482cea2801bcb3"
+}

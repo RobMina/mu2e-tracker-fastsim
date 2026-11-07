@@ -1,0 +1,71 @@
+# First twenty original source events, including empty entries; no resampling or response filter.
+#include "Offline/fcl/standardServices.fcl"
+#include "Offline/Mu2eG4/fcl/prolog.fcl"
+#include "Offline/TrackerMC/fcl/prolog.fcl"
+
+process_name: TRK2EntryG4
+source: {
+  module_type: RootInput
+  fileNames: []
+  maxEvents: 20
+  inputCommands: ["drop *"]
+}
+services: {
+  @table::Services.Sim
+  TFileService: { fileName: "entry-g4-pilot.root" }
+}
+physics: {
+  producers: {
+    entryReplay: {
+      module_type: TrackerEntryParticlesFromTable
+      tableFile: "../prepared/entries.root"
+      writeReadback: true
+    }
+    g4run: @local::mu2eg4runDefaultSingleStage
+    StrawGasStepMaker: @local::TrackerMC.StepProducers.StrawGasStepMaker
+  }
+  analyzers: {
+    dump: {
+      module_type: StrawGasStepTableDumper
+      strawGasSteps: "StrawGasStepMaker::TRK2EntryG4"
+      simParticles: "g4run::TRK2EntryG4"
+      genParticles: "entryReplay::TRK2EntryG4"
+      vdSteps: "g4run:trackerExit:TRK2EntryG4"
+      surfaceSteps: "none::TRK2EntryG4"
+      primaryParticle: "none::TRK2EntryG4"
+      livetime: "none::TRK2EntryG4"
+      writeSteps: true
+      writeTrajectories: false
+    }
+  }
+  pilot: [entryReplay, g4run, StrawGasStepMaker]
+  end: [dump, pilotOutput]
+  trigger_paths: [pilot]
+  end_paths: [end]
+}
+outputs.pilotOutput: {
+  module_type: RootOutput
+  fileName: "entry-g4-pilot.art"
+  outputCommands: ["drop *", "keep *_*_*_TRK2EntryG4"]
+}
+services.GeometryService.inputFile: "Offline/Mu2eG4/geom/geom_run1_a.txt"
+services.GeometryService.bFieldFile: "Offline/Mu2eG4/geom/bfgeom_no_tsu_ps_v01.txt"
+services.SeedService.baseSeed: 20261105
+services.scheduler.wantSummary: true
+physics.producers.g4run.inputs: {
+  primaryType: GenParticles
+  primaryTag: "entryReplay::TRK2EntryG4"
+}
+physics.producers.g4run.Mu2eG4StackingOnlyCut: { type: primary }
+physics.producers.g4run.Mu2eG4SteppingOnlyCut: {}
+physics.producers.g4run.TrajectoryControl: { produce: false }
+physics.producers.g4run.SDConfig: {
+  enableAllSDs: false
+  enableSD: [tracker, virtualdetector]
+  TimeVD: { times: [] }
+}
+#include "Production/JobConfig/cosmic/resampling_epilog.fcl"
+#include "envelope.fcl"
+physics.producers.g4run.Mu2eG4CommonCut.write: trackerExit
+physics.producers.g4run.debug.writeGDML: true
+physics.producers.g4run.debug.GDMLFileName: "entry-g4-pilot.gdml"

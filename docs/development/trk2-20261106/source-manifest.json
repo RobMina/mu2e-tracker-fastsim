@@ -1,0 +1,733 @@
+{
+  "schema_version": 1,
+  "scope": "Exact saved source snapshots, not a clean-main integration or raw event-data archive",
+  "resident_parent": "370f9bd7ccc1648600b0a26bbb2b2097424c7835",
+  "files": [
+    {
+      "source": "TRK2-run1a-digi/docs/fast-digi.md",
+      "destination": "docs/fast-digi.md",
+      "sha256": "661d8cf3b26071d5f2a119eae702bb2dcf740949d8d5edef7438992bea874f1d",
+      "bytes": 26024
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/limitations.md",
+      "destination": "docs/limitations.md",
+      "sha256": "153ac8c3c82be715b8228261ba7bddb676de58e4b3783247ea4bfc297207a4c3",
+      "bytes": 12209
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/digi/digi_jax.py",
+      "destination": "trkfastsim/digi/digi_jax.py",
+      "sha256": "9336d7b7b6e03cd02465dd6fc7656ab007e7b1df877d158210f16f840f3c7fba",
+      "bytes": 31663
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/digi/digicond.py",
+      "destination": "trkfastsim/digi/digicond.py",
+      "sha256": "fbf5efafbb5058820dd061d22d4abf7ac968c7e75efd5782bd6f1ca1ec40c5d8",
+      "bytes": 24927
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/digi/digitize.py",
+      "destination": "trkfastsim/digi/digitize.py",
+      "sha256": "333e9b099abf6a32509d582408d6d3071e145eb4f88cb911ef751b7fac278945",
+      "bytes": 30995
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/digi/fastdigi.py",
+      "destination": "trkfastsim/digi/fastdigi.py",
+      "sha256": "c152c6e9b8f46ba4fed6752dbd51275fc1d4a0e3c73270dfb1e71482b7285186",
+      "bytes": 15355
+    },
+    {
+      "source": "TRK2-run1a-digi/art/TrkFastSim/fcl/run1a_digi_reference.fcl",
+      "destination": "art/TrkFastSim/fcl/run1a_digi_reference.fcl",
+      "sha256": "cdee4ec8d1dd66aa89d45453328b56137cdb6dca7f781862f5cad546d0cfc5b5",
+      "bytes": 885
+    },
+    {
+      "source": "TRK2-run1a-digi/art/TrkFastSim/fcl/run1a_digi_reseed.fcl",
+      "destination": "art/TrkFastSim/fcl/run1a_digi_reseed.fcl",
+      "sha256": "793d9637bb02dfae093c7acb36da25c1e4fab6d735f1972cde3f3b240165b4bc",
+      "bytes": 640
+    },
+    {
+      "source": "TRK2-run1a-digi/art/TrkFastSim/fcl/run1a_drift_oracle.fcl",
+      "destination": "art/TrkFastSim/fcl/run1a_drift_oracle.fcl",
+      "sha256": "fb107cee96c94d312ecf8c2a9bea5ba68b6bfd580795a09128c365fa069df93c",
+      "bytes": 705
+    },
+    {
+      "source": "TRK2-run1a-digi/art/TrkFastSim/fcl/run1a_reco_reference.fcl",
+      "destination": "art/TrkFastSim/fcl/run1a_reco_reference.fcl",
+      "sha256": "958c0febc4df1b179ff1e91d2728694385380d434451ed14c6abc9a61c7b88b0",
+      "bytes": 935
+    },
+    {
+      "source": "TRK2-run1a-digi/art/TrkFastSim/src/FieldOnDriftOracle_module.cc",
+      "destination": "art/TrkFastSim/src/FieldOnDriftOracle_module.cc",
+      "sha256": "a8236b4e841fde7094794bca4e1527a6f0c73aaae96e1168bbfcd912b60d2237",
+      "bytes": 9453
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/run1a-digi.md",
+      "destination": "docs/run1a-digi.md",
+      "sha256": "f76f36f7aac2defdf2d018a9320b7d1787b3f27f05c70349565f01d8a1744ac5",
+      "bytes": 11001
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/run1a-drift-contract.md",
+      "destination": "docs/run1a-drift-contract.md",
+      "sha256": "879fe79c3d74ffd0c71dd4e9c65c9cfa0ad71ef24e7e536e4956bf1ecd9d51ed",
+      "bytes": 10936
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/run1a-drift-diagnostic.md",
+      "destination": "docs/run1a-drift-diagnostic.md",
+      "sha256": "7db28daea9f383c4994e8e40b293ffed4409c66e75ddc911b6c442b3c2f337c1",
+      "bytes": 8696
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/run1a-drift-failure.md",
+      "destination": "docs/run1a-drift-failure.md",
+      "sha256": "97f62e7ab9eea21206a3d48f9a0fe62cbbf5aeac82b7df0d0f4aabd2a404cb39",
+      "bytes": 8648
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/run1a-lrdrift.md",
+      "destination": "docs/run1a-lrdrift.md",
+      "sha256": "fafb4531927797d57d2f06d5713254bab61f52b2a3d234d81c05cf91285acaf3",
+      "bytes": 9815
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/run1a-reco.md",
+      "destination": "docs/run1a-reco.md",
+      "sha256": "0bc18ec74a66c2b0406dba015c6d4a12af464f9d766beb932a94fae23a56e4ed",
+      "bytes": 23159
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/run1a-stabledrift.md",
+      "destination": "docs/run1a-stabledrift.md",
+      "sha256": "df8977c5e724fb2e1c8d920d445d9afeee775bfcc584dd517954104c7710134a",
+      "bytes": 10190
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/run1a-stockattrition.md",
+      "destination": "docs/run1a-stockattrition.md",
+      "sha256": "776212fd49a2ec71ec9632c2cb7b7d638e721d0eae10d601101af99783773a0a",
+      "bytes": 7843
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/run1a-stockcompare.md",
+      "destination": "docs/run1a-stockcompare.md",
+      "sha256": "be89e9c4000b14279c70a2d013c15d97359b68292eb98b11ec64855b54838ef0",
+      "bytes": 11501
+    },
+    {
+      "source": "TRK2-run1a-digi/docs/run1a-timing.md",
+      "destination": "docs/run1a-timing.md",
+      "sha256": "82d1851349210b6d41997523c662e52c8ca8157611f29897fb4f23e39645fab9",
+      "bytes": 13804
+    },
+    {
+      "source": "TRK2-run1a-digi/scripts/run1a_digi_controls.sh",
+      "destination": "scripts/run1a_digi_controls.sh",
+      "sha256": "4f9e27e42b182412ee50b18724c9e6d0f464d6606d7433ad719ac3e3714a91f4",
+      "bytes": 844
+    },
+    {
+      "source": "TRK2-run1a-digi/scripts/run1a_digi_export.sh",
+      "destination": "scripts/run1a_digi_export.sh",
+      "sha256": "51527355892e06dc608cfe36c9c50b67f0c9c806a9be3c7bf38e065c8e664652",
+      "bytes": 918
+    },
+    {
+      "source": "TRK2-run1a-digi/scripts/run1a_drift_oracle_export.sh",
+      "destination": "scripts/run1a_drift_oracle_export.sh",
+      "sha256": "d9ac4ab790e399309941a3bb8e27bb70d6e9ae5f5d2fa60570c560d853ad3e4b",
+      "bytes": 1050
+    },
+    {
+      "source": "TRK2-run1a-digi/scripts/run1a_reco_export.sh",
+      "destination": "scripts/run1a_reco_export.sh",
+      "sha256": "4d7034370929b18d2c5412db3a40960c29733d0f4508650f48212cce40618676",
+      "bytes": 714
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_digi_jax_onspill.py",
+      "destination": "tests/test_digi_jax_onspill.py",
+      "sha256": "12d31814c4a84c597a9127229cea1d4115df0f293a4ccfc826f2992e1a3143c3",
+      "bytes": 10267
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_digi_onspill.py",
+      "destination": "tests/test_digi_onspill.py",
+      "sha256": "c7b68385ed2dceb51082eaed8e118e91cab14659b1c56ecd405fe00fca5eedc6",
+      "bytes": 8662
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_digi_run1a_drift.py",
+      "destination": "tests/test_digi_run1a_drift.py",
+      "sha256": "d3ed8f4414b338f5a30e219915f3e8793b74dfccf682a2133c3e27a729c7acc0",
+      "bytes": 10277
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_digicond_onspill.py",
+      "destination": "tests/test_digicond_onspill.py",
+      "sha256": "ebc6bfc7c1eaf13789d600af9c0b230daac70168c3b7f03e5b74ec88f0be5a08",
+      "bytes": 6496
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_digicond_origin.py",
+      "destination": "tests/test_digicond_origin.py",
+      "sha256": "422f653d69c9c54f74fc55dce060aadad2a5f19b1a8ee1e8e49591827cdeadc6",
+      "bytes": 946
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_driftfailure.py",
+      "destination": "tests/test_driftfailure.py",
+      "sha256": "e887917157c2a2bcdca192ad1716598de4d9cf6fe2b6f2322c9c696a5f9b5944",
+      "bytes": 14836
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_driftfitdiagnostic.py",
+      "destination": "tests/test_driftfitdiagnostic.py",
+      "sha256": "8c12297bedadfa96231fc97e37da3bd5d4b144393773c1dcd883a1af574a8d79",
+      "bytes": 20725
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_driftjacobian.py",
+      "destination": "tests/test_driftjacobian.py",
+      "sha256": "0a062773319931f6f86ead1e33877ed373f4474c430667f8be9afb62ed6121e9",
+      "bytes": 23068
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_driftprobecompare.py",
+      "destination": "tests/test_driftprobecompare.py",
+      "sha256": "58d98b663ab263f829a44793a56f1b201a03294d8677f842b5043c193d2ff86c",
+      "bytes": 4475
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_fastdigi_timing.py",
+      "destination": "tests/test_fastdigi_timing.py",
+      "sha256": "12cea4d5d6b1fbd50280d09e1a1899e8cd0fb4ffa0ca37b6a46a0994c74cf23c",
+      "bytes": 10558
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_fielddrift.py",
+      "destination": "tests/test_fielddrift.py",
+      "sha256": "a2ea9ac73212f5bd1741dd2e1fbcea5b89bb85007bc670b84a15a7ec21a62794",
+      "bytes": 18122
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_helixdriftfit.py",
+      "destination": "tests/test_helixdriftfit.py",
+      "sha256": "d66a5e3cb34b949552715113da09ae0894c160eb74894ee64836835dd80c7b98",
+      "bytes": 26781
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_helixfit.py",
+      "destination": "tests/test_helixfit.py",
+      "sha256": "f35c4a2b08aed4e8b873241da625f8fea3f5dc8109e97b4827d050b586184838",
+      "bytes": 17689
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_helixseed.py",
+      "destination": "tests/test_helixseed.py",
+      "sha256": "b05ea5c63a98896e6e078475f270fd930560e5eba4b8cfd4c05943a76f695d0c",
+      "bytes": 10096
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_helixtiming.py",
+      "destination": "tests/test_helixtiming.py",
+      "sha256": "8043a4673c7a84376a1dd0c6296a8af3fc6221e0cdd27a99a929b3194fb77aac",
+      "bytes": 29956
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_helixwire.py",
+      "destination": "tests/test_helixwire.py",
+      "sha256": "fef616a949279cbd0e8bb37d40ac8b9ee2d1d3baadc472206fc2f26b33613642",
+      "bytes": 17080
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_lrdriftfit.py",
+      "destination": "tests/test_lrdriftfit.py",
+      "sha256": "12fd93230ee5b978f1319dea6a4f962e9c0c2839a3f24276c0c9ebae0c31ca74",
+      "bytes": 23542
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_digi.py",
+      "destination": "tests/test_run1a_digi.py",
+      "sha256": "04f67c0c74bcadae4fa3ea679e40dbc9fc4e27b196c713d196af83fe9edd93f6",
+      "bytes": 26975
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_drift.py",
+      "destination": "tests/test_run1a_drift.py",
+      "sha256": "07409a92b4968f336bdcff0e9e3a739c8eccb5fccb115245e869c951b75b1d54",
+      "bytes": 12424
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_drift_diagnostic.py",
+      "destination": "tests/test_run1a_drift_diagnostic.py",
+      "sha256": "ca2afa7d11dc4390b55219b232332647233a7349eab2b497aa04e6b9c7aa0f0f",
+      "bytes": 8059
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_drift_failure.py",
+      "destination": "tests/test_run1a_drift_failure.py",
+      "sha256": "52f8249842f73cb60a2dc7ad9099d42ee6f4aa9e8d69f48f55c29ae6efa13ab7",
+      "bytes": 13690
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_lrdrift.py",
+      "destination": "tests/test_run1a_lrdrift.py",
+      "sha256": "ce01b344472e4aec63935bc05898fdac69fc1eff3c73ccfb48cee0868b2d6e71",
+      "bytes": 17104
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_reco.py",
+      "destination": "tests/test_run1a_reco.py",
+      "sha256": "b34f85d8afdd8e2cc38c554999fe66ea720866ee471e9bfad31cd3ad19655dcf",
+      "bytes": 10482
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_seed.py",
+      "destination": "tests/test_run1a_seed.py",
+      "sha256": "b1a321eef739acb51bd572874be687a70b536f04be5f662973fddc42980f9e44",
+      "bytes": 13121
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_stabledrift.py",
+      "destination": "tests/test_run1a_stabledrift.py",
+      "sha256": "45648c4397a08a0052367821e9cdf56067ac470ad6f045128da07491d25f3652",
+      "bytes": 20873
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_stockattrition.py",
+      "destination": "tests/test_run1a_stockattrition.py",
+      "sha256": "c31ce3d70580d4ab4cb0e3c3bc4c7c27127ed91fba652d2d8d2b9c8a0e301b3a",
+      "bytes": 37151
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_stockcompare.py",
+      "destination": "tests/test_run1a_stockcompare.py",
+      "sha256": "af34a2ea6d6839e368e571ae9e7db5ef38b210ddf1e0c5f23c4118be39e20b44",
+      "bytes": 36038
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_timing.py",
+      "destination": "tests/test_run1a_timing.py",
+      "sha256": "6d6c8e578e39d1c59de26c09c22b1c102fec6047ae0b3fd915d4ad0c22ac10cf",
+      "bytes": 17631
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_run1a_wirefit.py",
+      "destination": "tests/test_run1a_wirefit.py",
+      "sha256": "cd04bac9599539b1cde4d5bdcae9880d56559054e756de39627654b5a5cef33e",
+      "bytes": 8542
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_seedassociation.py",
+      "destination": "tests/test_seedassociation.py",
+      "sha256": "53eaaf5923cf1b31b8d886861dd4f1af877669afd63e176b2e8be2f737c3cbc8",
+      "bytes": 16191
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_stabledriftfit.py",
+      "destination": "tests/test_stabledriftfit.py",
+      "sha256": "308be095d4988ec9176bdb0342119c4e174cff25c81479bbf2882b6f9e4d12f1",
+      "bytes": 12837
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_stereopairaudit.py",
+      "destination": "tests/test_stereopairaudit.py",
+      "sha256": "8a35f91f60dab268e1e798934d99dfe0372637cdbcb71163081660d444e22480",
+      "bytes": 12791
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_stereoseed.py",
+      "destination": "tests/test_stereoseed.py",
+      "sha256": "b2c87d53cd4836186aacee6757ba90f46f510248194d1a4f31fcef96e27a1fe4",
+      "bytes": 20062
+    },
+    {
+      "source": "TRK2-run1a-digi/tests/test_stockcensus.py",
+      "destination": "tests/test_stockcensus.py",
+      "sha256": "e27b0934df9f460d2c2dae1b755da79ff4b48be4cbd0180bc06be2ee9154783b",
+      "bytes": 18314
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/digi/timing.py",
+      "destination": "trkfastsim/digi/timing.py",
+      "sha256": "cce3aa9008074f62d5ad3ffdbe546e8032ff3732cc0be6567f09c32b4dfc3e38",
+      "bytes": 5374
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/driftfailure.py",
+      "destination": "trkfastsim/reco/driftfailure.py",
+      "sha256": "4b0f43db1ca8bf440456bf2a852aff9ab6f7fcf567249f9721b34e98dd4cd8db",
+      "bytes": 15719
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/driftfitdiagnostic.py",
+      "destination": "trkfastsim/reco/driftfitdiagnostic.py",
+      "sha256": "9d205aedc55fc7cf9be5aee3af3deeaaf66683d1542c1bd7ef60b2d4d90d2d38",
+      "bytes": 21515
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/driftjacobian.py",
+      "destination": "trkfastsim/reco/driftjacobian.py",
+      "sha256": "43ac9f1d656c0ed4d922fe34c74c9b74b8f8e329d7849ebbb3ab45b3ac17bd2f",
+      "bytes": 17634
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/driftprobecompare.py",
+      "destination": "trkfastsim/reco/driftprobecompare.py",
+      "sha256": "1f46acaf4c9d87e927538369f27b959769051093f96195a542b44b21e9a6f308",
+      "bytes": 7593
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/fielddrift.py",
+      "destination": "trkfastsim/reco/fielddrift.py",
+      "sha256": "5f04827404fc6cc56c2141f4b44f7f2066a384a9086cc8c84823d2b6aa134dc6",
+      "bytes": 16926
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/helixdriftfit.py",
+      "destination": "trkfastsim/reco/helixdriftfit.py",
+      "sha256": "93ac9d6dab0484860fafddb34d04c7485d37e31785fb3282bc5e3c7b52b2e298",
+      "bytes": 21897
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/helixfit.py",
+      "destination": "trkfastsim/reco/helixfit.py",
+      "sha256": "28f7f10713e0db02046c3c320231158079f1535209bde3b8fe8b3fd20c64e68f",
+      "bytes": 24481
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/helixseed.py",
+      "destination": "trkfastsim/reco/helixseed.py",
+      "sha256": "97838545b08b3cbd2936f02c0f40af03d07a520b7263736b9111d8eaf7bce99f",
+      "bytes": 8434
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/helixtiming.py",
+      "destination": "trkfastsim/reco/helixtiming.py",
+      "sha256": "694f25b481b0fea09bb1983a0b6317679356da3f6b2f83ec7c97fe53ad5b50c6",
+      "bytes": 22349
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/helixwire.py",
+      "destination": "trkfastsim/reco/helixwire.py",
+      "sha256": "b1b4fddc6b653582cfe61cb5daaa0b824cb28bdb40f13b0ba55a66ce973c2533",
+      "bytes": 13343
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/lrdriftfit.py",
+      "destination": "trkfastsim/reco/lrdriftfit.py",
+      "sha256": "d7f8398cde1a55eca2cf5a2307de9213c37b25b3543c1b512f3884c7484d97b6",
+      "bytes": 20409
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/seedassociation.py",
+      "destination": "trkfastsim/reco/seedassociation.py",
+      "sha256": "d5c8039a9b9738975c36650008e88f82694a598574ad16d49c82cd7bc63b2231",
+      "bytes": 12775
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/stabledriftfit.py",
+      "destination": "trkfastsim/reco/stabledriftfit.py",
+      "sha256": "c986079f8d1d56d1af38fbf2d245040be9bee66f4c7ba97ba697678353588a6e",
+      "bytes": 19925
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/reco/stereoseed.py",
+      "destination": "trkfastsim/reco/stereoseed.py",
+      "sha256": "b02c195feee5c607fa1655080285998c61179320a73bba0666a9becda7e2d0ed",
+      "bytes": 12042
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_association.py",
+      "destination": "trkfastsim/validation/run1a_association.py",
+      "sha256": "86eb91653e640113495495ff48a8c2bd5548f9a79a8cce82d78ca1f59022f265",
+      "bytes": 6167
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_digi.py",
+      "destination": "trkfastsim/validation/run1a_digi.py",
+      "sha256": "7fa26069b42a4eaed441b32b5ef07c2c2c16859d96fc8c469f417237a177eacc",
+      "bytes": 16243
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_digi_io.py",
+      "destination": "trkfastsim/validation/run1a_digi_io.py",
+      "sha256": "85eda7daadc4a53549497d5acd0ecfd9c4deb5b446d4c5726012da96d34e9f89",
+      "bytes": 5536
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_drift.py",
+      "destination": "trkfastsim/validation/run1a_drift.py",
+      "sha256": "859423ff82b4531c4d0787f36debd47e0ad3cf48ba59330def4457b76a03b545",
+      "bytes": 12072
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_drift_diagnostic.py",
+      "destination": "trkfastsim/validation/run1a_drift_diagnostic.py",
+      "sha256": "42eb2f691d5f1fcac2f524a907e55288aa8caf455471f562ec2fde7c71818221",
+      "bytes": 22671
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_drift_failure.py",
+      "destination": "trkfastsim/validation/run1a_drift_failure.py",
+      "sha256": "de39aff6b834fae5f9398ca88ad4ac662b457b374630627ec5ef0f362caf4742",
+      "bytes": 21231
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_lrdrift.py",
+      "destination": "trkfastsim/validation/run1a_lrdrift.py",
+      "sha256": "7a701ec00272075bdfe570021bb4bae1bddafc95dd794bc1ed6eb62743c3aabf",
+      "bytes": 21215
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_reco.py",
+      "destination": "trkfastsim/validation/run1a_reco.py",
+      "sha256": "1c54c4e5b20d322fab4b48220feecec790095dcfb3562f5feaabb6cb54c6d895",
+      "bytes": 11548
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_seed.py",
+      "destination": "trkfastsim/validation/run1a_seed.py",
+      "sha256": "9790b261c8bdc08b2a3e74f241267ee1d7368651550330e444988a9b72268d16",
+      "bytes": 12048
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_stabledrift.py",
+      "destination": "trkfastsim/validation/run1a_stabledrift.py",
+      "sha256": "8809a48cdcb5cb6a783742d59b3bb6658bb68b79a9e002e992b66dcc3020d823",
+      "bytes": 23663
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_stockattrition.py",
+      "destination": "trkfastsim/validation/run1a_stockattrition.py",
+      "sha256": "24eecc92a8260667f44c9b4580fa394bce64f1cce2e608f108862b71f3d6f506",
+      "bytes": 12891
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_stockcompare.py",
+      "destination": "trkfastsim/validation/run1a_stockcompare.py",
+      "sha256": "441356242ab18258caa0af66695e9ab4f94ebd82a12abf67d2f783ad1ba5cee9",
+      "bytes": 19010
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_timing.py",
+      "destination": "trkfastsim/validation/run1a_timing.py",
+      "sha256": "76cfb3544e9639249a2c58f76b28799f42aaf7e80101c6932db9d5a513ee4b41",
+      "bytes": 29372
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/run1a_wirefit.py",
+      "destination": "trkfastsim/validation/run1a_wirefit.py",
+      "sha256": "557ade29ddf84e7775c0d840bfc4339f0aaf7230dbaf1afe3df194366097b423",
+      "bytes": 13227
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/stereopairaudit.py",
+      "destination": "trkfastsim/validation/stereopairaudit.py",
+      "sha256": "eb2f4e0e86bcfe067cab5686dadf04a53aaa2ecd19f49cc432fcb8e2e6c7e5c3",
+      "bytes": 14521
+    },
+    {
+      "source": "TRK2-run1a-digi/trkfastsim/validation/stockcensus.py",
+      "destination": "trkfastsim/validation/stockcensus.py",
+      "sha256": "527c3898ec8451bdeae5dd1c80b63b5d7ce49a0647c8d50dd9c893af586c66dc",
+      "bytes": 10988
+    },
+    {
+      "source": "TRK2-benchmark/art/TrkFastSim/fcl/tracker_entry_digi.fcl",
+      "destination": "art/TrkFastSim/fcl/tracker_entry_digi.fcl",
+      "sha256": "a641aba6b7ed2be1c1cc28a47d7c0d08b1b53aa8e654e7b16673117ba3c8e0b3",
+      "bytes": 535
+    },
+    {
+      "source": "TRK2-benchmark/art/TrkFastSim/fcl/tracker_entry_g4_full.fcl",
+      "destination": "art/TrkFastSim/fcl/tracker_entry_g4_full.fcl",
+      "sha256": "c4b5b8ed196f96028c9572b3010185bd07b2954b2b3cd7762de0f67ec006e765",
+      "bytes": 273
+    },
+    {
+      "source": "TRK2-benchmark/art/TrkFastSim/fcl/tracker_entry_g4_pilot.fcl",
+      "destination": "art/TrkFastSim/fcl/tracker_entry_g4_pilot.fcl",
+      "sha256": "99c80e0aecdcab54eed8b62b6219afc90aa6e79ce9220f94ddee8eb0505385db",
+      "bytes": 2334
+    },
+    {
+      "source": "TRK2-benchmark/art/TrkFastSim/fcl/tracker_entry_inject.fcl",
+      "destination": "art/TrkFastSim/fcl/tracker_entry_inject.fcl",
+      "sha256": "3ac246f5db903140f18b09c42f06bdaee120118dd01c50c7240c6be5d31af612",
+      "bytes": 1189
+    },
+    {
+      "source": "TRK2-benchmark/art/TrkFastSim/fcl/tracker_entry_ntuple.fcl",
+      "destination": "art/TrkFastSim/fcl/tracker_entry_ntuple.fcl",
+      "sha256": "af1944922b8b4d3de9782844c0a9defe10ec772dd14a52d087dc0094ca26a031",
+      "bytes": 855
+    },
+    {
+      "source": "TRK2-benchmark/art/TrkFastSim/fcl/tracker_entry_reco.fcl",
+      "destination": "art/TrkFastSim/fcl/tracker_entry_reco.fcl",
+      "sha256": "0fcb2258b123c6499ea614a6a291c33e85c06d8d6ce4af6eb4572f2ca0fd6ef8",
+      "bytes": 490
+    },
+    {
+      "source": "TRK2-benchmark/art/TrkFastSim/fcl/tracker_entry_replay.fcl",
+      "destination": "art/TrkFastSim/fcl/tracker_entry_replay.fcl",
+      "sha256": "cd091875649c55a97e0b0d622e0b29a8175c3572fc5bdca1f4a900cd9dee2ba1",
+      "bytes": 322
+    },
+    {
+      "source": "TRK2-benchmark/art/TrkFastSim/fcl/tracker_entry_smoke.fcl",
+      "destination": "art/TrkFastSim/fcl/tracker_entry_smoke.fcl",
+      "sha256": "eb2c8d54b5a119cbe5abf19ecaa5e913cd3947b69608ec8a42cc95a9de0e0b2c",
+      "bytes": 726
+    },
+    {
+      "source": "TRK2-benchmark/art/TrkFastSim/fcl/tracker_entry_smoke_bad_count.fcl",
+      "destination": "art/TrkFastSim/fcl/tracker_entry_smoke_bad_count.fcl",
+      "sha256": "001ea426a9c48a01f105bc12af10b685cc20b757d13bee38eb509d967d6c46ee",
+      "bytes": 234
+    },
+    {
+      "source": "TRK2-benchmark/art/TrkFastSim/src/TrackerEntryParticlesFromTable_module.cc",
+      "destination": "art/TrkFastSim/src/TrackerEntryParticlesFromTable_module.cc",
+      "sha256": "c50a85af818d3a36700b439d0c2f30081958ce90138443b6650d57b1ebaa92a1",
+      "bytes": 11656
+    },
+    {
+      "source": "TRK2-benchmark/docs/entry-fast.md",
+      "destination": "docs/entry-fast.md",
+      "sha256": "a99bf67c46b99c92c1876fd8300baeb21fae005ac440522670ca3218dbfc340f",
+      "bytes": 7530
+    },
+    {
+      "source": "TRK2-benchmark/docs/entry-replay.md",
+      "destination": "docs/entry-replay.md",
+      "sha256": "45915f0f4a7075d95cfdba7905ac72518070cc88163b096d6c70aac4544607be",
+      "bytes": 10126
+    },
+    {
+      "source": "TRK2-benchmark/scripts/entry_chain.sh",
+      "destination": "scripts/entry_chain.sh",
+      "sha256": "6b99662ebdc11d78031bebd372b9951272c6d960784b7eb39ea8f8a11210d297",
+      "bytes": 1021
+    },
+    {
+      "source": "TRK2-benchmark/scripts/entry_fast_chain.sh",
+      "destination": "scripts/entry_fast_chain.sh",
+      "sha256": "2c588c71b79709a85ec0f7d85e4f4ec49de111bbe1a9fbc2a70f31815068ab2c",
+      "bytes": 1239
+    },
+    {
+      "source": "TRK2-benchmark/scripts/entry_follow_fast.sh",
+      "destination": "scripts/entry_follow_fast.sh",
+      "sha256": "51d51e1883c2a1578b8e0f03ab4d9a5c21e1c300b1bf003065b4af2ece476ac6",
+      "bytes": 468
+    },
+    {
+      "source": "TRK2-benchmark/scripts/entry_g4_chain.sh",
+      "destination": "scripts/entry_g4_chain.sh",
+      "sha256": "8123a7037d97c547d6ffcfbd684496a2d94255118e4d1ce614af2a66a6eb24e8",
+      "bytes": 768
+    },
+    {
+      "source": "TRK2-benchmark/tests/test_entry_benchmark.py",
+      "destination": "tests/test_entry_benchmark.py",
+      "sha256": "e7561652b490f65f17460d11bce8b3ad8beb532c1c9cbd04c6818ecab262f989",
+      "bytes": 838
+    },
+    {
+      "source": "TRK2-benchmark/tests/test_entry_fast.py",
+      "destination": "tests/test_entry_fast.py",
+      "sha256": "2ff40df1dd306cf75a931b040218e06650e03fb516f1ee8730157bf5b40b2d9f",
+      "bytes": 8033
+    },
+    {
+      "source": "TRK2-benchmark/tests/test_entry_pilot.py",
+      "destination": "tests/test_entry_pilot.py",
+      "sha256": "01ef69de51862c48db89995317fb00249478392655f9394a964ee16c7ef9f8a2",
+      "bytes": 1671
+    },
+    {
+      "source": "TRK2-benchmark/tests/test_entry_replay.py",
+      "destination": "tests/test_entry_replay.py",
+      "sha256": "dad8846b66f05ef9c5692c937ae84bf826f00c2e3242f752747c0c55698d51f1",
+      "bytes": 5379
+    },
+    {
+      "source": "TRK2-benchmark/trkfastsim/validation/entry_benchmark.py",
+      "destination": "trkfastsim/validation/entry_benchmark.py",
+      "sha256": "dd82a4a78fdbdbc4db4055e1f7700e4deece52fc7bf30ae9bc713bcec98ccb96",
+      "bytes": 7589
+    },
+    {
+      "source": "TRK2-benchmark/trkfastsim/validation/entry_fast.py",
+      "destination": "trkfastsim/validation/entry_fast.py",
+      "sha256": "7c1fe6394e61edf017d4e84332e9ef82caf2bd19bea63dfb0cbed57e9600e10a",
+      "bytes": 9098
+    },
+    {
+      "source": "TRK2-benchmark/trkfastsim/validation/entry_pilot.py",
+      "destination": "trkfastsim/validation/entry_pilot.py",
+      "sha256": "cc6427da3c6c5bc82db52565c8104dec8ca3bf2e08e9c56215a03d96e2ebab54",
+      "bytes": 7283
+    },
+    {
+      "source": "TRK2-benchmark/trkfastsim/validation/entry_replay.py",
+      "destination": "trkfastsim/validation/entry_replay.py",
+      "sha256": "38a4734127719ca73b9d9b2cd23329650a9bab0b01c1a14a52fa65543228ef72",
+      "bytes": 10467
+    },
+    {
+      "source": "TRK2_DIGI_VALIDATION_PR_DESCRIPTION.md",
+      "destination": "docs/development/trk2-20261106/handoffs/TRK2_DIGI_VALIDATION_PR_DESCRIPTION.md",
+      "sha256": "c625151d4efc5e47890d081ff4583aa5ad19abd1f871972520697d54d8787538",
+      "bytes": 3185
+    },
+    {
+      "source": "TRK2_RESIDENT_PR_DESCRIPTION.md",
+      "destination": "docs/development/trk2-20261106/handoffs/TRK2_RESIDENT_PR_DESCRIPTION.md",
+      "sha256": "ca7aa7686e0867d2abcbbfc1578e6b8941033a8495cc4df387628cc964dcda6f",
+      "bytes": 4573
+    },
+    {
+      "source": "TRK2_RESIDENT_PR_BODY.md",
+      "destination": "docs/development/trk2-20261106/handoffs/TRK2_RESIDENT_PR_BODY.md",
+      "sha256": "b28e1984f020e855968eb076ca41731f98af3f3b61fbe656a4a19ab8655ca834",
+      "bytes": 3272
+    },
+    {
+      "source": "saved-deck-assets/README.md",
+      "destination": "docs/development/trk2-20261106/saved-deck-assets/README.md",
+      "sha256": "39d051f0e394a36e2d77d29c05316048e5837c5d3b9f55bccf78dede7913559d",
+      "bytes": 655
+    },
+    {
+      "source": "saved-deck-assets/numbers.json",
+      "destination": "docs/development/trk2-20261106/saved-deck-assets/numbers.json",
+      "sha256": "1311432efcb6c3be23e2c97b3ba9084bd923c07be474d2ffabbf3ed113f81c2e",
+      "bytes": 109024
+    },
+    {
+      "source": "saved-deck-assets/cosmic_trk.png",
+      "destination": "docs/development/trk2-20261106/saved-deck-assets/cosmic_trk.png",
+      "sha256": "4bb491592efe6086e327dc0daa2b31a3ec9539f2124e4c65ea86436d173ea851",
+      "bytes": 222888
+    },
+    {
+      "source": "saved-deck-assets/cosmic_pulls.png",
+      "destination": "docs/development/trk2-20261106/saved-deck-assets/cosmic_pulls.png",
+      "sha256": "2f6d400dce04eea3a88d3220533a3edb27de732ac16e087ffe2d27e4d7558741",
+      "bytes": 104523
+    }
+  ]
+}

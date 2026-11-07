@@ -1,0 +1,27 @@
+# Three synthetic events only; the real benchmark uses the original RootInput event stream.
+#include "Offline/fcl/minimalMessageService.fcl"
+process_name: EntryReplayTest
+source: {
+  module_type: EmptyEvent
+  firstRun: 1
+  firstSubRun: 0
+  firstEvent: 1
+  maxEvents: 3
+}
+services: {
+  message: @local::default_message
+  TFileService: { fileName: "entry-readback.root" }
+  GlobalConstantsService: { inputFile: "Offline/GlobalConstantsService/data/globalConstants_01.txt" }
+}
+physics: {
+  producers: {
+    entryReplay: {
+      module_type: TrackerEntryParticlesFromTable
+      tableFile: "entries.root"
+      writeReadback: true
+    }
+  }
+  replay: [entryReplay]
+  trigger_paths: [replay]
+}
+services.scheduler.wantSummary: true

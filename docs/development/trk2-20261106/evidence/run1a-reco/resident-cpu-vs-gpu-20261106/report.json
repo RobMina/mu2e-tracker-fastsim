@@ -1,0 +1,95 @@
+{
+  "schema_version": 1,
+  "scope": "measured_hits_to_wire_helix; not drift/CH/physics validation",
+  "inputs_sha256": {
+    "hits": "9bd666236840e2525eb9fe03ccca741c5ee0a9a44726ad3116e80be2dd4d1b2d",
+    "conditions": "f78baed3c613b4692993621fcbb3917303b073fca502a38742c77782780e770e"
+  },
+  "source_sha256": {
+    "resident.py": "68650911ea14a26c59b506d59cc9d06c43c921a22e510afa7dbf11093199c01f",
+    "helixseed_jax.py": "d68d5147897e7c4f1685b8a83ff4dbbc13212ebe29d44cb7cdda15f6717f6be7",
+    "helixfit_jax.py": "218f729f9feb4d903800e41bcaebe71755f6c8705ad5a2e8a72385ecf893fc9c",
+    "residentcheck.py": "e48da3c9d79f543dc203eda7e26ec9087973c560abb1215146c37f895a2f31f7",
+    "residentio.py": "8c6caf997fc105e8a83d9c80011dbcacbb6b91d8cf86bc65fe56be22415f7a12"
+  },
+  "jax": "0.11.2",
+  "jaxlib": "0.11.2",
+  "platform": "cpu",
+  "device": "cpu:0",
+  "device_kind": "cpu",
+  "x64": true,
+  "config": {
+    "max_hits": 128,
+    "group_batch": 32,
+    "max_iterations": 40,
+    "bz": 1.0117
+  },
+  "events": 1000,
+  "hits": 13492,
+  "empty_events": 235,
+  "groups": 773,
+  "group_status": {
+    "converged": 39,
+    "insufficient_hits": 23,
+    "seed_failed": 15,
+    "fit_failed": 696
+  },
+  "numerically_converged_groups": 39,
+  "batch_valid": true,
+  "repeat_arrays_exact": true,
+  "timings": {
+    "read_prepare_s": 0.02982299984432757,
+    "upload_s": 0.001172791002318263,
+    "lower_compile_s": 0.965805791085586,
+    "download_s": [
+      0.0003135830629616976,
+      0.0002537500113248825
+    ],
+    "resident_runs_s": [
+      4.436203374993056,
+      4.419339291984215
+    ]
+  },
+  "timing_scope": "compile/upload/download/I/O separate; no stock speedup",
+  "unsupported": [
+    "drift-time fit",
+    "multitrack/outlier separation",
+    "charge/flight direction",
+    "covariance",
+    "field map",
+    "material",
+    "calibrated chi-square",
+    "physics efficiency"
+  ],
+  "comparison": {
+    "structure_exact": true,
+    "status_changed_group_rows": [],
+    "status_transitions": [
+      {
+        "reference": 1,
+        "candidate": 1,
+        "groups": 39
+      },
+      {
+        "reference": 2,
+        "candidate": 2,
+        "groups": 23
+      },
+      {
+        "reference": 7,
+        "candidate": 7,
+        "groups": 15
+      },
+      {
+        "reference": 8,
+        "candidate": 8,
+        "groups": 696
+      }
+    ],
+    "both_objective_valid": 287,
+    "objective_abs_difference_max": 4.69447263640177e-06,
+    "scope": "numerical comparison only; no cross-device bitwise or physics equivalence claim"
+  },
+  "comparison_sha256": "724d9d1baa064476304b75b34737a2725cd2e1d2c5e43f0c9636efacd1fe6d07",
+  "output_sha256": "39ac2600aac6ab0e7c0942fe0ff29fc121f714546b1494a13344cb429104c578"
+}

@@ -6,6 +6,15 @@ into StrawDigi tables in the `StrawHitTableDumper` layout, so the fast hit reco 
 and the fast line finding and fit run on them unchanged. `trkfastsim/digi/digicond.py` builds its conditions from the
 sources the stock job reads.
 
+## Run 1A development extension
+
+This branch reuses the experimental `PU1-onspill-digi` NumPy/JAX extension: explicit origin Bz,
+explicit detector origin, radius/azimuth-dependent drift and per-event on-spill timing. The
+field-free results below retain their original scope. See [run1a-digi.md](run1a-digi.md) for the
+same-step off-spill comparison, independent drift checks and supported configuration limits.
+On-spill callers must supply MC bunch time and event length through `event_timing`; the generic
+CLI is not an on-spill campaign driver. Full StrawDigiMC output is not implemented.
+
 ## Conditions: same sources as the stock job
 
 | Item | Source |
@@ -19,8 +28,9 @@ sources the stock job reads.
 | Event window, spill type | `eventTiming`, `EWMProducer.SpillType`, GlobalConstantsService `physicsParams` |
 | makeSD settings | the job's `physics.producers.makeSD` (AllHitsPlanes, AllHitsStraw) and the module defaults |
 
-`digi-cond` refuses configurations it does not implement (on spill, magnetic field, cross talk, noise,
-DriftSingleElectrons, UseStatus, digi mixing). The response tables reproduce the stock job's own printout
+The conditions API requires explicit origin Bz for field-on jobs; on-spill callers also supply event timing.
+Cross talk, noise hits, DriftSingleElectrons, UseStatus and digi-level mixing remain unsupported.
+The field-free response tables reproduce the stock job's own printout
 (`strawElectronics.verbose`) to its printed precision (`tests/test_digi.py`).
 
 ## What is reproduced and what is approximated
@@ -31,7 +41,7 @@ DriftSingleElectrons, UseStatus, digi mixing). The response tables reproduce the
 | Ionisation clusters | point steps and steps shorter than the mean free path: one cluster, Poisson electrons; else Poisson cluster count (capped at 20 for non-minion, at eIon / E1), uniform along the chord plus 2-D Gaussian width; minion: cluster sizes by `fillClusterMinion` (rejection loops), residual energy as extra ionisations on random clusters, every electron drifted on its own | same distributions; the rejection loops are sampled as the equivalent truncated distributions |
 | Straw coordinates | truncation to the straw inner radius, radius and phi about the sim-aligned wire | same |
 | Gain | Polya (gamma, shape A or n(A+1)-1) below nGainGauss electrons, Gaussian above | same |
-| Drift | `D2T` table, Gaussian spread 1.3 + 0.5 r ns | same (phi-free, B = 0) |
+| Drift | `D2T` table, Gaussian spread 1.3 + 0.5 r ns | radius/phi interpolation; validated field-free results below, field-on development above |
 | Propagation | half the charge to each end, wire distance / 299 mm/ns | same |
 | Waveform | sum of cluster responses, 0.1 ns response bins, wire-distance interpolation, end reflection, 5 ns look-back | same; the tables are float32 and the bin index is computed in float32 (stock: double) |
 | Threshold crossing | per end: rough crossing (sum of maximal responses), first cluster whose peak passes, regula falsi to 0.02 ns, return below threshold; coherent straw noise on the first threshold, incoherent per crossing; ends combined within 2 ADC clocks; 100 ns analog dead time | same algorithm, run in lock step over all straw ends |
@@ -41,7 +51,7 @@ DriftSingleElectrons, UseStatus, digi mixing). The response tables reproduce the
 | Digital dead time | 400 ns after a digi in the same straw | same |
 | Truth | StrawDigiMC | the input step of the cluster referenced at each end's crossing (`d_step0/1`) only |
 | Random numbers | CLHEP engines from SeedService | one numpy Generator: statistically equivalent, not the same numbers |
-| Not implemented | on-spill folding and ghosts, cross talk, noise hits, TrackerStatus suppression, digi mixing, field-on drift | refused by `digi-cond` |
+| Not implemented | cross talk, noise hits, TrackerStatus suppression, digi-level mixing | refused by conditions API; field-on/on-spill development above |
 
 A regula-falsi step can divide by zero when two samples on the same side of the threshold are equal (the response
 is piecewise constant in 0.1 ns bins) and the crossing time becomes NaN. The fast code keeps the stock consequences:

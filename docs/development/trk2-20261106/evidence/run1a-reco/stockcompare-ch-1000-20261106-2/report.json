@@ -1,0 +1,457 @@
+{
+  "events": 1000,
+  "groups": 773,
+  "hits": 13492,
+  "fixed_selected_hits": 5427,
+  "combined_hypotheses": 336,
+  "combined_groups": 222,
+  "stock_events": 1888,
+  "stock_tracks": 1888,
+  "stock_recorded_hits": 62204,
+  "covered_fast_events": 38,
+  "missing_stock_events_unknown": 962,
+  "stock_events_outside_fast_census": 1850,
+  "covered_event_contingency": {
+    "both": 28,
+    "fast_group_only": 0,
+    "stock_track_only": 10,
+    "neither": 0
+  },
+  "missing_stock_events_with_combined_group": 194,
+  "same_event_group_track_pairs": 38,
+  "pair_overlap_definition": "Distinct packed straw IDs among fixed fast support and ALL recorded stock hits, not pulse identity, active-hit purity or a physical track match.",
+  "stock_repeated_straw_hit_entries": 0,
+  "overlap_counts": {
+    "1": {
+      "all_pairs": 35,
+      "combined_group_positive_status_ch_pairs": 28
+    },
+    "4": {
+      "all_pairs": 35,
+      "combined_group_positive_status_ch_pairs": 28
+    },
+    "8": {
+      "all_pairs": 35,
+      "combined_group_positive_status_ch_pairs": 28
+    }
+  },
+  "stock_status_meaning": "status>0 includes kalmanConverged(1) and kalmanOK(2); goodfit is separate.",
+  "coverage_scope": "Only recorded stock events enter the contingency table. Missing keys remain unknown (-1 counts), not stock failures. Recorded tracks may already be output-filtered.",
+  "limitations": "Not track efficiency, fake rate, momentum resolution, calibrated fit quality, direction identification, equal-compute comparison or throughput. No reco settings or support changed.",
+  "original_arrays_preserved": true,
+  "max_pairs": 2000000,
+  "max_cells": 4000000,
+  "stock_status_counts": {
+    "1": 1888
+  },
+  "stock_fitalg_counts": {
+    "2": 1888
+  },
+  "stock_goodfit_counts": {
+    "1": 1888
+  },
+  "recorded_ch_event_fast_stage_counts": {
+    "no_group": 0,
+    "no_seed_support": 3,
+    "no_valid_objective": 0,
+    "no_combined_pass": 7,
+    "combined_pass": 28
+  },
+  "recorded_ch_event_stage_scope": "Exclusive event-level availability hierarchy, not causal failure attribution or a track match. Groups/hypotheses are counted separately below.",
+  "groups_in_recorded_ch_events": 38,
+  "recorded_ch_group_lane_status_counts": {
+    "all_groups": {
+      "converged_certified": 40,
+      "derivative_unstable": 21,
+      "empty": 6,
+      "nondifferentiable": 3,
+      "pending_lr_flips": 2,
+      "refit_numerical_failure": 4
+    },
+    "groups_without_combined_pass": {
+      "derivative_unstable": 9,
+      "empty": 6,
+      "nondifferentiable": 1,
+      "pending_lr_flips": 2,
+      "refit_numerical_failure": 2
+    }
+  },
+  "pair_overlap_summaries": {
+    "all_pairs": {
+      "pairs": 38,
+      "shared_straws": {
+        "finite": 38,
+        "quantiles": {
+          "min": 0.0,
+          "median": 27.0,
+          "p90": 35.90000000000001,
+          "max": 51.0
+        }
+      },
+      "fast_support": {
+        "finite": 38,
+        "quantiles": {
+          "min": 0.0,
+          "median": 27.0,
+          "p90": 35.90000000000001,
+          "max": 51.0
+        }
+      },
+      "stock_straws": {
+        "finite": 38,
+        "quantiles": {
+          "min": 20.0,
+          "median": 30.0,
+          "p90": 47.300000000000004,
+          "max": 68.0
+        }
+      },
+      "fast_fraction": {
+        "finite": 35,
+        "quantiles": {
+          "min": 1.0,
+          "median": 1.0,
+          "p90": 1.0,
+          "max": 1.0
+        }
+      },
+      "stock_fraction": {
+        "finite": 38,
+        "quantiles": {
+          "min": 0.0,
+          "median": 0.9164086687306501,
+          "p90": 1.0,
+          "max": 1.0
+        }
+      },
+      "jaccard": {
+        "finite": 38,
+        "quantiles": {
+          "min": 0.0,
+          "median": 0.9164086687306501,
+          "p90": 1.0,
+          "max": 1.0
+        }
+      },
+      "fast_subset_of_stock_nonempty": 35,
+      "stock_subset_of_fast_nonempty": 5,
+      "identical_nonempty_straw_sets": 5
+    },
+    "positive_status_ch_pairs": {
+      "pairs": 38,
+      "shared_straws": {
+        "finite": 38,
+        "quantiles": {
+          "min": 0.0,
+          "median": 27.0,
+          "p90": 35.90000000000001,
+          "max": 51.0
+        }
+      },
+      "fast_support": {
+        "finite": 38,
+        "quantiles": {
+          "min": 0.0,
+          "median": 27.0,
+          "p90": 35.90000000000001,
+          "max": 51.0
+        }
+      },
+      "stock_straws": {
+        "finite": 38,
+        "quantiles": {
+          "min": 20.0,
+          "median": 30.0,
+          "p90": 47.300000000000004,
+          "max": 68.0
+        }
+      },
+      "fast_fraction": {
+        "finite": 35,
+        "quantiles": {
+          "min": 1.0,
+          "median": 1.0,
+          "p90": 1.0,
+          "max": 1.0
+        }
+      },
+      "stock_fraction": {
+        "finite": 38,
+        "quantiles": {
+          "min": 0.0,
+          "median": 0.9164086687306501,
+          "p90": 1.0,
+          "max": 1.0
+        }
+      },
+      "jaccard": {
+        "finite": 38,
+        "quantiles": {
+          "min": 0.0,
+          "median": 0.9164086687306501,
+          "p90": 1.0,
+          "max": 1.0
+        }
+      },
+      "fast_subset_of_stock_nonempty": 35,
+      "stock_subset_of_fast_nonempty": 5,
+      "identical_nonempty_straw_sets": 5
+    },
+    "combined_group_positive_status_ch_pairs": {
+      "pairs": 28,
+      "shared_straws": {
+        "finite": 28,
+        "quantiles": {
+          "min": 14.0,
+          "median": 27.5,
+          "p90": 34.3,
+          "max": 46.0
+        }
+      },
+      "fast_support": {
+        "finite": 28,
+        "quantiles": {
+          "min": 14.0,
+          "median": 27.5,
+          "p90": 34.3,
+          "max": 46.0
+        }
+      },
+      "stock_straws": {
+        "finite": 28,
+        "quantiles": {
+          "min": 20.0,
+          "median": 30.0,
+          "p90": 36.6,
+          "max": 48.0
+        }
+      },
+      "fast_fraction": {
+        "finite": 28,
+        "quantiles": {
+          "min": 1.0,
+          "median": 1.0,
+          "p90": 1.0,
+          "max": 1.0
+        }
+      },
+      "stock_fraction": {
+        "finite": 28,
+        "quantiles": {
+          "min": 0.5833333333333334,
+          "median": 0.9310344827586207,
+          "p90": 0.9787878787878789,
+          "max": 1.0
+        }
+      },
+      "jaccard": {
+        "finite": 28,
+        "quantiles": {
+          "min": 0.5833333333333334,
+          "median": 0.9310344827586207,
+          "p90": 0.9787878787878789,
+          "max": 1.0
+        }
+      },
+      "fast_subset_of_stock_nonempty": 28,
+      "stock_subset_of_fast_nonempty": 3,
+      "identical_nonempty_straw_sets": 3
+    },
+    "nonpassing_group_positive_status_ch_pairs": {
+      "pairs": 10,
+      "shared_straws": {
+        "finite": 10,
+        "quantiles": {
+          "min": 0.0,
+          "median": 25.0,
+          "p90": 39.3,
+          "max": 51.0
+        }
+      },
+      "fast_support": {
+        "finite": 10,
+        "quantiles": {
+          "min": 0.0,
+          "median": 25.0,
+          "p90": 39.3,
+          "max": 51.0
+        }
+      },
+      "stock_straws": {
+        "finite": 10,
+        "quantiles": {
+          "min": 26.0,
+          "median": 32.0,
+          "p90": 52.699999999999996,
+          "max": 68.0
+        }
+      },
+      "fast_fraction": {
+        "finite": 7,
+        "quantiles": {
+          "min": 1.0,
+          "median": 1.0,
+          "p90": 1.0,
+          "max": 1.0
+        }
+      },
+      "stock_fraction": {
+        "finite": 10,
+        "quantiles": {
+          "min": 0.0,
+          "median": 0.8592592592592593,
+          "p90": 1.0,
+          "max": 1.0
+        }
+      },
+      "jaccard": {
+        "finite": 10,
+        "quantiles": {
+          "min": 0.0,
+          "median": 0.8592592592592593,
+          "p90": 1.0,
+          "max": 1.0
+        }
+      },
+      "fast_subset_of_stock_nonempty": 7,
+      "stock_subset_of_fast_nonempty": 2,
+      "identical_nonempty_straw_sets": 2
+    }
+  },
+  "stock_inventory": {
+    "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/stock-ch-input-20261106/nts.root",
+    "tree_key": "EventNtuple/ntuple;1",
+    "tree_class": "TTree",
+    "num_entries": 1888,
+    "cycle": 1,
+    "read_paths": {
+      "evtinfo": "evtinfo",
+      "trk": "trk",
+      "trkhits": "trkhits"
+    },
+    "fields": {
+      "evtinfo": [
+        "run",
+        "subrun",
+        "event"
+      ],
+      "trk": [
+        "trk.status",
+        "trk.goodfit",
+        "trk.fitalg",
+        "trk.nhits",
+        "trk.nactive",
+        "trk.ndof",
+        "trk.chisq",
+        "trk.fitcon"
+      ],
+      "trkhits": [
+        "plane",
+        "panel",
+        "straw",
+        "state"
+      ]
+    },
+    "limits": {
+      "max_events": 1000000,
+      "max_tracks": 1000000,
+      "max_hits": 10000000
+    },
+    "chunk_entries": 4096,
+    "raw_tracks": 1888,
+    "raw_hits": 62204,
+    "hit_counts_match_nhits": true,
+    "recorded_hit_census_complete": true
+  },
+  "load_seconds": 0.6642616249155253,
+  "comparison_seconds": 0.022581041092053056,
+  "processing_scope": "Read-only saved outputs; no fit, simulation, digitization or association rerun; output excluded.",
+  "historical_lr_inputs": {
+    "hits": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/comparison-1000/numpy.npz",
+      "sha256": "9bd666236840e2525eb9fe03ccca741c5ee0a9a44726ad3116e80be2dd4d1b2d"
+    },
+    "conditions": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/comparison-1000/conditions.json",
+      "sha256": "f78baed3c613b4692993621fcbb3917303b073fca502a38742c77782780e770e"
+    },
+    "association": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/association-1000-fixedwidth-20261106/diagnostics.npz",
+      "sha256": "8c943efeb9ebde7ee42052c087e10768585fce6cacad15f92cf04edb7fd5fed4"
+    },
+    "reference": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/reference-1000/hits.root",
+      "sha256": "b0dc99d4fdd7f8b256492bff6325f764079abe0151e5f06ce614f0dcb62e4d20"
+    },
+    "oracle": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/drift-oracle-10-20261106/drift-oracle.root",
+      "sha256": "0c7edd9cd613b2e30a1d89da704f5626bc4aa711f799928f60888d6775352c98"
+    },
+    "config": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/drift-oracle-10-20261106/expanded.fcl",
+      "sha256": "54c0e68d40c944478d7aae72d19b4c8bcb822c0ee49cd89c2ac5dbba8daa992d"
+    },
+    "wirefit": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/wirefit-1000-20261106-final/diagnostics.npz",
+      "sha256": "518da949d71523cff0db9a0944f6b96c450ebd68306a0d23ef6db62ac4a24c45"
+    },
+    "wirefit_report": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/wirefit-1000-20261106-final/report.json",
+      "sha256": "85de33e4424c48336ef631f9ca2001157bd45ef31df8770e20f1e5c26b19c1b9"
+    },
+    "drift_check": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/drift-model-check-20261106-final/report.json",
+      "sha256": "2d15cb27ef892e62658d17aea6713c51c1c5d652068ca2d88d118be102d14ecb"
+    },
+    "reference_config": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/reference-1000/expanded.fcl",
+      "sha256": "98d7ff58e4aae2744439379da5e8016d4bd27b674c01f518724f32c8c2b5ee4b"
+    },
+    "baseline_report": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/driftfit-1000-20261106-final/report.json",
+      "sha256": "f0aa8334588f7b27505181ad2aa54d7f63f2c56d2f065b32a46b50b6c64b6586"
+    },
+    "baseline_payload": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/driftfit-1000-20261106-final/diagnostics.npz",
+      "sha256": "3725896548d4b9c264d456f8f692f221f45218f1e38933092293c1b615d7dcf2"
+    },
+    "candidate_report": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/stabledrift-1000-20261106-final/report.json",
+      "sha256": "6f131de0f5618e36851053ec60b70115f5f0fcca66c34b44620615d721f7c8ed"
+    },
+    "candidate_payload": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/stabledrift-1000-20261106-final/diagnostics.npz",
+      "sha256": "facc4edd54ffd87297cb50b2695617ef0e0433f21494481b8322bf9d19b17a9e"
+    }
+  },
+  "provenance_caveat": "Current hashes bind consumed files, not historical stock binary/config or missing original association/output bindings. No same-digitization or full-source-coverage claim follows from event keys alone.",
+  "inputs": {
+    "lr_report": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/lrdrift-1000-20261106-final/report.json",
+      "sha256": "b592c9e44b65bbdb83b928f1389bb5c5c62b096bafaa03c7ef6512d60dd9f850"
+    },
+    "lr_payload": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/lrdrift-1000-20261106-final/diagnostics.npz",
+      "sha256": "d1aee6c77c43086d5cc34138cac7f9ba5b096278a9cf39c290482cea2801bcb3"
+    },
+    "stock": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/stock-ch-input-20261106/nts.root",
+      "sha256": "3c3a07ac164808d6d76bd60722ae121e5eaf369781a49517063ff64c8380877d"
+    }
+  },
+  "implementation": {
+    "driver": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_stockcompare.py",
+      "sha256": "441356242ab18258caa0af66695e9ab4f94ebd82a12abf67d2f783ad1ba5cee9"
+    },
+    "stockcensus": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/stockcensus.py",
+      "sha256": "527c3898ec8451bdeae5dd1c80b63b5d7ce49a0647c8d50dd9c893af586c66dc"
+    }
+  },
+  "saved_comparison": {
+    "exact": true,
+    "sha256": "a2cf25a609f4a04d74e8d32cfa114f0c404d18ac311cda74e1c748833f852b46"
+  },
+  "output_payload_sha256": "a2cf25a609f4a04d74e8d32cfa114f0c404d18ac311cda74e1c748833f852b46"
+}

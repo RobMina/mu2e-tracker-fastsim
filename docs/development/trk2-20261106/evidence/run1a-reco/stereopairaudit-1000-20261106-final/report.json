@@ -1,0 +1,94 @@
+{
+  "diagnostics": {
+    "events": 1000,
+    "hits": 13492,
+    "good_hits": 12748,
+    "rejected_flag_hits": 744,
+    "groups": 773,
+    "eligible_groups": 758,
+    "unsupported_geometry_groups": 0,
+    "wide_time_groups": 0,
+    "singleton_groups": 15,
+    "raw_pairs": 121499,
+    "excluded_pairs": 0,
+    "candidate_pair_replay_exact": true,
+    "exclusive_accounting_exact": true,
+    "considered": 121499,
+    "rejected_parallel": 39786,
+    "rejected_nonfinite": 0,
+    "rejected_same_z": 0,
+    "rejected_far_z": 61357,
+    "rejected_time": 1987,
+    "rejected_wire_length": 3505,
+    "rejected_wire_distance": 7472,
+    "accepted": 7392,
+    "no_support": {
+      "groups": 429,
+      "zero_candidate_groups": 149,
+      "considered": 53182,
+      "rejected_parallel": 25717,
+      "rejected_nonfinite": 0,
+      "rejected_same_z": 0,
+      "rejected_far_z": 15374,
+      "rejected_time": 1236,
+      "rejected_wire_length": 3409,
+      "rejected_wire_distance": 5689,
+      "accepted": 1757
+    }
+  },
+  "inputs": {
+    "hits": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/comparison-1000/numpy.npz",
+      "sha256": "9bd666236840e2525eb9fe03ccca741c5ee0a9a44726ad3116e80be2dd4d1b2d"
+    },
+    "conditions": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/comparison-1000/conditions.json",
+      "sha256": "f78baed3c613b4692993621fcbb3917303b073fca502a38742c77782780e770e"
+    },
+    "association": {
+      "path": "/Users/rmina/mu2e/.cache/TRK2/run1a-reco/association-1000-fixedwidth-20261106/diagnostics.npz",
+      "sha256": "8c943efeb9ebde7ee42052c087e10768585fce6cacad15f92cf04edb7fd5fed4"
+    },
+    "implementation": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/stereopairaudit.py",
+      "sha256": "eb2f4e0e86bcfe067cab5686dadf04a53aaa2ecd19f49cc432fcb8e2e6c7e5c3"
+    },
+    "stereo_source": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/stereoseed.py",
+      "sha256": "b02c195feee5c607fa1655080285998c61179320a73bba0666a9becda7e2d0ed"
+    },
+    "geometry_source": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/reco/seedassociation.py",
+      "sha256": "d5c8039a9b9738975c36650008e88f82694a598574ad16d49c82cd7bc63b2231"
+    },
+    "grouping_source": {
+      "path": "/Users/rmina/mu2e/remote/analysis/trkfs_wt/TRK2-run1a-digi/trkfastsim/validation/run1a_seed.py",
+      "sha256": "9790b261c8bdc08b2a3e74f241267ee1d7368651550330e444988a9b72268d16"
+    }
+  },
+  "scope": "Read-only exhaustive saved-group stereo replay, without association or fits.\n\nFixed production stereo_points defaults and exclusive first-failure cut order.\nAll saved groups are audited, never selected using support, stock, or ambiguity.\nOnly whole unsupported-geometry groups, span >100 ns, and n<2 are excluded.\nCurrent hashes establish this replay's inputs, not original production binding.\n",
+  "pair_batch": 65536,
+  "max_pairs": 2000000,
+  "rejection_order": [
+    "parallel",
+    "nonfinite",
+    "same_z",
+    "far_z",
+    "time",
+    "wire_length",
+    "wire_distance"
+  ],
+  "counting": "Exclusive first-failure counts; raw_pairs includes ineligible groups; considered excludes them.",
+  "provenance_caveat": "Current input hashes plus full-census/source/group identity and exact candidate-pair replay do not authenticate the original association input files or ROOT/log/binary/config binding.",
+  "not_run": [
+    "association",
+    "hypothesis search",
+    "fits",
+    "optimizer",
+    "sampling",
+    "threshold tuning"
+  ],
+  "ambiguity_bits": "Not consumed; control ambiguity flags are not association vetoes.",
+  "output_payload_sha256": "293b3fae001cf8ef8c3e54b17ab5b4ff86f5a3c0231957c9d8b0e63fd69b9510",
+  "output_groups_sha256": "78fd90f374e77c10ecb93dde97351cff022f8e3aaeebeb1ff42ea05bc1c348e1"
+}

@@ -1,0 +1,4 @@
+# Constructor validation must reject the inconsistent event census.
+#include "TrkFastSim/fcl/tracker_entry_smoke.fcl"
+physics.producers.entryReplay.tableFile: "bad-count.root"
+services.TFileService.fileName: "bad-count-readback.root"

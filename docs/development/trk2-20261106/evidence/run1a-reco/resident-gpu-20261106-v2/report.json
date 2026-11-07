@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "scope": "measured_hits_to_wire_helix; not drift/CH/physics validation",
+  "inputs_sha256": {
+    "hits": "9bd666236840e2525eb9fe03ccca741c5ee0a9a44726ad3116e80be2dd4d1b2d",
+    "conditions": "f78baed3c613b4692993621fcbb3917303b073fca502a38742c77782780e770e"
+  },
+  "source_sha256": {
+    "resident.py": "68650911ea14a26c59b506d59cc9d06c43c921a22e510afa7dbf11093199c01f",
+    "helixseed_jax.py": "4061723cf6ceac9e51c1a7799e2bfbfda7d5fd44dff4cc6273fa6b79d13e8038",
+    "helixfit_jax.py": "218f729f9feb4d903800e41bcaebe71755f6c8705ad5a2e8a72385ecf893fc9c",
+    "residentcheck.py": "e48da3c9d79f543dc203eda7e26ec9087973c560abb1215146c37f895a2f31f7",
+    "residentio.py": "8c6caf997fc105e8a83d9c80011dbcacbb6b91d8cf86bc65fe56be22415f7a12"
+  },
+  "jax": "0.11.2",
+  "jaxlib": "0.11.2",
+  "platform": "gpu",
+  "device": "cuda:0",
+  "device_kind": "NVIDIA A100-SXM4-80GB",
+  "x64": true,
+  "config": {
+    "max_hits": 128,
+    "group_batch": 32,
+    "max_iterations": 40,
+    "bz": 1.0117
+  },
+  "events": 1000,
+  "hits": 13492,
+  "empty_events": 235,
+  "groups": 773,
+  "group_status": {
+    "converged": 39,
+    "insufficient_hits": 23,
+    "seed_failed": 15,
+    "fit_failed": 696
+  },
+  "numerically_converged_groups": 39,
+  "batch_valid": true,
+  "repeat_arrays_exact": true,
+  "timings": {
+    "read_prepare_s": 0.1210431745275855,
+    "upload_s": 0.01860618870705366,
+    "lower_compile_s": 12.540678814053535,
+    "download_s": [
+      0.006388957612216473,
+      0.002541700378060341,
+      0.0026363003998994827
+    ],
+    "resident_runs_s": [
+      1.2969984961673617,
+      1.1986584709957242,
+      1.210012374445796
+    ]
+  },
+  "timing_scope": "compile/upload/download/I/O separate; no stock speedup",
+  "unsupported": [
+    "drift-time fit",
+    "multitrack/outlier separation",
+    "charge/flight direction",
+    "covariance",
+    "field map",
+    "material",
+    "calibrated chi-square",
+    "physics efficiency"
+  ],
+  "output_sha256": "724d9d1baa064476304b75b34737a2725cd2e1d2c5e43f0c9636efacd1fe6d07"
+}

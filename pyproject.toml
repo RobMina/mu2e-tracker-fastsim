@@ -20,3 +20,4 @@ include = ["trkfastsim*"]
 
 [tool.setuptools.package-data]
 "trkfastsim.reco" = ["data/*.json"]
+"trkfastsim.recoresp" = ["data/*.npz", "data/*.md"]

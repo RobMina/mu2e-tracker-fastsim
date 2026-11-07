@@ -1,5 +1,4 @@
 """Strict host I/O and provenance for the Run1A validation driver, not a response kernel."""
-import hashlib
 import json
 from pathlib import Path
 
@@ -67,26 +66,6 @@ def rectangular(raw, nsamp):
     result = dict(ev=raw["ev"], sid=raw["sid"], pmp=raw["pmp"], adc=raw["adc"].reshape(len(raw["ev"]), nsamp))
     result.update({name: np.column_stack([raw[f"{name}{i}"] for i in range(2)]) for name in ("tdc", "tot")})
     return result
-
-
-def sha256(path):
-    sha = hashlib.sha256()
-    with open(path, "rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            sha.update(block)
-    return sha.hexdigest()
-
-
-def hashes(paths):
-    return {k: sha256(v) for k, v in paths.items() if v is not None}
-
-
-def verify_hashes(expected, paths):
-    actual = hashes(paths)
-    for name, digest in expected.items():
-        if name not in actual or actual[name] != digest:
-            raise ValueError(f"saved hash differs: {name}")
-    return actual
 
 
 def write_report(path, report):

@@ -10,16 +10,12 @@ import sys
 import time
 from pathlib import Path
 
-import awkward as ak
 import numpy as np
-import uproot
 
 from trkfastsim.digi import digicond, fastdigi
 from trkfastsim.validation.digicmp import LSB_TDC, ev_bin_counts, paired_var
 from trkfastsim.validation import run1a_digi_io as io
-
-KEYS = ("run", "subrun", "event")
-FIELDS = ("sid", "tdc0", "tdc1", "tot0", "tot1", "pmp", "nadc", "adc", "flags")
+from trkfastsim.validation.run1a_digi_io import FIELDS, KEYS  # noqa: F401
 
 
 def key_ids(keys):
@@ -101,54 +97,8 @@ def comparison(stock, digi, nevents, window_ns=100000., tdc_lsb_ns=LSB_TDC):
     return result
 
 
-def refresh_report(path, output):
-    """Read saved products and write a NEW report; never rewrite producing evidence."""
-    path, output = Path(path), Path(output)
-    if output.exists():
-        raise FileExistsError(output)
-    report = json.loads(path.read_text())
-    reference_path = Path(report["inputs"]["reference"])
-    if not reference_path.is_absolute():
-        raise ValueError("legacy reference path must be absolute; relative provenance is ambiguous")
-    paths = {"reference": reference_path, "fast": path.parent / "fast.root",
-             "conditions": path.parent / "conditions.npz"}
-    expected = dict(report.get("outputs_sha256", {}))
-    if "reference" in report.get("inputs_sha256", {}):
-        expected["reference"] = report["inputs_sha256"]["reference"]
-    actual = io.verify_hashes(expected, paths)
-    keys, stock = read_reference(paths["reference"])
-    fastkeys, raw = io.read_table(paths["fast"], "trkdump/events", require_flags=False)
-    np.testing.assert_array_equal(keys, fastkeys)
-    with np.load(paths["conditions"], allow_pickle=False) as saved:
-        scalars = json.loads(str(saved["__scalars__"]))
-    digi = io.rectangular(raw, scalars["nADCSamples"])
-    census = {"reference_events": len(keys), "reference_digis": len(stock["sid"]),
-              "reference_adc_samples": len(stock["adc"]), "fast_digis": len(raw["sid"]),
-              "fast_adc_samples": len(raw["adc"])}
-    for name, value in census.items():
-        if name in report and report[name] != value:
-            raise ValueError(f"saved report census differs: {name}")
-    report["paired"] = comparison(stock, digi, len(keys), scalars["eventWindowLength"], scalars["TDCLSB"])
-    report["refresh"] = {"source_report_sha256": io.sha256(path), "consumed_sha256": actual,
-                         "validation_source_sha256": io.hashes({"driver": __file__, "io": io.__file__}),
-                         "verified_producing_hashes": sorted(expected),
-                         "scope": "current saved bytes only; unbound historical provenance is not repaired"}
-    io.verify_hashes(actual, paths)
-    io.write_report(output, report)
-    print(json.dumps({"yield": report["paired"]["yield"], "shapes": {
-        k: {f: v[f] for f in ("chi2_diagonal", "ndf_diagonal", "zero_variance_different_bins")}
-        for k, v in report["paired"].items() if k != "yield"}}, indent=2))
-    return report
-
-
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    if argv and argv[0] == "--refresh-report":
-        refresh = argparse.ArgumentParser(description="Recompare saved raw digis without digitising again")
-        refresh.add_argument("--refresh-report", type=Path, required=True)
-        refresh.add_argument("--output", type=Path, required=True)
-        args = refresh.parse_args(argv)
-        return refresh_report(args.refresh_report, args.output)
     if argv and argv[0] == "--stock-control":
         control = argparse.ArgumentParser(description="Compare two saved stock seeds and check disjoint event blocks")
         control.add_argument("--stock-control", type=Path, required=True)
@@ -161,7 +111,6 @@ def main(argv=None):
         if args.output.exists():
             raise FileExistsError(args.output)
         inputs = {k: v.resolve() for k, v in vars(args).items() if isinstance(v, Path) and k != "output"}
-        inputs_sha256 = io.hashes(inputs)
         keys, stock = read_reference(args.reference)
         other, raw = read_reference(args.stock_control)
         holdkeys, _ = read_reference(args.heldout)
@@ -172,11 +121,10 @@ def main(argv=None):
         if len(samples) > 1 or (len(samples) and samples[0] <= 0):
             raise ValueError("control needs a constant waveform length")
         digi = io.rectangular(raw, int(samples[0]) if len(samples) else 1)
-        report = dict(schema_version=1, inputs={k: str(v) for k, v in inputs.items()}, inputs_sha256=inputs_sha256,
+        report = dict(schema_version=1, inputs={k: str(v) for k, v in inputs.items()},
                       development_events=len(keys), heldout_events=len(holdkeys), disjoint=True,
                       window_ns=args.window_ns, tdc_lsb_ns=args.tdc_lsb_ns,
                       paired=comparison(stock, digi, len(keys), args.window_ns, args.tdc_lsb_ns))
-        io.verify_hashes(inputs_sha256, inputs)
         io.write_report(args.output, report)
         print(json.dumps(report["paired"]["yield"], indent=2))
         return report
@@ -201,7 +149,6 @@ def main(argv=None):
     if args.outdir.exists():
         raise FileExistsError(args.outdir)
     inputs = {k: v.resolve() for k, v in vars(args).items() if isinstance(v, Path) and k != "outdir"}
-    inputs_sha256 = io.hashes(inputs)
     begin = time.perf_counter()
     cfg = digicond.parse_fhicl_dump(args.config.read_text())
     if digicond.fcl_get(cfg, "physics.producers.EWMProducer.SpillType") != 0:
@@ -244,11 +191,7 @@ def main(argv=None):
     begin = time.perf_counter()
     fastdigi.write_digis(args.outdir / "fast.root", keys, first, cond.nADCSamples)
     write_s = time.perf_counter() - begin
-    io.verify_hashes(inputs_sha256, inputs)
     report = {"schema_version": 1, "inputs": {k: str(v) for k, v in inputs.items()},
-              "inputs_sha256": inputs_sha256,
-              "outputs_sha256": io.hashes({"fast": args.outdir / "fast.root", "conditions": args.outdir / "conditions.npz"}),
-              "validation_source_sha256": io.hashes({"driver": __file__, "io": io.__file__}),
               "reference_events": len(keys), "reference_digis": len(stock["sid"]), "reference_adc_samples": len(stock["adc"]),
               **counts, "fast_digis": len(first["sid"]), "fast_adc_samples": int(first["adc"].size),
               "event_window_ns": cond.eventWindowLength, "backend": args.backend, "devices": devices, "seed": args.seed, "chunk": args.chunk,

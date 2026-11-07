@@ -1,6 +1,5 @@
 """Run1A driver contracts with synthetic ROOT input and mocked digitisation kernels."""
 from contextlib import nullcontext
-import hashlib
 import json
 import sys
 from types import SimpleNamespace
@@ -306,20 +305,6 @@ def test_reference_requires_lossless_pmp_and_flags(tmp_path):
         R.read_reference(tmp_path / "missing.root")
 
 
-def test_refresh_uses_saved_digis_without_kernel(cli, monkeypatch):
-    report = R.main(cli.argv)
-    monkeypatch.setattr(R.fastdigi, "digitize_steps", lambda *args, **kw: pytest.fail("must reuse saved digis"))
-    source = cli.tmp / "out/report.json"
-    original = source.read_bytes()
-    output = cli.tmp / "refreshed.json"
-    refreshed = R.main(["--refresh-report", str(source), "--output", str(output)])
-    assert source.read_bytes() == original
-    assert json.loads(output.read_text()) == refreshed
-    assert refreshed["refresh"]["verified_producing_hashes"] == ["conditions", "fast", "reference"]
-    assert refreshed["passes"] == report["passes"]
-    assert refreshed["paired"] == report["paired"]
-
-
 def test_comparison_uses_condition_tdc_lsb(tmp_path):
     _, stock = R.read_reference(reference(tmp_path / "ref.root"))
     fast = digis([0])
@@ -420,80 +405,6 @@ def test_missing_jagged_cells_rejected(tmp_path, monkeypatch, values):
         R.read_reference(path)
 
 
-def test_producing_report_hashes_actual_input_and_output_bytes(cli):
-    report = R.main(cli.argv + ["--delay-panel", str(cli.tmp / "panel.csv"),
-                                "--delay-straw", str(cli.tmp / "straw.csv")])
-    expected_inputs = {"steps", "reference", "config", "preamp", "align", "gdml", "global_constants",
-                       "field_csv", "delay_panel", "delay_straw"}
-    assert set(report["inputs_sha256"]) == expected_inputs
-    for name, digest in report["inputs_sha256"].items():
-        with open(report["inputs"][name], "rb") as stream:
-            assert digest == hashlib.sha256(stream.read()).hexdigest()
-    for name, filename in (("fast", "fast.root"), ("conditions", "conditions.npz")):
-        assert report["outputs_sha256"][name] == hashlib.sha256((cli.tmp / "out" / filename).read_bytes()).hexdigest()
-
-
-@pytest.mark.parametrize("name,filename", [
-    ("reference", "reference.root"), ("fast", "out/fast.root"), ("conditions", "out/conditions.npz"),
-])
-def test_refresh_rejects_changed_producing_bytes(cli, name, filename):
-    R.main(cli.argv)
-    source = cli.tmp / "out/report.json"
-    original = source.read_bytes()
-    changed = cli.tmp / filename
-    changed.write_bytes(changed.read_bytes() + b"tampered bytes")
-    output = cli.tmp / "refreshed.json"
-    with pytest.raises(ValueError, match=f"saved hash differs: {name}"):
-        R.main(["--refresh-report", str(source), "--output", str(output)])
-    assert not output.exists()
-    assert source.read_bytes() == original
-
-
-def test_legacy_refresh_records_current_bytes_not_producing_authentication(cli):
-    report = R.main(cli.argv)
-    report.pop("inputs_sha256")
-    report.pop("outputs_sha256")
-    legacy = cli.tmp / "out/legacy.json"
-    legacy.write_text(json.dumps(report))
-    original = legacy.read_bytes()
-    # A valid changed reference is accepted only because legacy evidence has no hash.
-    reference(cli.tmp / "reference.root", d_pmp=ak.Array([[11, 12], [], [13], []]))
-    output = cli.tmp / "legacy-refresh.json"
-    refreshed = R.main(["--refresh-report", str(legacy), "--output", str(output)])
-    evidence = refreshed["refresh"]
-    assert evidence["verified_producing_hashes"] == []
-    assert evidence["source_report_sha256"] == hashlib.sha256(original).hexdigest()
-    for name, filename in (("reference", "reference.root"), ("fast", "out/fast.root"),
-                           ("conditions", "out/conditions.npz")):
-        assert evidence["consumed_sha256"][name] == hashlib.sha256((cli.tmp / filename).read_bytes()).hexdigest()
-    assert "unbound historical provenance is not repaired" in evidence["scope"]
-    assert "inputs_sha256" not in refreshed and "outputs_sha256" not in refreshed
-    assert refreshed["passes"] == report["passes"]
-    assert legacy.read_bytes() == original
-
-
-def test_refresh_requires_explicit_new_output(cli):
-    R.main(cli.argv)
-    source = cli.tmp / "out/report.json"
-    original = source.read_bytes()
-    with pytest.raises(SystemExit):
-        R.main(["--refresh-report", str(source)])
-    assert source.read_bytes() == original
-
-
-@pytest.mark.parametrize("same_path", [True, False])
-def test_refresh_never_overwrites_existing_path(cli, same_path):
-    R.main(cli.argv)
-    source = cli.tmp / "out/report.json"
-    output = source if same_path else cli.tmp / "existing.json"
-    if not same_path:
-        output.write_bytes(b"keep this existing output\n")
-    before = {path: path.read_bytes() for path in (source, output)}
-    with pytest.raises(FileExistsError):
-        R.main(["--refresh-report", str(source), "--output", str(output)])
-    assert all(path.read_bytes() == contents for path, contents in before.items())
-
-
 @pytest.fixture
 def stock_control(tmp_path):
     changes = {"d_nadc": ak.Array([[1, 1], [], [1], []]),
@@ -536,9 +447,6 @@ def test_stock_control_explicit_lsb_and_window(tmp_path, stock_control):
     hist = report["paired"]["tdc0"]
     assert hist["units"] == "ns" and hist["edges"][-1] == 200000
     assert hist["fast_total"][91] == 3 and hist["fast_total"][-1] == 0
-    assert report["inputs_sha256"] == {
-        name: hashlib.sha256((tmp_path / filename).read_bytes()).hexdigest()
-        for name, filename in (("reference", "ref.root"), ("stock_control", "other.root"), ("heldout", "hold.root"))}
 
 
 def test_gpu_available_but_cpu_selected_refused(cli, monkeypatch):
@@ -548,24 +456,3 @@ def test_gpu_available_but_cpu_selected_refused(cli, monkeypatch):
     with pytest.raises(RuntimeError, match="default backend is not GPU"):
         R.main(cli.argv + ["--backend", "jax", "--require-gpu"])
     assert not (cli.tmp / "out").exists()
-
-
-def test_legacy_relative_reference_is_not_reinterpreted(cli):
-    report = R.main(cli.argv)
-    report["inputs"]["reference"] = "reference.root"
-    path = cli.tmp / "out/relative.json"
-    path.write_text(json.dumps(report))
-    with pytest.raises(ValueError, match="relative provenance"):
-        R.main(["--refresh-report", str(path), "--output", str(cli.tmp / "new.json")])
-
-
-def test_legacy_report_census_mismatch_is_not_published(cli):
-    report = R.main(cli.argv)
-    report.pop("inputs_sha256")
-    report.pop("outputs_sha256")
-    report["reference_digis"] += 1
-    path = cli.tmp / "out/count-mismatch.json"
-    path.write_text(json.dumps(report))
-    with pytest.raises(ValueError, match="census differs"):
-        R.main(["--refresh-report", str(path), "--output", str(cli.tmp / "new.json")])
-    assert not (cli.tmp / "new.json").exists()

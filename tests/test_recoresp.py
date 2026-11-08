@@ -80,3 +80,27 @@ def test_device_apply_matches_the_numpy_response():
     a, b = od["p_reco"][od["qual"]] - od["p_true"][od["qual"]], on["p_reco"][on["qual"]] - on["p_true"][on["qual"]]
     assert abs(np.median(a) - np.median(b)) < 0.02
     assert abs(np.quantile(a, 0.05) - np.quantile(b, 0.05)) < 0.1
+
+
+def test_t0_is_drawn_on_its_own_stream_when_the_table_has_it():
+    jax = pytest.importorskip("jax")
+    from trkfastsim.recoresp import device as RD
+    rng = np.random.default_rng(8)
+    d = _reference(20000, rng)
+    d["t_t"] = rng.uniform(500, 1500, len(d))
+    d["t0"] = np.where(d.fit, d.t_t + rng.normal(1.2, 0.4, len(d)), np.nan)
+    tab = RT.build(d)
+    assert "icdf_dt0" in tab
+    v = _reference(5000, np.random.default_rng(9))
+    x, p = v[["e_x", "e_y", "e_z"]].to_numpy(), v[["e_px", "e_py", "e_pz"]].to_numpy()
+    t = np.full(len(v), 800.0)
+    tb = RD.to_device(tab)
+    args = (jax.numpy.asarray(v.has_entry.to_numpy()), jax.numpy.asarray(v.nrow.to_numpy()), jax.numpy.asarray(x),
+            jax.numpy.asarray(p))
+    a = RD.apply(tb, jax.random.PRNGKey(1), *args)
+    b = RD.apply(tb, jax.random.PRNGKey(1), *args, jax.numpy.asarray(t))
+    for k in a:                                    # the other draws do not change when t0 is added
+        assert np.array_equal(np.asarray(a[k]), np.asarray(b[k]), equal_nan=True), k
+    q = np.asarray(b["qual"])
+    assert abs(np.median(np.asarray(b["t0"])[q] - 800.0) - 1.2) < 0.05
+    assert not np.isfinite(np.asarray(b["t0"])[~q]).any()

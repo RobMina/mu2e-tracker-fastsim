@@ -738,9 +738,9 @@ def transport(trk, key, x, p, t, active=None, rounds_it=256, min_bucket=64, shri
     pv = jnp.asarray(p, dt)
     pm = jnp.linalg.norm(pv, axis=1)
     u = pv / pm[:, None]
-    t = jnp.asarray(t, dt)
+    t = jnp.array(t, dt, copy=True)          # the loop state is donated: never alias the caller's arrays
     n = x.shape[0]
-    active = jnp.ones(n, bool) if active is None else jnp.asarray(active, bool)
+    active = jnp.ones(n, bool) if active is None else jnp.array(active, bool, copy=True)
     s = _state(x, u, pm, t, active)
     # the envelope test at the start (tracks already leaving get no chord)
     s["status"] = jnp.where(active & _leaving(trk.T, trk.env, x, u), LEFT, s["status"])

@@ -324,7 +324,7 @@ def test_jaxcheck_compare_and_cross(setup):
     from trkfastsim.validation import jaxcheck
     geom, interior, _ = setup
     gen = _gen(400, np.random.default_rng(16))
-    kw = dict(stage="A", interior=interior, exit_scatter=False)
+    kw = dict(stage="A", exit_scatter=False)   # the device interior transport is checked per PR in the rows test
     a, _ = st.make_steps(gen, geom, np.random.default_rng(2), **kw)
     b, _ = st.make_steps(gen, geom, np.random.default_rng(2), backend="jax", **kw)
     c = jaxcheck.compare(a, b, gen)

@@ -45,6 +45,7 @@ def test_offspill_digis_equal_digi_jax(cond):
     _same(a, b)
 
 
+@pytest.mark.slow   # second full compile of both digitisers; per PR the off-spill case checks the same packing
 def test_onspill_digis_with_ghosts_equal_digi_jax(cond):
     c = DC.Conditions(cond.s, cond.a)
     c.s.update(onspill=True, eventWindowLength=1695.)

@@ -33,6 +33,7 @@ def test_default_is_float64():
     assert devfloat.dev(x) is x and devfloat.host(x) is not None
 
 
+@pytest.mark.slow   # three subprocess starts; per PR: test_default_is_float64
 def test_setting_follows_core(tmp_path):
     probe = ("import json; from trkfastsim import devfloat as d; from mu2efastsim import precision as p; "
              "print(json.dumps([d.NAME, d.SINGLE, 'trkfastsim.digi.digi_jax' in p._AWARE or None, d.provenance()]))")

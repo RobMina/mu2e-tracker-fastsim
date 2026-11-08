@@ -29,6 +29,8 @@ class Tables(NamedTuple):
     axis_xy: object
     bz: float
     icdf_dt0: object = None   # [ne, nt, NQ] t0 at the front - entry time, or None (older tables)
+    time_edges: object = None  # entry-time turn-on of the fit efficiency, or None (older tables)
+    time_eff: object = None
 
 
 def to_device(tab, dtype=np.float64):
@@ -37,7 +39,9 @@ def to_device(tab, dtype=np.float64):
                   jnp.asarray(tab["eff_fit"], dt), jnp.asarray(tab["eff_q"], dt),
                   jnp.asarray(np.stack([tab[f"icdf_{k}"] for k in RT.RES + RT.QUAL]), dt), jnp.asarray(tab["chol"], dt),
                   jnp.asarray(tab["cuts"], dt), jnp.asarray(tab["axis_xy"], dt), float(tab["bz"]),
-                  jnp.asarray(tab["icdf_dt0"], dt) if "icdf_dt0" in tab else None)
+                  jnp.asarray(tab["icdf_dt0"], dt) if "icdf_dt0" in tab else None,
+                  jnp.asarray(tab["time_edges"], dt) if "time_eff" in tab else None,
+                  jnp.asarray(tab["time_eff"], dt) if "time_eff" in tab else None)
 
 
 def entry_truth(x, p, axis_xy, bz, q=-1.0):
@@ -60,7 +64,8 @@ def _bin(edges, v):
 def apply(tb, key, has_entry, nrow, x, p, t=None):
     """Per event (device arrays): fit, qual, ce (bool) and p_true, p_reco, tandip, d0, rmax, fitcon, chi2ndf, nactive
     (NaN where no quality-passing track). x, p [n, 3]: entry state (Mu2e frame); nrow [n]: step rows of the event.
-    t [n] (optional): entry time [ns]; with tables that hold it, adds t0 (track time at the front)."""
+    t [n] (optional): entry time [ns]; with tables that hold them, applies the entry-time turn-on of the fit
+    efficiency and adds t0 (track time at the front)."""
     dt = x.dtype
     ptrue, td, d0, rmax = entry_truth(x, p, tb.axis_xy, tb.bz)
     bn = _bin(tb.nrow_edges, nrow.astype(dt))
@@ -71,7 +76,10 @@ def apply(tb, key, has_entry, nrow, x, p, t=None):
     u = jax.random.uniform(k1, (2, x.shape[0]), dt)
     z = jnp.einsum("nij,nj->in", tb.chol[bn, bt], jax.random.normal(k2, (x.shape[0], K), dt))
     uc = jax.scipy.special.ndtr(z)
-    fit = has_entry & (u[0] < tb.eff_fit[bn, bt])
+    eff = tb.eff_fit[bn, bt]
+    if t is not None and tb.time_eff is not None:
+        eff = eff * tb.time_eff[_bin(tb.time_edges, t)]
+    fit = has_entry & (u[0] < eff)
     qual = fit & (u[1] < tb.eff_q[bn, bt])
     f = jnp.clip((nq - 1) * jnp.arccos(jnp.clip(1.0 - 2.0 * uc, -1.0, 1.0)) / jnp.pi, 0.0, nq - 1.000001)
     i = f.astype(jnp.int32)

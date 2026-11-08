@@ -1,0 +1,8 @@
+# Extended regular expressions (one per line) of paths whose contracts are checked only by @pytest.mark.slow tests.
+# A pull request that changes a matching file runs the suite with --runslow (core/ci/runslow.sh).
+# device steps and world transport: statistical NumPy agreement, radiative losses, chunking, panel cuts
+^trkfastsim/sim/(steps_jax|world_jax|fieldsteps_jax)\.py$
+# device digitiser: deadtime and pair capacity, distributions, float32 paths
+^trkfastsim/digi/(digi_jax|digi_clusters_jax)\.py$
+^trkfastsim/devfloat\.py$
+^ci/runslow

@@ -28,6 +28,7 @@ class Tables(NamedTuple):
     cuts: object
     axis_xy: object
     bz: float
+    icdf_dt0: object = None   # [ne, nt, NQ] t0 at the front - entry time, or None (older tables)
 
 
 def to_device(tab, dtype=np.float64):
@@ -35,7 +36,8 @@ def to_device(tab, dtype=np.float64):
     return Tables(jnp.asarray(tab["nrow_edges"], dt), jnp.asarray(tab["tandip_edges"], dt),
                   jnp.asarray(tab["eff_fit"], dt), jnp.asarray(tab["eff_q"], dt),
                   jnp.asarray(np.stack([tab[f"icdf_{k}"] for k in RT.RES + RT.QUAL]), dt), jnp.asarray(tab["chol"], dt),
-                  jnp.asarray(tab["cuts"], dt), jnp.asarray(tab["axis_xy"], dt), float(tab["bz"]))
+                  jnp.asarray(tab["cuts"], dt), jnp.asarray(tab["axis_xy"], dt), float(tab["bz"]),
+                  jnp.asarray(tab["icdf_dt0"], dt) if "icdf_dt0" in tab else None)
 
 
 def entry_truth(x, p, axis_xy, bz, q=-1.0):
@@ -55,9 +57,10 @@ def _bin(edges, v):
 
 
 @jax.jit
-def apply(tb, key, has_entry, nrow, x, p):
+def apply(tb, key, has_entry, nrow, x, p, t=None):
     """Per event (device arrays): fit, qual, ce (bool) and p_true, p_reco, tandip, d0, rmax, fitcon, chi2ndf, nactive
-    (NaN where no quality-passing track). x, p [n, 3]: entry state (Mu2e frame); nrow [n]: step rows of the event."""
+    (NaN where no quality-passing track). x, p [n, 3]: entry state (Mu2e frame); nrow [n]: step rows of the event.
+    t [n] (optional): entry time [ns]; with tables that hold it, adds t0 (track time at the front)."""
     dt = x.dtype
     ptrue, td, d0, rmax = entry_truth(x, p, tb.axis_xy, tb.bz)
     bn = _bin(tb.nrow_edges, nrow.astype(dt))
@@ -81,5 +84,11 @@ def apply(tb, key, has_entry, nrow, x, p):
                fitcon=draw[4], chi2ndf=draw[5], nactive=draw[6])
     ce = qual & (obs["tandip"] >= c[0]) & (obs["tandip"] <= c[1]) & (obs["d0"] >= c[2]) & (obs["d0"] <= c[3]) & \
         (obs["rmax"] >= c[4]) & (obs["rmax"] <= c[5])
+    if t is not None and tb.icdf_dt0 is not None:   # own key: the draws above are unchanged
+        ut = jax.random.uniform(jax.random.fold_in(key, 7), (x.shape[0],), dt)
+        ft = jnp.clip((nq - 1) * jnp.arccos(jnp.clip(1.0 - 2.0 * ut, -1.0, 1.0)) / jnp.pi, 0.0, nq - 1.000001)
+        it_ = ft.astype(jnp.int32)
+        wt = ft - it_
+        obs["t0"] = t + tb.icdf_dt0[bn, bt, it_] * (1 - wt) + tb.icdf_dt0[bn, bt, it_ + 1] * wt
     obs = {k: jnp.where(qual, v, nan) for k, v in obs.items()}
     return dict(fit=fit, qual=qual, ce=ce, p_true=jnp.where(has_entry, ptrue, nan), **obs)

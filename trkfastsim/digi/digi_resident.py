@@ -313,14 +313,28 @@ def _jitter(key, straw_ev, panel, nev, scale):
     return blocks[e // DJ.JITTER_BATCH, e % DJ.JITTER_BATCH, panel] * scale
 
 
-def digitize(st, nev, c, key, stats=None, *, event_timing=None):
+def pad_steps(st, nstep):
+    """The padded step layout digitize uses: COLS at the power-of-two bucket of nstep, zero beyond nstep."""
+    sb = _b(nstep)
+    return {k: _padto(jnp.asarray(st[k]), sb) for k in COLS}
+
+
+def digitize(st, nev, c, key, stats=None, *, event_timing=None, nstep=None, padded=False):
     """digi_jax.digitize with device-resident packing (same digis for the same inputs and key). st: flat device step
-    arrays (COLS; `ev` the event index in [0, nev)). Returns a dict of device arrays."""
+    arrays (COLS; `ev` the event index in [0, nev)). Returns a dict of device arrays.
+    nstep: st is already padded (pad_steps: the first nstep rows are the steps, the rest zero, length _b(nstep)), so
+    no array of a data-dependent length is made here. padded: return (digis at a power-of-two length, count) and
+    leave the cut to the caller (host side), so the call compiles nothing per output size."""
     if df.SINGLE:
         raise NotImplementedError("digi_resident: float64 tracker device float only (use digi_jax.digitize)")
-    nstep = int(np.shape(st["ev"])[0])
-    sb = _b(nstep)
-    s = {k: _padto(jnp.asarray(st[k]), sb) for k in COLS}
+    if nstep is None:
+        nstep = int(np.shape(st["ev"])[0])
+        s = pad_steps(st, nstep)
+    else:
+        nstep = int(nstep)
+        s = {k: jnp.asarray(st[k]) for k in COLS}
+        if s["ev"].shape[0] != _b(nstep):
+            raise ValueError(f"nstep={nstep}: padded steps must have length {_b(nstep)}, not {s['ev'].shape[0]}")
     s["sid"], s["ev"] = s["sid"].astype(jnp.int64), s["ev"].astype(jnp.int64)
     eb = _b(nev, 64)
     if event_timing is None:
@@ -334,11 +348,11 @@ def digitize(st, nev, c, key, stats=None, *, event_timing=None):
     s["_us"] = us
     nidx = int(jnp.sum(sel))
     if not nidx:
-        return {k: jnp.asarray(v) for k, v in DJ._empty(c).items()}
+        return _empty(c, padded)
     idx = _compact(sel, _b(nidx))
     cs, pos, ne, ncl = make_clusters(random.fold_in(key, 0), c, s, idx, nidx)
     if not ncl:
-        return {k: jnp.asarray(v) for k, v in DJ._empty(c).items()}
+        return _empty(c, padded)
     tb = cs.shape[0]
     ctime = time[cs]
     group = DJ.CHARGE_BLOCK * DJ.CHARGE_BLOCKS
@@ -373,7 +387,7 @@ def digitize(st, nev, c, key, stats=None, *, event_timing=None):
     else:
         tabs = _offspill_tables(inst, ncl, ns_b)
         counts = tabs[0]
-    counts_h = np.asarray(counts[:ns])
+    counts_h = np.asarray(counts)[:ns]                 # host cut: no device slice of a data-dependent size
     if counts_h.max() > DJ.MAX_ROW_CLUSTERS:
         raise OverflowError(f"waveform cluster count exceeds MAX_ROW_CLUSTERS={DJ.MAX_ROW_CLUSTERS}; no output returned")
     caps_h = np.left_shift(np.int64(1), np.ceil(np.log2(counts_h)).astype(np.int64))
@@ -430,6 +444,13 @@ def digitize(st, nev, c, key, stats=None, *, event_timing=None):
         for field, val in (("clusters", ncl), ("straws", ns), ("ends", 2 * ns), ("digis", offset)):
             stats[field] = stats.get(field, 0) + int(val)
     if buf is None or not offset:
-        return {k: jnp.asarray(v) for k, v in DJ._empty(c).items()}
+        return _empty(c, padded)
     out = _final(buf, offset, _b(offset))
+    if padded:
+        return out, offset
     return {k: v[:offset] for k, v in out.items()}
+
+
+def _empty(c, padded):
+    out = {k: jnp.asarray(v) for k, v in DJ._empty(c).items()}
+    return (out, 0) if padded else out

@@ -24,7 +24,8 @@ Statistically equivalent to the NumPy transport, not identical per seed (indepen
 and scattering switched off (`eloss=False, msc=False`) the crossings are deterministic and agree with NumPy run the
 same way to rounding. dtype float64 (default) or float32: positions are kept in the detector frame (relative to
 the tracker origin), so float32 resolves the straws to ~1e-4 mm. Fixed shapes: every cap is counted (overflow statistics must be 0):
-  P_CAP candidate panels per chord, K_CHORD crossings per chord, R_CAP records per track, the gathered support
+  P_CAP candidate panels per chord, STRAW_WINDOW straws per candidate panel, K_CHORD crossings per chord, R_CAP
+  records per track, the gathered support
   sub-batch (lanes beyond it wait one iteration unchanged), ND deltas and NB brem photons per material and chord.
 """
 import time
@@ -51,6 +52,7 @@ KB = 0.299792458                      # MeV/c per (T mm)
 CMM = fs.C_MM_PER_NS
 P_CAP = 4        # candidate panel boxes per chord (Run 1A: at most 3 overlap a 10 mm chord in z)
 K_CHORD = 8      # gas crossings kept per chord
+STRAW_WINDOW = 16   # straws tested per candidate panel and chord (the panel's straws sorted across the panel)
 R_CAP = 256      # records (merged passages) per track
 ND, NB = 4, 4    # deltas and brem photons per (track, material) and chord: thin straw materials
 ND_SUP, NB_SUP = 24, 32   # the same for the support pieces (up to a chord of solid metal)
@@ -133,6 +135,32 @@ def _material_tables(mats, dt):
                 brem_x=brem_x, invx0=invx0), mc
 
 
+def _panel_windows(geom, straws_of, origin):
+    """Per panel: the across-panel direction v (perpendicular to the straws, in the panel), a reference point, the
+    straws' offsets along v sorted (and their indices), and the margin that bounds how far a straw axis drifts in v
+    over its length (alignment tilts). A chord can only cross a straw whose offset lies within the chord's own v
+    extent widened by the straw's outer radius and that margin."""
+    P, S = straws_of.shape
+    vdir, ref, vals, idxs, margin = np.zeros((P, 3)), np.zeros((P, 3)), np.zeros((P, S)), np.zeros((P, S), np.int32), \
+        np.zeros(P)
+    for p in range(P):
+        js = straws_of[p]
+        a = geom.dir[js].mean(0)
+        a /= np.linalg.norm(a)
+        m = geom.mid[js] - origin
+        c = m.mean(0)
+        d = m - c
+        d -= (d @ a)[:, None] * a
+        _, _, vt = np.linalg.svd(d, full_matrices=False)
+        v = vt[0] - (vt[0] @ a) * a
+        v /= np.linalg.norm(v)
+        off = d @ v
+        o = np.argsort(off, kind="stable")
+        vdir[p], ref[p], vals[p], idxs[p] = v, c, off[o], js[o]
+        margin[p] = float(np.max(np.abs(geom.dir[js] @ v) * geom.halflen[js])) + 1e-3
+    return dict(pv_dir=vdir, pv_ref=ref, pv_val=vals, pv_straw=idxs, pv_margin=margin)
+
+
 class Tracker:
     """Device tables of the tracker for the field transport: straws and panels, the field grid, the envelope, the
     support shells and the material tables. Built once per geometry and process (host, a few seconds)."""
@@ -178,6 +206,8 @@ class Tracker:
                  panel=np.asarray(geom.panel, np.int32), straw=np.asarray(geom.straw, np.int32),
                  upanel=np.asarray(geom.upanel, np.int32))
         self.pwidth = float((hi[:, 2] - lo[:, 2]).max())
+        # per panel (in plo_z order): straws sorted by their offset across the panel, for the straw window
+        T.update(_panel_windows(geom, straws_of[order], org))
         flo, fd, fn, fB = field_grid
         T.update(flo=np.asarray(flo, float) - org, fd=np.asarray(fd, float), fB=np.asarray(fB, float))
         self.fn = tuple(int(v) for v in fn)
@@ -284,9 +314,23 @@ def _straws(T, cfg, pwidth, x, c, L):
     tin = jnp.maximum(jnp.minimum(t1, t2).max(-1), 0.0)
     tout = jnp.minimum(jnp.maximum(t1, t2).min(-1), L[:, None])
     pv = pv & (tout >= tin)
-    js = T["pstraws"][pi]                                            # [n, P, 96]
+    # straw window per candidate panel: the straws whose across-panel offset lies within the chord's extent widened
+    # by the outer radius and the panel's tilt margin (a necessary condition for a crossing); the same crossing
+    # arithmetic as testing all 96 straws then runs on these few
+    vdir, ref = T["pv_dir"][pi], T["pv_ref"][pi]                     # [n, P, 3]
+    xe = x + c * L[:, None]
+    va = ((x[:, None] - ref) * vdir).sum(-1)
+    vb = ((xe[:, None] - ref) * vdir).sum(-1)
+    R = cfg.r_out + T["pv_margin"][pi]
+    vals = T["pv_val"][pi]                                           # [n, P, 96]
+    lo_i = jnp.sum(vals < (jnp.minimum(va, vb) - R)[..., None], -1)
+    hi_i = jnp.sum(vals <= (jnp.maximum(va, vb) + R)[..., None], -1)
+    cnt = hi_i - lo_i
+    wover = jnp.sum(pv & (cnt > STRAW_WINDOW))
+    k = lo_i[..., None] + jnp.arange(STRAW_WINDOW)
+    js = jnp.take_along_axis(T["pv_straw"][pi], jnp.minimum(k, vals.shape[-1] - 1), -1)   # [n, P, W]
     js = js.reshape(n, -1)
-    sv = jnp.repeat(pv, T["pstraws"].shape[1], axis=1)
+    sv = (pv[..., None] & (jnp.arange(STRAW_WINDOW) < cnt[..., None])).reshape(n, -1)
     mid, ax, h = T["smid"][js], T["sdir"][js], T["shalf"][js]
     w = x[:, None] - mid
     dd = c[:, None]
@@ -339,7 +383,7 @@ def _straws(T, cfg, pwidth, x, c, L):
     plate = jnp.where(own, 2 * jnp.sqrt(jnp.clip(cfg.rw ** 2 - bb ** 2, 0, None)) / ua, 0.0) - wire
     del sg
     return dict(js=js, s_in=jnp.where(kv, s_in, 0.0), s_out=jnp.where(kv, s_out, 0.0), v=kv, gas=gas, wall=wall,
-                wire=wire, plate=plate), pover, kover
+                wire=wire, plate=plate), pover + wover, kover
 
 
 def _support(T, cfg, groups, x, c, L):
@@ -665,7 +709,8 @@ def _chord(tk_, s, rec, lane, key, it):
 
 
 NSTAT = ("panel_overflow", "chord_overflow", "record_overflow", "shell_overflow", "delta_cap", "brem_cap", "waits")
-# delta_cap also counts (track, material) pairs beyond the PAIRS / SUP_PAIRS caps
+# delta_cap also counts (track, material) pairs beyond the PAIRS / SUP_PAIRS caps; panel_overflow also counts straw
+# windows wider than STRAW_WINDOW
 
 
 @partial(jax.jit, static_argnames=("cfg", "fn", "env", "pwidth", "lnt0", "dlnt", "n_it"), donate_argnames=("s", "rec"))

@@ -34,6 +34,8 @@ CLASSES = (64, DC.MAX_CLUSTER_BUCKET)      # capacity classes of the multi-clust
 MINION_UNROLL, SEARCH_METHOD = 8, "compare_all"
 MAX_DRIFT_CLUSTERS = 16_000_000            # no host copies here: the device buffers set the limit
 BIG = np.int64(2) ** 62
+ASYNC_BATCHES = True       # waveform batches without host reads (False: digi_jax's per-batch loop; same digis)
+FALLBACKS = [0]            # chunks that fell back to the per-batch loop (a batch failed or saturated at pair_cap 4)
 
 
 def _b(n, lo=256):
@@ -286,6 +288,10 @@ def _pack(which, nb, cap, batch, onspill, tabs, gt, charge, wd, cs, straw):
 @partial(jax.jit, static_argnames=("pair_cap", "batch"), donate_argnames=("buf",))
 def _append(buf, offset, result, which, straw_ev, straw_sid, pair_cap, batch):
     """Kept digis of one batch (row-major, as np.nonzero) written into the output buffers at offset."""
+    return _append_rows(buf, offset, result, which, straw_ev, straw_sid, pair_cap, batch)
+
+
+def _append_rows(buf, offset, result, which, straw_ev, straw_sid, pair_cap, batch):
     keep = result["keep"].ravel()
     m = batch * pair_cap
     kp = jnp.nonzero(keep, size=m, fill_value=0)[0]
@@ -304,6 +310,134 @@ def _final(buf, total, size):
                          jnp.where(valid, buf["ev"], BIG)))
     return {k: v[order[:size]] for k, v in buf.items()}
 
+
+
+@partial(jax.jit, static_argnames=("cap", "batch", "onspill", "timed"))
+def _pack_at(whichs, nbs, i, cap, batch, onspill, timed, tabs, gt, charge, wd, cs, straw, tdc_all, tdc_dead, ewl):
+    """_pack of batch i of a bucket (whichs [nbatch, batch], nbs [nbatch] on the device), with the electronics
+    kernel's timing arguments gathered from per-straw values made once per call (selections only, no arithmetic)."""
+    which = whichs[i]
+    t, q, w, stp, n, su, sr, sk, ji, live, lens = _pack(which, nbs[i], cap, batch, onspill, tabs, gt, charge, wd, cs,
+                                                        straw)
+    targs = {}
+    if timed:
+        targs = {"window_end": jnp.where(live, lens, ewl),
+                 "event_end_tdc": jnp.where(live, tdc_all[jnp.where(live, which, 0)], tdc_dead)}
+    return (t, q, w, stp, n, su, sr, sk, live, ji), targs, which
+
+
+@partial(jax.jit, static_argnames=("pair_cap", "batch"), donate_argnames=("buf",))
+def _append_acc(buf, acc, result, which, straw_ev, straw_sid, pair_cap, batch):
+    """_append at the device offset acc["offset"]; the batch's flags and counters accumulate in acc (no host read)."""
+    buf, kept = _append_rows(buf, acc["offset"], result, which, straw_ev, straw_sid, pair_cap, batch)
+    i64 = lambda x: jnp.asarray(x).astype(jnp.int64)
+    return buf, {"offset": acc["offset"] + i64(kept),
+                 "failed": acc["failed"] | jnp.asarray(result["failed"]).astype(bool),
+                 "sat": acc["sat"] | jnp.asarray(result["sat_overflow"]).astype(bool),
+                 "pairs": acc["pairs"] + i64(result["pairs"]),
+                 "nan_ends": acc["nan_ends"] + i64(result["nan_ends"]),
+                 "saturated_ends": acc["saturated_ends"] + i64(result["saturated_ends"])}
+
+
+def _buffers(c, result, size):
+    tmpl = {"adc": ((c.nADCSamples,), result["adc"].dtype), "tdc": ((2,), result["tdc"].dtype),
+            "tot": ((2,), result["tot"].dtype), "pmp": ((), result["pmp"].dtype),
+            "step": ((2,), result["step"].dtype), "t_analog": ((2,), result["t_analog"].dtype),
+            "ev": ((), jnp.int64), "sid": ((), jnp.int64)}
+    return {k: jnp.zeros((size,) + sh, dt) for k, (sh, dt) in tmpl.items()}
+
+
+def _timing_values(c, lengths):
+    """The electronics timing arguments per straw (live lanes) and for an empty lane: the same eager operations
+    digi_jax applies per batch, element by element."""
+    ewl = jnp.asarray(float(c.eventWindowLength), jnp.float64)
+
+    def tdc(lens):
+        return jnp.clip(jnp.floor(((lens - c.electronicsTimeDelay) + c.electronicsTimeDelay) / c.TDCLSB),
+                        0, c.maxTDC).astype(jnp.int64)
+    return tdc(lengths), tdc(jnp.full(1, float(c.eventWindowLength)))[0], ewl
+
+
+def _waveforms_async(c, plan, key3, tabs, gt, charge, wd, cs, straw, straw_ev, straw_sid, timing, obuf):
+    """Every waveform batch at pair_cap 4 as three device calls (pack, electronics, append) and no host read: the
+    output offset, the failure and saturation flags and the counters stay on the device. Returns (buf, acc, nbatch);
+    the caller reads acc once and falls back to _waveforms_sync if a batch failed or saturated."""
+    onspill = bool(c.onspill)
+    timed = timing is not None
+    tv = timing if timed else (jnp.zeros(1, jnp.int64), jnp.int64(0), jnp.float64(0))
+    bound = 0
+    for cap, bucket_h in plan:
+        batch = DJ._waveform_batch(cap)
+        bound += batch * 4 * (-(-len(bucket_h) // batch))
+    size = _b(max(bound, obuf))
+    buf = acc = None
+    nbatch = 0
+    for cap, bucket_h in plan:
+        batch = DJ._waveform_batch(cap)
+        nbt = -(-len(bucket_h) // batch)
+        wh = np.zeros(nbt * batch, np.int64)
+        wh[:len(bucket_h)] = bucket_h
+        nbs = np.minimum(batch, len(bucket_h) - batch * np.arange(nbt)).astype(np.int64)
+        whichs, nbs_d = jnp.asarray(wh.reshape(nbt, batch)), jnp.asarray(nbs)
+        kern = DJ._electronics_kernel(c, cap, 4, batch)
+        for i in range(nbt):
+            args, targs, which = _pack_at(whichs, nbs_d, i, cap, batch, onspill, timed, tabs, gt, charge, wd, cs,
+                                          straw, *tv)
+            result = kern(key3, *args, **targs)
+            if buf is None:
+                buf = _buffers(c, result, size)
+                z = jnp.int64(0)
+                acc = {"offset": z, "failed": jnp.bool_(False), "sat": jnp.bool_(False), "pairs": z, "nan_ends": z,
+                       "saturated_ends": z}
+            buf, acc = _append_acc(buf, acc, result, which, straw_ev, straw_sid, 4, batch)
+            nbatch += 1
+    return buf, acc, nbatch
+
+
+def _waveforms_sync(c, plan, key3, tabs, gt, charge, wd, cs, straw, straw_ev, straw_sid, event_timing, obuf, stats):
+    """digi_jax's batch loop: a host read per batch for the flags (saturation raises; a failed threshold search
+    retries the batch with twice the pair capacity) and for the output offset. Returns (buf, offset)."""
+    buf = None
+    offset = 0
+    for cap, bucket_h in plan:
+        batch = DJ._waveform_batch(cap)
+        for b0 in range(0, len(bucket_h), batch):
+            wh = bucket_h[b0:b0 + batch]
+            nb = len(wh)
+            which = jnp.asarray(np.pad(wh, (0, batch - nb)))
+            t, q, w, stp, n, su, sr, sk, ji, live, lens = _pack(which, nb, cap, batch, bool(c.onspill), tabs, gt,
+                                                                 charge, wd, cs, straw)
+            timing_args = {}
+            if event_timing is not None:
+                lens = jnp.where(live, lens, float(c.eventWindowLength))
+                timing_args = {"window_end": lens,
+                               "event_end_tdc": jnp.clip(jnp.floor(((lens - c.electronicsTimeDelay)
+                                                                    + c.electronicsTimeDelay) / c.TDCLSB),
+                                                         0, c.maxTDC).astype(jnp.int64)}
+            pair_cap = 4
+            while True:
+                result = DJ._electronics_kernel(c, cap, pair_cap, batch)(
+                    key3, t, q, w, stp, n, su, sr, sk, live, ji, **timing_args)
+                if bool(result["sat_overflow"]):
+                    raise RuntimeError("JAX ADC saturation time bucket overflow; no output returned")
+                if not bool(result["failed"]):
+                    break
+                if pair_cap >= 2 * cap:
+                    raise RuntimeError("JAX threshold search failed to progress; no output returned")
+                pair_cap *= 2
+            need = offset + batch * pair_cap
+            if buf is None or need > buf["ev"].shape[0]:
+                new = _buffers(c, result, _b(max(need, obuf)))
+                if buf is not None:
+                    new = {k: jax.lax.dynamic_update_slice(new[k], buf[k], (0,) * new[k].ndim) for k in new}
+                buf = new
+            buf, kept = _append(buf, jnp.int64(offset), result, which, straw_ev, straw_sid, pair_cap, batch)
+            offset += int(kept)
+            if stats is not None:
+                for field, val in (("pairs", result["pairs"]), ("nan_crossing_ends", result["nan_ends"]),
+                                   ("saturated_ends", result["saturated_ends"]), ("jax_buckets", 1)):
+                    stats[field] = stats.get(field, 0) + int(val)
+    return buf, offset
 
 def _jitter(key, straw_ev, panel, nev, scale):
     """digi_jax._panel_jitter: the same (JITTER_BATCH, NUPANELS) blocks, gathered on the device."""
@@ -393,53 +527,26 @@ def digitize(st, nev, c, key, stats=None, *, event_timing=None, nstep=None, padd
     caps_h = np.left_shift(np.int64(1), np.ceil(np.log2(counts_h)).astype(np.int64))
     straw = (straw_us, straw_ra, ukey, jitter, lengths)
     obuf = _b(4 * ns, 1024)
-    buf = None
-    offset = 0
-    for cap in np.unique(caps_h):
-        cap = int(cap)
-        bucket_h = np.flatnonzero(caps_h == cap)
-        batch = DJ._waveform_batch(cap)
-        for b0 in range(0, len(bucket_h), batch):
-            wh = bucket_h[b0:b0 + batch]
-            nb = len(wh)
-            which = jnp.asarray(np.pad(wh, (0, batch - nb)))
-            t, q, w, stp, n, su, sr, sk, ji, live, lens = _pack(which, nb, cap, batch, bool(c.onspill), tabs, gt,
-                                                                 charge, wd, cs, straw)
-            timing_args = {}
-            if event_timing is not None:
-                lens = jnp.where(live, lens, float(c.eventWindowLength))
-                timing_args = {"window_end": lens,
-                               "event_end_tdc": jnp.clip(jnp.floor(((lens - c.electronicsTimeDelay)
-                                                                    + c.electronicsTimeDelay) / c.TDCLSB),
-                                                         0, c.maxTDC).astype(jnp.int64)}
-            pair_cap = 4
-            while True:
-                result = DJ._electronics_kernel(c, cap, pair_cap, batch)(
-                    random.fold_in(key, 3), t, q, w, stp, n, su, sr, sk, live, ji, **timing_args)
-                if bool(result["sat_overflow"]):
-                    raise RuntimeError("JAX ADC saturation time bucket overflow; no output returned")
-                if not bool(result["failed"]):
-                    break
-                if pair_cap >= 2 * cap:
-                    raise RuntimeError("JAX threshold search failed to progress; no output returned")
-                pair_cap *= 2
-            need = offset + batch * pair_cap
-            if buf is None or need > buf["ev"].shape[0]:
-                size = _b(max(need, obuf))
-                tmpl = {"adc": ((c.nADCSamples,), result["adc"].dtype), "tdc": ((2,), result["tdc"].dtype),
-                        "tot": ((2,), result["tot"].dtype), "pmp": ((), result["pmp"].dtype),
-                        "step": ((2,), result["step"].dtype), "t_analog": ((2,), result["t_analog"].dtype),
-                        "ev": ((), jnp.int64), "sid": ((), jnp.int64)}
-                new = {k: jnp.zeros((size,) + sh, dt) for k, (sh, dt) in tmpl.items()}
-                if buf is not None:
-                    new = {k: jax.lax.dynamic_update_slice(new[k], buf[k], (0,) * new[k].ndim) for k in new}
-                buf = new
-            buf, kept = _append(buf, jnp.int64(offset), result, which, straw_ev, straw_sid, pair_cap, batch)
-            offset += int(kept)
-            if stats is not None:
-                for field, val in (("pairs", result["pairs"]), ("nan_crossing_ends", result["nan_ends"]),
-                                   ("saturated_ends", result["saturated_ends"]), ("jax_buckets", 1)):
+    plan = [(int(cap), np.flatnonzero(caps_h == cap)) for cap in np.unique(caps_h)]
+    key3 = random.fold_in(key, 3)
+    done = False
+    if ASYNC_BATCHES:
+        timing = None if event_timing is None else _timing_values(c, lengths)
+        buf, acc, nbatch = _waveforms_async(c, plan, key3, tabs, gt, charge, wd, cs, straw, straw_ev, straw_sid,
+                                            timing, obuf)
+        h = None if acc is None else jax.device_get(acc)          # the one host read of the batch loop
+        if h is None or not (h["failed"] or h["sat"]):
+            done = True
+            offset = 0 if h is None else int(h["offset"])
+            if stats is not None and h is not None:
+                for field, val in (("pairs", h["pairs"]), ("nan_crossing_ends", h["nan_ends"]),
+                                   ("saturated_ends", h["saturated_ends"]), ("jax_buckets", nbatch)):
                     stats[field] = stats.get(field, 0) + int(val)
+        else:
+            FALLBACKS[0] += 1
+    if not done:      # a batch failed (or saturated) at pair_cap 4: digi_jax's loop, which retries or raises
+        buf, offset = _waveforms_sync(c, plan, key3, tabs, gt, charge, wd, cs, straw, straw_ev, straw_sid,
+                                      event_timing, obuf, stats)
     if stats is not None:
         for field, val in (("clusters", ncl), ("straws", ns), ("ends", 2 * ns), ("digis", offset)):
             stats[field] = stats.get(field, 0) + int(val)

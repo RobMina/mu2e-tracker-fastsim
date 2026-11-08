@@ -63,6 +63,45 @@ def test_padded_steps_and_padded_output_give_the_same_digis(cond):
         DR.digitize(st, 6, c, key, nstep=n)          # not padded
 
 
+def test_batches_without_host_reads_equal_the_per_batch_loop(cond, monkeypatch):
+    """ASYNC_BATCHES (offset and flags on the device, one host read) gives the per-batch loop's digis and stats."""
+    c = cond
+    st = {k: jax.numpy.asarray(v) for k, v in _random_steps(c, np.random.default_rng(1)).items()}
+    key = jax.random.key(5)
+    sa, sb = {}, {}
+    a = DR.digitize(st, 6, c, key, stats=sa)
+    monkeypatch.setattr(DR, "ASYNC_BATCHES", False)
+    b = DR.digitize(st, 6, c, key, stats=sb)
+    _same(a, b)
+    assert sa == sb and sa["jax_buckets"] > 1
+
+
+def test_a_failed_batch_falls_back_to_the_per_batch_loop(cond, monkeypatch):
+    """A batch whose threshold search fails at pair_cap 4 sends the call to the per-batch loop (which retries it at a
+    larger pair_cap): the same digis as that loop."""
+    c = cond
+    st = {k: jax.numpy.asarray(v) for k, v in _random_steps(c, np.random.default_rng(1)).items()}
+    key = jax.random.key(5)
+    orig = DJ._electronics_kernel
+
+    def failing(c_, cap, pair_cap, batch):
+        k = orig(c_, cap, pair_cap, batch)
+        if pair_cap != 4 or 2 * cap <= 4:
+            return k
+
+        def run(*a, **kw):
+            r = dict(k(*a, **kw))
+            r["failed"] = jax.numpy.asarray(True)
+            return r
+        return run
+    monkeypatch.setattr(DJ, "_electronics_kernel", failing)
+    n0 = DR.FALLBACKS[0]
+    a = DR.digitize(st, 6, c, key)
+    assert DR.FALLBACKS[0] == n0 + 1
+    monkeypatch.setattr(DR, "ASYNC_BATCHES", False)
+    _same(a, DR.digitize(st, 6, c, key))
+
+
 @pytest.mark.slow   # second full compile of both digitisers; per PR the off-spill case checks the same packing
 def test_onspill_digis_with_ghosts_equal_digi_jax(cond):
     c = DC.Conditions(cond.s, cond.a)

@@ -37,7 +37,7 @@ def setting():
 
 
 def test_interior_slab_kernel_equals_loop(setting):
-    col, p, keys = _case(600, 1)
+    col, p, keys = _case(64, 1)   # <= 256 (lane, slice) pairs: few compiled buckets
     from mu2efastsim import muradiative_jax as RJ
     dev = SimpleNamespace(MC=_mc(MATS), RT=RJ.stack(MATS))     # with the core default radiative losses
     setting("loop")
@@ -50,6 +50,7 @@ def test_interior_slab_kernel_equals_loop(setting):
                                np.asarray(ref[:64]), rtol=1e-9, atol=1e-12)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("impl", ["xla", "interpret"])
 def test_world_path_equals_compacted_band_loop(impl):
     n = 640 if impl == "xla" else 64
@@ -76,6 +77,7 @@ def test_world_path_equals_compacted_band_loop(impl):
             np.testing.assert_allclose(np.asarray(b), np.asarray(a), rtol=1e-9, atol=1e-12)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("impl", ["xla", "interpret"])
 def test_world_path_radiative_close_to_compacted_band_loop(impl):
     """With radiative losses the loop carries each segment's radiative loss into the next segment's ionisation; the

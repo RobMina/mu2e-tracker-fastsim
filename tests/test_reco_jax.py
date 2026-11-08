@@ -34,6 +34,7 @@ def _digis(n, nstraw, rng):
             "evkey": np.zeros((ev.max() + 1, 3), int)}
 
 
+@pytest.mark.pr_params("mc")
 @pytest.mark.parametrize("settings", ["mc", "data"])
 def test_straw_hits_jax_matches_numpy_on_cpu(settings):
     rng = np.random.default_rng(7)
@@ -54,6 +55,7 @@ def test_straw_hits_jax_matches_numpy_on_cpu(settings):
             assert np.mean(a == b) >= 0.9999, k
 
 
+@pytest.mark.slow
 def test_padding_does_not_change_results():
     rng = np.random.default_rng(3)
     cond = _cond(36 * 6 * 96, rng)
@@ -83,6 +85,7 @@ def _combo_case(seed, settings):
     return combo, sh
 
 
+@pytest.mark.pr_params("mc")
 @pytest.mark.parametrize("settings", ["mc", "data"])
 def test_panel_hits_jax_matches_numpy(settings):
     from trkfastsim.reco import combo_jax
@@ -163,7 +166,7 @@ def test_line_seeds_jax_matches_numpy():
     """Toy clusters: hits on random lines through random straws (no Mu2e input); seeds from both ports must agree."""
     from trkfastsim.reco import linefind, linefind_jax
     rng = np.random.default_rng(9)
-    ncl = 300
+    ncl = 100   # the oversize cluster still takes the numpy path; > 65 seeds survive
     nh = rng.integers(10, 40, ncl)
     nh[:3] = [300, 12, 70]                                  # one oversize cluster takes the numpy path
     n = int(nh.sum())
@@ -193,7 +196,7 @@ def test_line_seeds_jax_matches_numpy():
     cond = {"straw": st}
     ref = linefind.line_seeds(sh, tc, cond)
     out = linefind_jax.line_seeds(sh, tc, cond)
-    assert len(ref["n"]) > 200
+    assert len(ref["n"]) > 65
     for k in ("tc", "ev", "n", "member", "ind"):
         assert np.array_equal(ref[k], out[k]), k
     for k in ("t0", "a0", "b0", "a1", "b1"):

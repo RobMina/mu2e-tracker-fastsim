@@ -218,6 +218,7 @@ def test_point_backend_key_provenance_and_numpy_transport(point_inputs, cond, tm
             assert not np.array_equal(jax.random.key_data(rng), jax.random.key_data(jax.random.fold_in(jax.random.key(1), 0)))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("nstep", [0, 1])
 def test_real_jax_empty_point(point_inputs, cond, tmp_path, monkeypatch, nstep):
     pytest.importorskip("trkfastsim.digi.digi_jax")

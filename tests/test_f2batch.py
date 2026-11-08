@@ -95,11 +95,13 @@ def _assert_closure(monkeypatch, ntrk, nhit):
     assert out["profile"]["fit_s"] > 0
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("ntrk", [1, 63, 64, 65])
 def test_real_track_boundaries(monkeypatch, ntrk):
     _assert_closure(monkeypatch, ntrk, 20)
 
 
+@pytest.mark.pr_params("63")
 @pytest.mark.parametrize("nhit", [63, 64, 65])
 def test_real_hit_boundaries(monkeypatch, nhit):
     _assert_closure(monkeypatch, 2, nhit)

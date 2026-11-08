@@ -29,6 +29,7 @@ def test_waveform_lane_budget():
         assert batch * cap <= max(DJ.WAVEFORM_CLUSTER_LANES, cap)
 
 
+@pytest.mark.slow
 def test_sparse_fifty_thousand_events_no_population_jit(cond):
     st = _steps([_step(cond, 1000), _step(cond, 1100)], ev=[1, 49999])
     a = DJ.digitize(st, 50000, cond, jax.random.key(6))
@@ -37,6 +38,7 @@ def test_sparse_fifty_thousand_events_no_population_jit(cond):
     assert all(np.array_equal(a[k], b[k]) for k in a)
 
 
+@pytest.mark.slow
 def test_batch_lane_budget_does_not_change_straw_rng(cond, monkeypatch):
     st = _steps([_step(cond, 1000), _step(cond, 1100), _step(cond, 1200)], ev=[0, 1, 2])
     a = DJ.digitize(st, 3, cond, jax.random.key(6))
@@ -45,6 +47,7 @@ def test_batch_lane_budget_does_not_change_straw_rng(cond, monkeypatch):
     assert all(np.array_equal(a[k], b[k]) for k in a)
 
 
+@pytest.mark.slow
 def test_saturation_tiles_identical_noisy_output(cond, monkeypatch):
     st = _steps([_step(cond, 1000, eion=.04, ion=1)])
     first = DJ.digitize(st, 1, cond, jax.random.key(5))

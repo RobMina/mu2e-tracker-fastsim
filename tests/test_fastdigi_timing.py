@@ -38,6 +38,7 @@ def _digis(st):
             "pmp": np.ones(n, np.int32), "adc": np.zeros((n, 3), np.int32)}
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("backend", ["numpy", "jax", "fallback"])
 @pytest.mark.parametrize("compact", [False, True])
 def test_full_population_timing_routes_through_chunks(monkeypatch, backend, compact):

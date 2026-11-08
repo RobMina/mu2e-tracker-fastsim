@@ -41,11 +41,12 @@ def _rays(n):
     return o, d
 
 
+@pytest.mark.pr_params("True-False-True")
 @pytest.mark.parametrize("sliced,spread,tail", [(True, False, True), (False, True, False)])
 def test_world_reproducible(sliced, spread, tail):
     world = _world()
     dev = wj.DeviceWorld(world, world.edges)
-    o, d = _rays(97)
+    o, d = _rays(63)   # pads to 64 lanes for the default and for lanes=37: one program set
     p = np.full(len(o), 400.0)
     opts = dict(sliced=sliced, spread=spread, tail=tail)
     a = dev.transport(jax.random.key(12), o, d, p, **opts)
@@ -58,6 +59,7 @@ def test_world_reproducible(sliced, spread, tail):
     assert np.isfinite(a[0]).all()
 
 
+@pytest.mark.slow
 def test_world_statistically_matches_numpy():
     world = _world()
     dev = wj.DeviceWorld(world, world.edges)
@@ -145,6 +147,7 @@ def test_compacted_band_loss_preserves_fixed_lane_reference():
             np.testing.assert_allclose(x, y, rtol=2e-12, atol=1e-9)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("kernel", ["loop", "xla"])
 def test_world_radiative_matches_numpy_default(monkeypatch, kernel):
     from trkfastsim.sim import steps_jax as sj

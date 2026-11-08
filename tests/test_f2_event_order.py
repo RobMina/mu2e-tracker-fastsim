@@ -8,6 +8,7 @@ from trkfastsim.validation import digicmp
 from test_reco_jax import _cond, _digis
 
 
+@pytest.mark.slow
 def test_real_reco_permutation_variable_adc_and_empty_events():
     rng = np.random.default_rng(1701)
     c = _cond(20736, rng)

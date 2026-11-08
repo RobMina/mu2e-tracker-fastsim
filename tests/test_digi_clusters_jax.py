@@ -56,6 +56,7 @@ else:
     subprocess.run([sys.executable, "-c", code], cwd=root, env=os.environ.copy(), check=True)
 
 
+@pytest.mark.slow
 def test_single_poisson_and_short_step(cond):
     c = cond
     st = _table(c, 8192, eion=7.0 * c.EAverage)
@@ -73,6 +74,7 @@ def test_single_poisson_and_short_step(cond):
     np.testing.assert_array_equal(DJ.make_clusters(jax.random.key(4), c, st, idx)[2], 1)
 
 
+@pytest.mark.slow
 def test_nonminion_count_electron_and_position_distributions(cond):
     c = cond
     st = _table(c, 2048, ion=1, eion=2e-3)
@@ -153,6 +155,7 @@ def test_minion_residual_and_strict_truncation(cond):
     np.testing.assert_array_equal(res, 0)
 
 
+@pytest.mark.slow
 def test_uncapped_residual_and_large_minion_cluster_bucket(cond):
     keys = DJ._step_keys(jax.random.key(22), jnp.arange(4, dtype=jnp.int64))
     energy = jnp.array([1.0, 65.25, 4097.25, 8193.25])
@@ -238,6 +241,7 @@ def test_wire_coordinates_reference_and_degenerate_chord(cond):
     np.testing.assert_array_equal(pos[:, 2], st["z0"][cs])
 
 
+@pytest.mark.slow
 def test_cluster_gain_distributions_and_unclipped_tail(cond):
     c = copy(cond)
     for ne in (1, 3, c.nGainGauss):

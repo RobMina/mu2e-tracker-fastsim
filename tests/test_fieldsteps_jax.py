@@ -79,6 +79,7 @@ def test_without_loss_and_scattering_the_device_rows_equal_numpy():
     assert all(v == 0 for k, v in res.stats.items() if k.endswith("overflow"))
 
 
+@pytest.mark.slow
 def test_electron_loss_pairs_follow_the_numpy_model():
     """Mean and spread of the device per-(track, material) loss against fieldsteps.electron_loss."""
     _, _, trk = _setup(np.array([0.0, 0.0, 1.0]))
@@ -96,6 +97,7 @@ def test_electron_loss_pairs_follow_the_numpy_model():
         np.testing.assert_allclose(np.median(dev), np.median(ref), rtol=0.05)
 
 
+@pytest.mark.slow
 def test_full_physics_transport_agrees_with_numpy_statistically_and_is_seeded():
     B = np.array([0.0, 0.0, 1.0])
     geom, env, trk = _setup(B)

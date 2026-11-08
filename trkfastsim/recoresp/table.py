@@ -15,7 +15,8 @@ and holds per bin:
   * inverse CDFs (on a fixed probability grid, denser in both tails) of the residuals reco - truth of the momentum at
     the front, tan(dip), d0 and r_max, and of the fit-quality outputs (fit consistency, chi2/ndf, active hits), over
     the quality-passing tracks of the bin;
-  * the correlation of those seven quantities as a Gaussian copula: the Cholesky factor of the correlation matrix of
+  * the inverse CDF of t0 at the front minus the entry time (drawn on its own stream);
+  * the correlation of the seven residual and quality quantities as a Gaussian copula: the Cholesky factor of the correlation matrix of
     their normal scores (rank -> standard normal), so a draw keeps e.g. the tan(dip)-d0-r_max correlations that the
     fiducial cuts see.
 
@@ -39,6 +40,7 @@ TANDIP_EDGES = (-1e9, 0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.9, 1.0, 1.1, 1e9)
 NQ = 129                                     # inverse-CDF nodes
 RES = ("dp", "dtandip", "dd0", "drmax")      # residuals reco - truth
 QUAL = ("fitcon", "chi2ndf", "nactive")      # fit-quality outputs
+EXTRA = ("dt0",)                             # drawn on their own (outside the copula): t0 at the front - entry time
 CE_CUTS = dict(tandip=(0.5774, 1.0), d0=(-80.0, 105.0), rmax=(450.0, 680.0), fitcon=1e-3)
 
 
@@ -100,10 +102,13 @@ def build(df, nrow_edges=NROW_EDGES, tandip_edges=TANDIP_EDGES, min_count=40, mi
         (d.pz.to_numpy(float) > 0) & (d.fitcon.to_numpy(float) > CE_CUTS["fitcon"])
     res = dict(dp=d.p_reco - d.p_true, dtandip=d.tandip - d.tandip_t, dd0=d.d0 - d.d0_t, drmax=d.rmax - d.rmax_t,
                fitcon=d.fitcon, chi2ndf=d.chi2ndf, nactive=d.nactive)
+    if "t0" in d and "t_t" in d:
+        res["dt0"] = d.t0 - d.t_t
     res = {k: np.asarray(v, float) for k, v in res.items()}
+    extra = [k for k in EXTRA if k in res]
     eff_fit = np.zeros((ne, nt))
     eff_q = np.zeros((ne, nt))
-    icdf = {k: np.zeros((ne, nt, NQ)) for k in RES + QUAL}
+    icdf = {k: np.zeros((ne, nt, NQ)) for k in RES + QUAL + tuple(extra)}
     chol = np.zeros((ne, nt, len(RES + QUAL), len(RES + QUAL)))
     level = np.zeros((ne, nt), np.int8)        # 0 own bin, 1/2 +-1/+-2 tan(dip) bins, 3 nrow row, 4 all
     count = np.zeros((ne, nt), np.int64)
@@ -124,14 +129,14 @@ def build(df, nrow_edges=NROW_EDGES, tandip_edges=TANDIP_EDGES, min_count=40, mi
             sel_q = [sq & qual for sq in sel_e]
             lq = next(k for k, s_ in enumerate(sel_q) if s_.sum() >= min_count or k == len(sel_q) - 1)
             level[i, j] = max(lv, lq)
-            for k in RES + QUAL:
+            for k in RES + QUAL + tuple(extra):
                 icdf[k][i, j] = _icdf(res[k][sel_q[lq]])
             chol[i, j] = _copula(np.stack([res[k][sel_q[lq]] for k in RES + QUAL], 1))
     out = dict(nrow_edges=np.asarray(nrow_edges, float), tandip_edges=np.asarray(tandip_edges, float),
                qnodes=qnodes(), eff_fit=eff_fit, eff_q=eff_q, level=level, count=count, chol=chol,
                axis_xy=np.asarray(axis_xy, float), bz=np.float64(bz),
                cuts=np.array([*CE_CUTS["tandip"], *CE_CUTS["d0"], *CE_CUTS["rmax"], CE_CUTS["fitcon"]]))
-    for k in RES + QUAL:
+    for k in icdf:
         out[f"icdf_{k}"] = icdf[k]
     return out
 
@@ -161,7 +166,7 @@ def _sample(icdf, bn, bt, u):
     return icdf[bn, bt, i] * (1 - w) + icdf[bn, bt, i + 1] * w
 
 
-def apply_numpy(tab, rng, has_entry, nrow, x, p, q=-1.0):
+def apply_numpy(tab, rng, has_entry, nrow, x, p, q=-1.0, t=None):
     """The device response (device.apply) in NumPy, for checks: per event fit, ce and the track observables."""
     ptrue, td, d0, rmax = entry_truth(x, p, tab["axis_xy"], float(tab["bz"]), q)
     ne, nt = tab["eff_fit"].shape
@@ -179,6 +184,8 @@ def apply_numpy(tab, rng, has_entry, nrow, x, p, q=-1.0):
                nactive=draw["nactive"])
     obs["ce"] = qual & (obs["tandip"] >= c[0]) & (obs["tandip"] <= c[1]) & (obs["d0"] >= c[2]) & \
         (obs["d0"] <= c[3]) & (obs["rmax"] >= c[4]) & (obs["rmax"] <= c[5])
+    if t is not None and "icdf_dt0" in tab:     # own stream, after the others: their draws are unchanged
+        obs["t0"] = np.asarray(t, float) + _sample(tab["icdf_dt0"], bn, bt, rng.random(len(nrow)))
     for k in obs:
         if k not in ("fit", "qual", "ce", "p_true"):
             obs[k] = np.where(qual, obs[k], np.nan)
@@ -199,11 +206,11 @@ def reference_events(gen_paths, truth_paths, steps_paths, nts_dir, axis_xy=(-390
             t[k] = t[k].astype(np.uint64)
         return t
     den = keyed(tables.read_many(gen_paths, "gen", KEY))[KEY].drop_duplicates()
-    tr = keyed(tables.read_many(truth_paths, "entries", KEY + ["x", "y", "z", "px", "py", "pz"]))
+    tr = keyed(tables.read_many(truth_paths, "entries", KEY + ["x", "y", "z", "px", "py", "pz", "t"]))
     tr = tr.drop_duplicates(KEY)
     pt, td, d0, rm = entry_truth(tr[["x", "y", "z"]].to_numpy(), tr[["px", "py", "pz"]].to_numpy(), axis_xy, bz)
     tr = tr.rename(columns={c: f"e_{c}" for c in ("x", "y", "z", "px", "py", "pz")})
-    tr = tr.assign(has_entry=True, p_true=pt, tandip_t=td, d0_t=d0, rmax_t=rm)
+    tr = tr.rename(columns={"t": "t_t"}).assign(has_entry=True, p_true=pt, tandip_t=td, d0_t=d0, rmax_t=rm)
     st = keyed(tables.read_many(steps_paths, "sgsteps", KEY))
     nrow = st.groupby(KEY).size().rename("nrow").reset_index()
     arm, _ = cemom.read_arm(nts_dir)

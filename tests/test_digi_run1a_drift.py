@@ -176,6 +176,7 @@ def test_field_on_offspill_default_timing_is_identity(offspill_digis):
     assert np.all(default["pmp"] > 20)
 
 
+@pytest.mark.pr_params("numpy")   # jax digitiser per PR: stock golden and d2t oracle; field-on jax runs nightly
 def test_field_on_offspill_straw_endpoints_and_no_time_folding(offspill_digis):
     """End ordering follows propagation; noisy, unequal end responses also cause threshold time walk."""
     c, st, result, _ = offspill_digis

@@ -104,3 +104,25 @@ def test_t0_is_drawn_on_its_own_stream_when_the_table_has_it():
     q = np.asarray(b["qual"])
     assert abs(np.median(np.asarray(b["t0"])[q] - 800.0) - 1.2) < 0.05
     assert not np.isfinite(np.asarray(b["t0"])[~q]).any()
+
+
+def test_entry_time_turn_on_removes_tracks_before_the_window():
+    jax = pytest.importorskip("jax")
+    from trkfastsim.recoresp import device as RD
+    rng = np.random.default_rng(10)
+    d = _reference(30000, rng)
+    d["t_t"] = rng.uniform(100, 1100, len(d))
+    d["fit"] = d.fit & (d.t_t > 210)                     # no reconstruction before the window
+    d.loc[~d.fit, ["p_reco", "pz", "tandip", "d0", "rmax", "pdg", "fitcon", "chi2ndf", "nactive"]] = np.nan
+    tab = RT.build(d)
+    assert tab["time_eff"][0] == 0.0 and tab["time_eff"][-1] == 1.0
+    v = _reference(10000, np.random.default_rng(11))
+    t = np.random.default_rng(12).uniform(100, 1100, len(v))
+    x, p = v[["e_x", "e_y", "e_z"]].to_numpy(), v[["e_px", "e_py", "e_pz"]].to_numpy()
+    o = RD.apply(RD.to_device(tab), jax.random.PRNGKey(2), jax.numpy.asarray(v.has_entry.to_numpy()),
+                 jax.numpy.asarray(v.nrow.to_numpy()), jax.numpy.asarray(x), jax.numpy.asarray(p), jax.numpy.asarray(t))
+    fit = np.asarray(o["fit"])
+    assert not fit[t < 200].any()
+    late = t > 300
+    on = RT.apply_numpy(tab, np.random.default_rng(3), v.has_entry.to_numpy(), v.nrow.to_numpy(), x, p, t=t)
+    assert abs(fit[late].mean() - on["fit"][late].mean()) < 0.02

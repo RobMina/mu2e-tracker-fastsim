@@ -35,6 +35,7 @@ def test_grouped_charge_preserves_keys_and_float32_precision(cond, monkeypatch):
         dj._charge_blocks_kernel.cache_clear()
 
 
+@pytest.mark.slow
 def test_sampling_batch_shape_does_not_change_clusters(cond, monkeypatch):
     from test_digi_clusters_jax import _table
     st = _table(cond, 137, eion=2e-3)

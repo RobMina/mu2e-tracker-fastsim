@@ -21,6 +21,7 @@ def _timing(nev=1, length=1695., pbtime=0.):
     return {"pbtime": np.full(nev, pbtime), "event_length": np.full(nev, length)}
 
 
+@pytest.mark.slow
 def test_field_drift_interpolates_radius_and_folded_phi():
     dd = np.arange(6) * .5
     dphi = np.pi / 8
@@ -50,6 +51,7 @@ def test_charge_uses_wire_phi_not_first_table_column(cond):
     assert np.ptp(np.asarray(got[0])[:, 0]) > 1
 
 
+@pytest.mark.slow
 def test_onspill_periodic_inputs_and_explicit_phase(onspill):
     c = onspill
     st = _steps([_step(c, 520, t=1000.)])
@@ -194,6 +196,7 @@ def test_per_event_tdc_end_and_readall_stock_rules(onspill):
     assert not bool(result["failed"])
 
 
+@pytest.mark.slow
 def test_crossing_bound_uses_digitization_end_not_long_event(onspill):
     c = DC.Conditions(onspill.s, onspill.a)
     c.s["eventWindowLength"] = 5000.
@@ -207,6 +210,7 @@ def test_crossing_bound_uses_digitization_end_not_long_event(onspill):
     assert not np.asarray(result["keep"]).any()
 
 
+@pytest.mark.slow
 def test_onspill_normal_tdc_limit_is_configured_end(onspill):
     c = DC.Conditions(onspill.s, onspill.a)
     for name in ("strawNoise", "thresholdAnalogNoise", "TDCResolution", "adcAnalogNoise"):
@@ -220,6 +224,7 @@ def test_onspill_normal_tdc_limit_is_configured_end(onspill):
     np.testing.assert_array_equal(np.asarray(result["keep"]).sum(1), [1, 1])
 
 
+@pytest.mark.slow
 def test_ghost_crossings_retain_original_step_truth(onspill, monkeypatch):
     c = DC.Conditions(onspill.s, onspill.a)
     for name in ("strawNoise", "thresholdAnalogNoise", "TDCResolution", "adcAnalogNoise"):

@@ -162,6 +162,7 @@ def offspill_digis(field_on, request):
     return c, st, default, explicit
 
 
+@pytest.mark.slow
 def test_field_on_offspill_default_timing_is_identity(offspill_digis):
     c, st, default, explicit = offspill_digis
     assert len(default["sid"]) == 2
@@ -175,6 +176,7 @@ def test_field_on_offspill_default_timing_is_identity(offspill_digis):
     assert np.all(default["pmp"] > 20)
 
 
+@pytest.mark.pr_params("numpy")   # jax digitiser per PR: stock golden and d2t oracle; field-on jax runs nightly
 def test_field_on_offspill_straw_endpoints_and_no_time_folding(offspill_digis):
     """End ordering follows propagation; noisy, unequal end responses also cause threshold time walk."""
     c, st, result, _ = offspill_digis
@@ -192,6 +194,7 @@ def test_field_on_offspill_straw_endpoints_and_no_time_folding(offspill_digis):
     assert np.all((result["tot"] >= 1) & (result["tot"] <= c.maxTOT))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("backend", BACKENDS)
 def test_field_on_offspill_event_window_endpoints(field_on, backend):
     """Off-spill hits obey their event length, not the shorter on-spill digitization end."""

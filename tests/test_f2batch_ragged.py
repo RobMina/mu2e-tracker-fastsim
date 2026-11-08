@@ -10,6 +10,7 @@ from trkfastsim.reco import f2batch, linefit
 pytest.importorskip("jax")
 
 
+@pytest.mark.slow
 def test_real_ragged_reordered_seed_closure(monkeypatch):
     from trkfastsim.reco import linefit_jax
 

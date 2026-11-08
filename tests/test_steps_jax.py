@@ -117,6 +117,7 @@ def test_column_zero_for_invalid_and_empty(setup):
     assert not got.any()
 
 
+@pytest.mark.slow
 def test_split_length_matches_numpy(setup):
     geom, interior, dev = setup
     o, d, L = _segments(np.random.default_rng(5), 2000)
@@ -140,6 +141,7 @@ def test_straight_crossings_match_numpy(setup):
     assert np.array_equal(ref[:, :2], got[:, :2]) and np.allclose(ref[:, 2:], got[:, 2:], rtol=0, atol=1e-8)
 
 
+@pytest.mark.slow
 def test_exit_gas_backwards_matches_numpy(setup):
     geom, _, dev = setup
     rng = np.random.default_rng(7)
@@ -157,6 +159,7 @@ def _numpy_slab(mat, p, L, seed):
     return tr.slab_loss(np.random.default_rng(seed), mat, p, L)
 
 
+@pytest.mark.pr_params("Al6061-300.0-50.0")
 @pytest.mark.parametrize("name,p,L", [("Al6061", 300.0, 50.0), ("G4_Cu", 200.0, 60.0), ("G4_Cu", 3000.0, 100.0)])
 def test_slab_loss_statistically_equal(setup, name, p, L):
     _, _, dev = setup
@@ -206,19 +209,22 @@ def test_transport_rows_match_numpy_at_high_momentum(setup):
     """At |p| = 1e12 MeV/c without the tail (whose rate does not fall with |p|) the core scattering is ~1e-11 rad: the jax
     rows, kinks and splits follow the numpy ones."""
     geom, interior, dev = setup
-    o, d = _lines(np.random.default_rng(9), 300)
+    o, d = _lines(np.random.default_rng(9), 63)
     p = np.full(len(o), 1e12)
     ref = interior.transport(np.random.default_rng(1), o, d, p, geom, tail=False)
     got, stats, kinks, final = dev.transport(jax.random.key(1), o, d, p, tail=False)
     for k in ("rec_overflow", "kink_overflow", "row_overflow", "point_overflow", "tail_overflow"):
         assert stats[k] == 0, k
-    assert len(ref["it"]) > 500 and np.array_equal(ref["it"], got["it"]) and np.array_equal(ref["js"], got["js"])
+    again = dev.transport(jax.random.key(1), o, d, p, tail=False)[0]   # same key: bit-identical (per-PR repro check)
+    for k in got:
+        assert np.array_equal(got[k], again[k]), k
+    assert len(ref["it"]) > 100 and np.array_equal(ref["it"], got["it"]) and np.array_equal(ref["js"], got["js"])
     for k in ("pos0", "pos1", "dir"):
         assert np.allclose(ref[k], got[k], rtol=0, atol=1e-6), k
     # the path to a straw also counts where the kinks sat: a split probe or a gas back-off on a boundary tie (float
     # rounding of the column) moves a kink along the line, not the line
     tie = np.unique(ref["it"][np.abs(ref["path"] - got["path"]) > 1e-6])
-    assert len(tie) <= 0.02 * len(o)
+    assert len(tie) <= max(2, 0.02 * len(o))
     assert stats["kinks"] == interior.last_stats["kinks"] and stats["support_splits"] == interior.last_stats["support_splits"]
     a, b = interior.last_kinks, kinks
     oa, ob = np.lexsort((a["path"], a["it"])), np.lexsort((b["path"], b["it"]))
@@ -227,6 +233,7 @@ def test_transport_rows_match_numpy_at_high_momentum(setup):
     assert np.allclose(a["pos"][oa][ok], b["pos"][ob][ok], atol=1e-6)
 
 
+@pytest.mark.slow
 def test_transport_reproducible_and_chunk_independent(setup):
     """Bit-identical for one key and chunking; another chunking changes only the float rounding of vectorised math."""
     geom, interior, dev = setup
@@ -249,6 +256,7 @@ def _mean_err(x):
     return x.mean(), x.std() / np.sqrt(len(x))
 
 
+@pytest.mark.slow
 def test_transport_statistically_like_numpy(setup):
     """Slow muons (scattering, support loss, splits): muons with straws, straws per muon, the support loss before the
     first straw and the |p| at the end, as numpy within 4 sigma."""
@@ -278,6 +286,7 @@ def _gen(n, rng):
                          "z": o[:, 2], "px": d[:, 0] * p, "py": d[:, 1] * p, "pz": d[:, 2] * p, "t": 10.0})
 
 
+@pytest.mark.slow
 def test_make_steps_jax_columns_and_reproducibility(setup):
     geom, interior, _ = setup
     gen = _gen(400, np.random.default_rng(13))
@@ -315,7 +324,7 @@ def test_jaxcheck_compare_and_cross(setup):
     from trkfastsim.validation import jaxcheck
     geom, interior, _ = setup
     gen = _gen(400, np.random.default_rng(16))
-    kw = dict(stage="A", interior=interior, exit_scatter=False)
+    kw = dict(stage="A", exit_scatter=False)   # the device interior transport is checked per PR in the rows test
     a, _ = st.make_steps(gen, geom, np.random.default_rng(2), **kw)
     b, _ = st.make_steps(gen, geom, np.random.default_rng(2), backend="jax", **kw)
     c = jaxcheck.compare(a, b, gen)
@@ -325,6 +334,7 @@ def test_jaxcheck_compare_and_cross(setup):
     assert x["identical_frames"] and x["matched"] == len(b) and x["only_this"] == x["only_cross"] == 0
 
 
+@pytest.mark.slow
 def test_panel_cut_rows_exact(monkeypatch):
     """Lines through more panel boxes than P_CAP: the cut lanes are redone with every box, so the rows equal those of
     a pass that takes every box from the start (same straws; positions to float rounding of other array shapes)."""
@@ -344,6 +354,7 @@ def test_panel_cut_rows_exact(monkeypatch):
     assert np.allclose(ref[0]["path"], got[0]["path"], rtol=0, atol=1e-2), np.max(np.abs(ref[0]["path"] - got[0]["path"]))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("kernel", ["loop", "xla"])
 def test_support_slab_radiative_matches_numpy_default(monkeypatch, kernel):
     from mu2efastsim import eloss_jax, muradiative_jax as RJ

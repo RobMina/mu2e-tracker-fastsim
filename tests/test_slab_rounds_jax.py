@@ -19,6 +19,7 @@ def _inputs():
     return mc, mat, p, length, keys
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("rounds,start", [(1, 0), (8, 0), (16, 0), (8, tr.N_SLICES_MAX - 2)])
 def test_rounds_equal_fixed_loop(rounds, start):
     mc, mat, p, length, keys = _inputs()

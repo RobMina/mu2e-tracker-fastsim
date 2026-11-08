@@ -110,6 +110,7 @@ def test_run_digi_file_streams(backend, tmp_path, monkeypatch):
             assert np.array_equal(jax.random.key_data(rng), jax.random.key_data(jax.random.fold_in(jax.random.key(13), i)))
 
 
+@pytest.mark.slow   # subprocess; the no-JAX CI job runs the whole suite without JAX on every PR
 def test_numpy_import_and_execution_without_jax(cond, tmp_path):
     from trkfastsim.kit import kitpoint
     cpath, spath = tmp_path / "cond.npz", tmp_path / "steps.root"
@@ -218,6 +219,7 @@ def test_point_backend_key_provenance_and_numpy_transport(point_inputs, cond, tm
             assert not np.array_equal(jax.random.key_data(rng), jax.random.key_data(jax.random.fold_in(jax.random.key(1), 0)))
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("nstep", [0, 1])
 def test_real_jax_empty_point(point_inputs, cond, tmp_path, monkeypatch, nstep):
     pytest.importorskip("trkfastsim.digi.digi_jax")

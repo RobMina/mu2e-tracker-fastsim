@@ -33,6 +33,7 @@ def test_default_is_float64():
     assert devfloat.dev(x) is x and devfloat.host(x) is not None
 
 
+@pytest.mark.slow   # three subprocess starts; per PR: test_default_is_float64
 def test_setting_follows_core(tmp_path):
     probe = ("import json; from trkfastsim import devfloat as d; from mu2efastsim import precision as p; "
              "print(json.dumps([d.NAME, d.SINGLE, 'trkfastsim.digi.digi_jax' in p._AWARE or None, d.provenance()]))")
@@ -69,6 +70,7 @@ print(json.dumps({"single": devfloat.SINGLE, "n": len(ref), "same": bool(same),
 """
 
 
+@pytest.mark.slow   # float32 subprocess run; per PR: test_digi_run1a_drift::test_jax_d2t_same_stock_oracle[float32]
 def test_float32_straw_crossings_centred(tmp_path):
     """Mu2e-frame straws (z ~ 24 m): same crossing lists; entry/exit distances to float32 rounding of local coordinates
     (at most ~2e-4 mm near tangents), not of the Mu2e frame."""
@@ -99,6 +101,7 @@ np.savez(sys.argv[1] if len(sys.argv) > 1 else "digi.npz", **a)
 """
 
 
+@pytest.mark.slow   # float32 subprocess digitiser run (40 s); float32 parity per PR: d2t oracle, grouped charge
 def test_float32_digitiser_matches_float64_draws(tmp_path):
     """Same steps and key, float64 draws rounded (TRKFASTSIM_DRAW64=1): float32 electronics give the float64 digis up to
     rounding near thresholds, also at absolute times of 3e4 and 9e4 ns (TDC LSB 0.0195 ns, float32 ulp there 0.008)."""

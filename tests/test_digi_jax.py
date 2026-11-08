@@ -8,6 +8,7 @@ from trkfastsim.digi import digi_jax as DJ
 from test_digi import cond, _step, _steps
 
 
+@pytest.mark.slow
 def test_repeatability_empty_and_truth(cond):
     st = _steps([_step(cond, 5 * 96 + 40), _step(cond, 5 * 96 + 41)], ev=[0, 2])
     a = DJ.digitize(st, 3, cond, jax.random.key(3))
@@ -27,6 +28,7 @@ def test_selection_and_readall(cond):
     assert np.array_equal(a["step"], [[2, 2]])
 
 
+@pytest.mark.slow
 def test_deadtime_and_pair_capacity(cond):
     st = _steps([_step(cond, 900, t=t) for t in (1000, 1200, 2000, 3000, 4000, 5000, 6000)])
     a = DJ.digitize(st, 1, cond, jax.random.key(2))
@@ -35,6 +37,7 @@ def test_deadtime_and_pair_capacity(cond):
     assert np.array_equal(a["step"][:, 0], [0, 2, 3, 4, 5, 6])
 
 
+@pytest.mark.slow
 def test_nonminion_saturation(cond):
     st = _steps([_step(cond, 1000, eion=.04, ion=1)])
     stats = {}
@@ -53,6 +56,7 @@ def test_bad_population_and_key(cond):
         DJ.digitize(st, 2, cond, np.random.default_rng(1))
 
 
+@pytest.mark.pr_params("5.0")
 @pytest.mark.parametrize("charge", [.2, 5.])
 def test_identical_clusters_electronics_vs_numpy(cond, charge):
     from trkfastsim.digi.digicond import Conditions

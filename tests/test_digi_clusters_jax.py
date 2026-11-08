@@ -56,7 +56,6 @@ else:
     subprocess.run([sys.executable, "-c", code], cwd=root, env=os.environ.copy(), check=True)
 
 
-@pytest.mark.slow
 def test_single_poisson_and_short_step(cond):
     c = cond
     st = _table(c, 8192, eion=7.0 * c.EAverage)
@@ -241,7 +240,6 @@ def test_wire_coordinates_reference_and_degenerate_chord(cond):
     np.testing.assert_array_equal(pos[:, 2], st["z0"][cs])
 
 
-@pytest.mark.slow
 def test_cluster_gain_distributions_and_unclipped_tail(cond):
     c = copy(cond)
     for ne in (1, 3, c.nGainGauss):

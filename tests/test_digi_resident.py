@@ -45,6 +45,24 @@ def test_offspill_digis_equal_digi_jax(cond):
     _same(a, b)
 
 
+
+def test_padded_steps_and_padded_output_give_the_same_digis(cond):
+    """nstep= (steps already in the pad_steps layout) and padded=True (power-of-two output plus count) change only
+    where the arrays are cut, not the digis."""
+    c = cond
+    st = {k: jax.numpy.asarray(v) for k, v in _random_steps(c, np.random.default_rng(1)).items()}
+    key = jax.random.key(5)
+    a = DR.digitize(st, 6, c, key)
+    n = len(st["ev"])
+    sp = DR.pad_steps(st, n)
+    assert sp["ev"].shape[0] == DR._b(n) and not np.asarray(sp["t"][n:]).any()
+    out, cnt = DR.digitize(sp, 6, c, key, nstep=n, padded=True)
+    assert cnt == len(a["ev"]) and out["ev"].shape[0] == DR._b(cnt)
+    _same(a, {k: np.asarray(v)[:cnt] for k, v in out.items()})
+    with pytest.raises(ValueError):
+        DR.digitize(st, 6, c, key, nstep=n)          # not padded
+
+
 @pytest.mark.slow   # second full compile of both digitisers; per PR the off-spill case checks the same packing
 def test_onspill_digis_with_ghosts_equal_digi_jax(cond):
     c = DC.Conditions(cond.s, cond.a)

@@ -430,7 +430,8 @@ def _electron_loss(key, Tb, mc, lnt0, dlnt, p, ln, col, nd=ND, nb=NB):
     k = jax.random.split(key, 6)
     mean = _interp(Tb["dedx"], lnt0, dlnt, T, col) * lnz
     mcp = eloss_jax.MatConsts(*(f[col] for f in mc))
-    lost = eloss_jax.sample_loss_electron(k[0], mcp, T, lnz, cut, mean, unroll=UNROLL)
+    # (core's sampler returns float64 for float32 inputs: cast back to the run's dtype)
+    lost = eloss_jax.sample_loss_electron(k[0], mcp, T, lnz, cut, mean, unroll=UNROLL).astype(dt)
     lost = jnp.where(on, lost, 0.0)
     # deltas: Poisson count of transfers above E_CUT at the start energy
     dok = on & (T > 2 * cut)
@@ -699,7 +700,7 @@ def _rows(T, gas_mc, rec, nrec, key, cfg, lnt0, dlnt, tcut):
     mean = jnp.interp(jnp.log(jnp.maximum(T0, 1e-30)), lnt0 + dlnt * jnp.arange(SJ.NT, dtype=dt), T["gas_dedx"]) * ln
     eion = eloss_jax.sample_loss_electron(key, gas_mc, jnp.where(valid, T0, 1.0), jnp.where(valid, ln, 1.0), tcut,
                                           jnp.where(valid, mean, 0.0))
-    eion = jnp.where(valid, eion, 0.0)
+    eion = jnp.where(valid, eion, 0.0).astype(dt)
     bg = p0 / ME
     ke = T0
     shape = jnp.where(p0 < fs.CURL_RATIO * cfg.pstraw, fs.SHAPE_CURL,

@@ -16,6 +16,8 @@ and holds per bin:
     the front, tan(dip), d0 and r_max, and of the fit-quality outputs (fit consistency, chi2/ndf, active hits), over
     the quality-passing tracks of the bin;
   * the inverse CDF of t0 at the front minus the entry time (drawn on its own stream);
+  * a turn-on of the fit efficiency in the entry time (the digitisation window: no tracks below ~210 ns), relative
+    to the plateau; the bin tables above are then built from plateau events (entry time >= T_PLATEAU) only;
   * the correlation of the seven residual and quality quantities as a Gaussian copula: the Cholesky factor of the correlation matrix of
     their normal scores (rank -> standard normal), so a draw keeps e.g. the tan(dip)-d0-r_max correlations that the
     fiducial cuts see.
@@ -41,6 +43,8 @@ NQ = 129                                     # inverse-CDF nodes
 RES = ("dp", "dtandip", "dd0", "drmax")      # residuals reco - truth
 QUAL = ("fitcon", "chi2ndf", "nactive")      # fit-quality outputs
 EXTRA = ("dt0",)                             # drawn on their own (outside the copula): t0 at the front - entry time
+TIME_EDGES = (0.0, 150.0, 175.0, 200.0, 210.0, 220.0, 230.0, 240.0, 250.0, 275.0, 300.0, 1e9)   # entry time [ns]
+T_PLATEAU = 300.0       # entry times from here on are past the digitisation-window turn-on
 CE_CUTS = dict(tandip=(0.5774, 1.0), d0=(-80.0, 105.0), rmax=(450.0, 680.0), fitcon=1e-3)
 
 
@@ -95,6 +99,16 @@ def build(df, nrow_edges=NROW_EDGES, tandip_edges=TANDIP_EDGES, min_count=40, mi
     nactive. Returns a dict of NumPy arrays (save with np.savez)."""
     ne, nt = len(nrow_edges) - 1, len(tandip_edges) - 1
     d = df[df.has_entry.astype(bool)]
+    teff = None
+    if "t_t" in d:      # fit-efficiency turn-on in entry time (digitisation window), relative to the plateau
+        tt = d.t_t.to_numpy(float)
+        fit_all = d.fit.to_numpy(bool)
+        plat = fit_all[tt >= T_PLATEAU].mean()
+        it = np.clip(np.digitize(tt, TIME_EDGES) - 1, 0, len(TIME_EDGES) - 2)
+        teff = np.array([min(fit_all[it == k].mean() / plat, 1.0) if (it == k).any() else 1.0
+                         for k in range(len(TIME_EDGES) - 1)])
+        teff[-1] = 1.0
+        d = d[tt >= T_PLATEAU]                       # the bin tables: past the turn-on
     bn = np.clip(np.digitize(d.nrow.to_numpy(float), nrow_edges) - 1, 0, ne - 1)
     bt = np.clip(np.digitize(d.tandip_t.to_numpy(float), tandip_edges) - 1, 0, nt - 1)
     fit = d.fit.to_numpy(bool)
@@ -138,6 +152,8 @@ def build(df, nrow_edges=NROW_EDGES, tandip_edges=TANDIP_EDGES, min_count=40, mi
                cuts=np.array([*CE_CUTS["tandip"], *CE_CUTS["d0"], *CE_CUTS["rmax"], CE_CUTS["fitcon"]]))
     for k in icdf:
         out[f"icdf_{k}"] = icdf[k]
+    if teff is not None:
+        out["time_edges"], out["time_eff"] = np.asarray(TIME_EDGES, float), teff
     return out
 
 
@@ -175,7 +191,10 @@ def apply_numpy(tab, rng, has_entry, nrow, x, p, q=-1.0, t=None):
     from scipy.special import ndtr
     u = rng.random((2, len(nrow)))
     z = np.einsum("nij,nj->in", tab["chol"][bn, bt], rng.standard_normal((len(nrow), len(RES + QUAL))))
-    fit = np.asarray(has_entry, bool) & (u[0] < tab["eff_fit"][bn, bt])
+    eff = tab["eff_fit"][bn, bt]
+    if t is not None and "time_eff" in tab:
+        eff = eff * tab["time_eff"][np.clip(np.digitize(t, tab["time_edges"]) - 1, 0, len(tab["time_eff"]) - 1)]
+    fit = np.asarray(has_entry, bool) & (u[0] < eff)
     qual = fit & (u[1] < tab["eff_q"][bn, bt])
     draw = {k: _sample(tab[f"icdf_{k}"], bn, bt, ndtr(z[i])) for i, k in enumerate(RES + QUAL)}
     c = tab["cuts"]

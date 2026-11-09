@@ -1,3 +1,5 @@
+> **Moved.** This repository is archived. The code now lives in [RobMina/mu2e-fastsim](https://github.com/RobMina/mu2e-fastsim), directory [`tracker/`](https://github.com/RobMina/mu2e-fastsim/tree/main/tracker), with the full history of this repository merged in (old pull requests, `#NN`, are linked from those commits as `RobMina/mu2e-tracker-fastsim#NN`). Park and archive branches stay here, readable.
+
 # mu2e-tracker-fastsim
 
 Geant4-free tracker simulation (`StrawGasStep`s) and fast tracker reconstruction for the Mu2e extracted (KPP, no
